@@ -1,0 +1,909 @@
+from fastapi import APIRouter, HTTPException, status, UploadFile, File, Body
+from fastapi.responses import StreamingResponse
+from typing import List, Dict, Any
+import json
+import zipfile
+import io
+import re
+from datetime import datetime
+
+from app.schemas.workflow import WorkflowResponse, WorkflowUpload, WorkflowTagsUpdate
+from app.services.n8n_client import N8NClient
+from app.services.database import db_service
+from app.services.github_service import GitHubService
+
+router = APIRouter()
+
+# TODO: Replace with actual tenant ID from authenticated user
+MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+
+
+@router.get("/", response_model=List[Dict[str, Any]])
+async def get_workflows(environment: str = "dev", force_refresh: bool = False):
+    """
+    Get all workflows for the specified environment.
+
+    By default, returns cached workflows from the database.
+    Use force_refresh=true to fetch fresh data from N8N API and update the cache.
+    """
+    try:
+        # Get environment configuration from database
+        env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment)
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{environment}' not configured"
+            )
+
+        env_id = env_config.get("id")
+
+        # Try to get workflows from cache first (unless force_refresh is requested)
+        if not force_refresh:
+            cached_workflows = await db_service.get_workflows(MOCK_TENANT_ID, env_id)
+
+            if cached_workflows:
+                # Transform cached workflows to match frontend expectations
+                transformed_workflows = []
+                for cached in cached_workflows:
+                    # Extract data from workflow_data JSONB field
+                    workflow_data = cached.get("workflow_data", {})
+
+                    transformed_workflows.append({
+                        "id": cached.get("n8n_workflow_id"),
+                        "name": cached.get("name"),
+                        "description": "",
+                        "active": cached.get("active", False),
+                        "tags": cached.get("tags", []),
+                        "createdAt": cached.get("created_at"),
+                        "updatedAt": cached.get("updated_at"),
+                        "nodes": workflow_data.get("nodes", []),
+                        "connections": workflow_data.get("connections", {}),
+                        "settings": workflow_data.get("settings", {}),
+                        "lastSyncedAt": cached.get("last_synced_at")  # Extra field for frontend to show cache status
+                    })
+
+                return transformed_workflows
+
+        # If no cache or force_refresh, fetch from N8N
+        # Create N8N client with environment-specific credentials
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        # Fetch workflows from N8N
+        workflows = await n8n_client.get_workflows()
+
+        # Sync workflows to database cache
+        await db_service.sync_workflows_from_n8n(MOCK_TENANT_ID, env_id, workflows)
+
+        # Transform the response to match our frontend expectations
+        transformed_workflows = []
+        for workflow in workflows:
+            # Transform tags from objects to strings
+            tags = workflow.get("tags", [])
+            tag_strings = []
+            if isinstance(tags, list):
+                for tag in tags:
+                    if isinstance(tag, dict):
+                        tag_strings.append(tag.get("name", ""))
+                    elif isinstance(tag, str):
+                        tag_strings.append(tag)
+
+            transformed_workflows.append({
+                "id": workflow.get("id"),
+                "name": workflow.get("name"),
+                "description": "",  # N8N doesn't have description field
+                "active": workflow.get("active", False),
+                "tags": tag_strings,
+                "createdAt": workflow.get("createdAt"),
+                "updatedAt": workflow.get("updatedAt"),
+                "nodes": workflow.get("nodes", []),
+                "connections": workflow.get("connections", {}),
+                "settings": workflow.get("settings", {})
+            })
+
+        # Update the workflow count in the environment record
+        try:
+            await db_service.update_environment_workflow_count(
+                environment_id=env_id,
+                tenant_id=MOCK_TENANT_ID,
+                count=len(transformed_workflows)
+            )
+        except Exception as e:
+            # Log error but don't fail the request
+            print(f"Failed to update workflow count: {str(e)}")
+
+        return transformed_workflows
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch workflows: {str(e)}"
+        )
+
+
+def _sanitize_filename(name: str) -> str:
+    """Sanitize a string to be used as a filename"""
+    # Replace invalid filename characters with underscores
+    sanitized = re.sub(r'[<>:"/\\|?*]', '_', name)
+    # Remove any leading/trailing spaces or dots
+    sanitized = sanitized.strip('. ')
+    # Limit length to 200 characters
+    if len(sanitized) > 200:
+        sanitized = sanitized[:200]
+    return sanitized if sanitized else "workflow"
+
+
+@router.get("/download")
+async def download_workflows(environment_id: str):
+    """Download all workflows from an environment as a ZIP file"""
+    try:
+        print(f"DEBUG: Attempting to download workflows for environment_id: {environment_id}")
+        # Get environment configuration by ID
+        env_config = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
+        print(f"DEBUG: Retrieved env_config: {env_config}")
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment not found"
+            )
+
+        # Validate that API key exists
+        if not env_config.get("api_key"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Environment does not have an API key configured"
+            )
+
+        # Create N8N client with environment-specific credentials
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        # Fetch all workflows from N8N
+        workflows = await n8n_client.get_workflows()
+
+        if not workflows:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No workflows found in this environment"
+            )
+
+        # Create in-memory zip file
+        zip_buffer = io.BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Track filenames to handle duplicates
+            used_filenames = set()
+
+            for workflow in workflows:
+                try:
+                    # Get full workflow details
+                    workflow_id = workflow.get("id")
+                    full_workflow = await n8n_client.get_workflow(workflow_id)
+
+                    # Create filename from workflow name
+                    workflow_name = full_workflow.get("name", f"workflow_{workflow_id}")
+                    base_filename = _sanitize_filename(workflow_name)
+                    filename = f"{base_filename}.json"
+
+                    # Handle duplicate filenames
+                    counter = 1
+                    while filename in used_filenames:
+                        filename = f"{base_filename}_{workflow_id[:8]}.json"
+                        if filename in used_filenames:
+                            filename = f"{base_filename}_{counter}.json"
+                            counter += 1
+
+                    used_filenames.add(filename)
+
+                    # Add workflow to zip
+                    workflow_json = json.dumps(full_workflow, indent=2)
+                    zip_file.writestr(filename, workflow_json)
+
+                except Exception as workflow_error:
+                    # Log error but continue with other workflows
+                    print(f"Failed to download workflow {workflow.get('id')}: {str(workflow_error)}")
+                    continue
+
+        # Prepare zip for download
+        zip_buffer.seek(0)
+
+        # Create filename with environment name and timestamp
+        env_name = _sanitize_filename(env_config.get("name", "environment"))
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        zip_filename = f"{env_name}_workflows_{timestamp}.zip"
+
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename={zip_filename}"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"DEBUG: Error in download_workflows: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download workflows: {str(e)}"
+        )
+
+
+@router.post("/sync-from-github")
+async def sync_workflows_from_github(environment: str = "dev"):
+    """Sync workflows from GitHub to N8N"""
+    try:
+        # Get environment configuration
+        env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment)
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{environment}' not configured"
+            )
+
+        # Check if GitHub is configured for this environment
+        if not env_config.get("git_repo_url"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="GitHub configuration not found for this environment"
+            )
+
+        # Create GitHub service from environment configuration
+        repo_url = env_config.get("git_repo_url", "").rstrip('/').replace('.git', '')
+        repo_parts = repo_url.split("/")
+        github_service = GitHubService(
+            token=env_config.get("git_pat"),
+            repo_owner=repo_parts[-2] if len(repo_parts) >= 2 else "",
+            repo_name=repo_parts[-1] if len(repo_parts) >= 1 else "",
+            branch=env_config.get("git_branch", "main")
+        )
+
+        # Get workflows from GitHub
+        github_workflows = await github_service.get_all_workflows_from_github()
+
+        # Create N8N client
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        # Upload workflows to N8N
+        synced_workflows = []
+        errors = []
+
+        for workflow_data in github_workflows:
+            result = await _upload_single_workflow(
+                workflow_data,
+                n8n_client,
+                None,  # Don't sync back to GitHub
+                MOCK_TENANT_ID,
+                env_config.get("id")
+            )
+            if result["success"]:
+                synced_workflows.append(result["workflow"])
+            else:
+                errors.append(result["error"])
+
+        return {
+            "success": len(synced_workflows) > 0,
+            "synced": len(synced_workflows),
+            "failed": len(errors),
+            "workflows": synced_workflows,
+            "errors": errors
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to sync workflows from GitHub: {str(e)}"
+        )
+
+
+@router.post("/sync-to-github")
+async def sync_workflows_to_github(environment: str = "dev"):
+    """Backup/sync all workflows from N8N to GitHub"""
+    try:
+        # Get environment configuration
+        env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment)
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{environment}' not configured"
+            )
+
+        # Check if GitHub is configured for this environment
+        if not env_config.get("git_repo_url"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="GitHub configuration not found for this environment"
+            )
+
+        # Create GitHub service from environment configuration
+        repo_url = env_config.get("git_repo_url", "").rstrip('/').replace('.git', '')
+        repo_parts = repo_url.split("/")
+        github_service = GitHubService(
+            token=env_config.get("git_pat"),
+            repo_owner=repo_parts[-2] if len(repo_parts) >= 2 else "",
+            repo_name=repo_parts[-1] if len(repo_parts) >= 1 else "",
+            branch=env_config.get("git_branch", "main")
+        )
+
+        if not github_service.is_configured():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="GitHub is not properly configured"
+            )
+
+        # Create N8N client
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        # Get all workflows from N8N
+        workflows = await n8n_client.get_workflows()
+
+        if not workflows:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No workflows found in this environment"
+            )
+
+        # Get last backup timestamp for incremental backup
+        last_backup = env_config.get("last_backup")
+
+        # Filter workflows that have been updated since last backup
+        workflows_to_sync = []
+        if last_backup:
+            from datetime import datetime
+            last_backup_dt = datetime.fromisoformat(last_backup.replace('Z', '+00:00')) if isinstance(last_backup, str) else last_backup
+
+            for workflow in workflows:
+                updated_at_str = workflow.get("updatedAt")
+                if updated_at_str:
+                    updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+                    if updated_at > last_backup_dt:
+                        workflows_to_sync.append(workflow)
+                else:
+                    # If no updatedAt, include it to be safe
+                    workflows_to_sync.append(workflow)
+        else:
+            # No last backup, sync all workflows
+            workflows_to_sync = workflows
+
+        # Sync each workflow to GitHub
+        synced_workflows = []
+        skipped_workflows = []
+        errors = []
+
+        for workflow in workflows_to_sync:
+            try:
+                # Get full workflow details
+                workflow_id = workflow.get("id")
+                full_workflow = await n8n_client.get_workflow(workflow_id)
+
+                # Sync to GitHub
+                await github_service.sync_workflow_to_github(
+                    workflow_id=workflow_id,
+                    workflow_name=full_workflow.get("name"),
+                    workflow_data=full_workflow
+                )
+
+                synced_workflows.append({
+                    "id": workflow_id,
+                    "name": full_workflow.get("name")
+                })
+
+            except Exception as sync_error:
+                errors.append(f"Failed to sync workflow {workflow.get('id')}: {str(sync_error)}")
+                continue
+
+        # Update last_backup timestamp after successful sync
+        if synced_workflows:
+            from datetime import datetime
+            await db_service.update_environment(
+                env_config.get("id"),
+                MOCK_TENANT_ID,
+                {"last_backup": datetime.utcnow().isoformat()}
+            )
+
+        skipped_count = len(workflows) - len(workflows_to_sync)
+
+        return {
+            "success": len(synced_workflows) > 0 or skipped_count > 0,
+            "synced": len(synced_workflows),
+            "skipped": skipped_count,
+            "failed": len(errors),
+            "workflows": synced_workflows,
+            "errors": errors
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to sync workflows to GitHub: {str(e)}"
+        )
+
+
+@router.get("/{workflow_id}", response_model=Dict[str, Any])
+async def get_workflow(workflow_id: str, environment: str = "dev"):
+    """Get a specific workflow by ID"""
+    try:
+        # Get environment configuration
+        env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment)
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{environment}' not configured"
+            )
+
+        # Create N8N client
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        # Fetch workflow from N8N
+        workflow = await n8n_client.get_workflow(workflow_id)
+        return workflow
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch workflow: {str(e)}"
+        )
+
+
+@router.post("/upload")
+async def upload_workflows(
+    files: List[UploadFile] = File(...),
+    environment: str = "dev",
+    sync_to_github: bool = True
+):
+    """Upload workflow files (.json or .zip) to N8N"""
+    try:
+        # Get environment configuration
+        env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment)
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{environment}' not configured"
+            )
+
+        # Create N8N client
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        # Get GitHub service from environment configuration
+        github_service = None
+
+        if sync_to_github and env_config.get("git_repo_url"):
+            repo_url = env_config.get("git_repo_url", "").rstrip('/').replace('.git', '')
+            repo_parts = repo_url.split("/")
+            github_service = GitHubService(
+                token=env_config.get("git_pat"),
+                repo_owner=repo_parts[-2] if len(repo_parts) >= 2 else "",
+                repo_name=repo_parts[-1] if len(repo_parts) >= 1 else "",
+                branch=env_config.get("git_branch", "")
+            )
+
+        uploaded_workflows = []
+        errors = []
+
+        for file in files:
+            try:
+                # Read file content
+                content = await file.read()
+
+                # Handle ZIP files
+                if file.filename.endswith('.zip'):
+                    with zipfile.ZipFile(io.BytesIO(content)) as zip_file:
+                        for json_file in zip_file.namelist():
+                            if json_file.endswith('.json'):
+                                with zip_file.open(json_file) as f:
+                                    workflow_data = json.loads(f.read())
+                                    result = await _upload_single_workflow(
+                                        workflow_data,
+                                        n8n_client,
+                                        github_service,
+                                        MOCK_TENANT_ID,
+                                        env_config.get("id")
+                                    )
+                                    if result["success"]:
+                                        uploaded_workflows.append(result["workflow"])
+                                    else:
+                                        errors.append(result["error"])
+
+                # Handle JSON files
+                elif file.filename.endswith('.json'):
+                    workflow_data = json.loads(content)
+                    result = await _upload_single_workflow(
+                        workflow_data,
+                        n8n_client,
+                        github_service,
+                        MOCK_TENANT_ID,
+                        env_config.get("id")
+                    )
+                    if result["success"]:
+                        uploaded_workflows.append(result["workflow"])
+                    else:
+                        errors.append(result["error"])
+
+            except Exception as e:
+                errors.append(f"Error processing {file.filename}: {str(e)}")
+
+        return {
+            "success": len(uploaded_workflows) > 0,
+            "uploaded": len(uploaded_workflows),
+            "failed": len(errors),
+            "workflows": uploaded_workflows,
+            "errors": errors
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload workflows: {str(e)}"
+        )
+
+
+async def _upload_single_workflow(
+    workflow_data: Dict[str, Any],
+    n8n_client: N8NClient,
+    github_service: GitHubService,
+    tenant_id: str,
+    environment_id: str = None
+) -> Dict[str, Any]:
+    """Helper function to upload a single workflow"""
+    try:
+        # Create workflow in N8N
+        created_workflow = await n8n_client.create_workflow(workflow_data)
+
+        # Create snapshot in database
+        snapshot_data = {
+            "tenant_id": tenant_id,
+            "workflow_id": created_workflow.get("id"),
+            "workflow_name": created_workflow.get("name"),
+            "version": 1,  # Initial version
+            "data": created_workflow,
+            "trigger": "manual",
+            "created_at": datetime.utcnow().isoformat()
+        }
+        await db_service.create_workflow_snapshot(snapshot_data)
+
+        # Sync to GitHub if configured
+        if github_service and github_service.is_configured():
+            try:
+                await github_service.sync_workflow_to_github(
+                    workflow_id=created_workflow.get("id"),
+                    workflow_name=created_workflow.get("name"),
+                    workflow_data=created_workflow
+                )
+            except Exception as github_error:
+                print(f"GitHub sync failed: {str(github_error)}")
+
+        # Update workflow count if environment_id provided
+        if environment_id:
+            try:
+                # Get current count from N8N
+                all_workflows = await n8n_client.get_workflows()
+                await db_service.update_environment_workflow_count(
+                    environment_id=environment_id,
+                    tenant_id=tenant_id,
+                    count=len(all_workflows)
+                )
+            except Exception as count_error:
+                print(f"Failed to update workflow count: {str(count_error)}")
+
+        return {
+            "success": True,
+            "workflow": created_workflow
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+@router.post("/{workflow_id}/activate")
+async def activate_workflow(workflow_id: str, environment: str = "dev"):
+    """Activate a workflow"""
+    try:
+        env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment)
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{environment}' not configured"
+            )
+
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        workflow = await n8n_client.activate_workflow(workflow_id)
+
+        # Update cache with activated workflow
+        try:
+            await db_service.update_workflow_in_cache(
+                MOCK_TENANT_ID,
+                env_config.get("id"),
+                workflow_id,
+                workflow
+            )
+        except Exception as cache_error:
+            print(f"Failed to update workflow cache: {str(cache_error)}")
+
+        return workflow
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to activate workflow: {str(e)}"
+        )
+
+
+@router.post("/{workflow_id}/deactivate")
+async def deactivate_workflow(workflow_id: str, environment: str = "dev"):
+    """Deactivate a workflow"""
+    try:
+        env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment)
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{environment}' not configured"
+            )
+
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        workflow = await n8n_client.deactivate_workflow(workflow_id)
+
+        # Update cache with deactivated workflow
+        try:
+            await db_service.update_workflow_in_cache(
+                MOCK_TENANT_ID,
+                env_config.get("id"),
+                workflow_id,
+                workflow
+            )
+        except Exception as cache_error:
+            print(f"Failed to update workflow cache: {str(cache_error)}")
+
+        return workflow
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to deactivate workflow: {str(e)}"
+        )
+
+
+@router.put("/{workflow_id}/tags")
+async def update_workflow_tags(
+    workflow_id: str,
+    environment: str = "dev",
+    tag_names: List[str] = Body(...)
+):
+    """Update workflow tags - expects body: ["tag1", "tag2"]"""
+    print(f"DEBUG: update_workflow_tags called with workflow_id={workflow_id}, environment={environment}, tag_names={tag_names}")
+    try:
+        env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment)
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{environment}' not configured"
+            )
+
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        all_workflows = await n8n_client.get_workflows()
+        tag_id_map = {}
+
+        for workflow in all_workflows:
+            tags = workflow.get("tags", [])
+            for tag in tags:
+                if isinstance(tag, dict):
+                    tag_name = tag.get("name", "")
+                    tag_id = tag.get("id")
+                    if tag_name and tag_id and tag_name not in tag_id_map:
+                        tag_id_map[tag_name] = tag_id
+
+        tag_ids = []
+        for tag_name in tag_names:
+            if tag_name in tag_id_map:
+                tag_ids.append(tag_id_map[tag_name])
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Tag '{tag_name}' not found. Tags must exist before assigning to workflows."
+                )
+
+        result = await n8n_client.update_workflow_tags(workflow_id, tag_ids)
+
+        # Update cache with the new tags
+        try:
+            # Fetch the updated workflow from N8N to get the complete data
+            updated_workflow = await n8n_client.get_workflow(workflow_id)
+            await db_service.update_workflow_in_cache(
+                MOCK_TENANT_ID,
+                env_config.get("id"),
+                workflow_id,
+                updated_workflow
+            )
+        except Exception as cache_error:
+            print(f"Failed to update workflow cache after tag update: {str(cache_error)}")
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update workflow tags: {str(e)}"
+        )
+
+
+@router.put("/{workflow_id}")
+async def update_workflow(
+    workflow_id: str,
+    workflow_data: Dict[str, Any],
+    environment: str = "dev"
+):
+    """Update a workflow (name, active status, tags)"""
+    try:
+        env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment)
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{environment}' not configured"
+            )
+
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        # Debug: log what we received
+        import json
+        print(f"DEBUG ENDPOINT: Received workflow_data keys: {list(workflow_data.keys())}")
+
+        # Update workflow in N8N - n8n_client will clean the data
+        updated_workflow = await n8n_client.update_workflow(workflow_id, workflow_data)
+
+        # Update cache with modified workflow
+        try:
+            await db_service.update_workflow_in_cache(
+                MOCK_TENANT_ID,
+                env_config.get("id"),
+                workflow_id,
+                updated_workflow
+            )
+        except Exception as cache_error:
+            print(f"Failed to update workflow cache: {str(cache_error)}")
+
+        # Transform the response to match frontend expectations
+        tags_response = updated_workflow.get("tags", [])
+        tag_strings = []
+        if isinstance(tags_response, list):
+            for tag in tags_response:
+                if isinstance(tag, dict):
+                    tag_strings.append(tag.get("name", ""))
+                elif isinstance(tag, str):
+                    tag_strings.append(tag)
+
+        return {
+            "id": updated_workflow.get("id"),
+            "name": updated_workflow.get("name"),
+            "description": "",
+            "active": updated_workflow.get("active", False),
+            "tags": tag_strings,
+            "createdAt": updated_workflow.get("createdAt"),
+            "updatedAt": updated_workflow.get("updatedAt"),
+            "nodes": updated_workflow.get("nodes", []),
+            "connections": updated_workflow.get("connections", {}),
+            "settings": updated_workflow.get("settings", {})
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update workflow: {str(e)}"
+        )
+
+
+@router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workflow(workflow_id: str, environment: str = "dev"):
+    """Delete a workflow from N8N"""
+    try:
+        env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment)
+
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Environment '{environment}' not configured"
+            )
+
+        n8n_client = N8NClient(
+            base_url=env_config.get("base_url"),
+            api_key=env_config.get("api_key")
+        )
+
+        await n8n_client.delete_workflow(workflow_id)
+
+        # Soft delete from cache
+        try:
+            await db_service.delete_workflow_from_cache(
+                MOCK_TENANT_ID,
+                env_config.get("id"),
+                workflow_id
+            )
+        except Exception as cache_error:
+            print(f"Failed to delete workflow from cache: {str(cache_error)}")
+
+        # Update workflow count after deletion
+        try:
+            all_workflows = await n8n_client.get_workflows()
+            await db_service.update_environment_workflow_count(
+                environment_id=env_config.get("id"),
+                tenant_id=MOCK_TENANT_ID,
+                count=len(all_workflows)
+            )
+        except Exception as count_error:
+            print(f"Failed to update workflow count: {str(count_error)}")
+
+        return None
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete workflow: {str(e)}"
+        )
+
+
+

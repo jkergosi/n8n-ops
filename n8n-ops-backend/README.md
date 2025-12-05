@@ -1,0 +1,189 @@
+# N8N Ops Backend
+
+FastAPI backend for N8N Ops - Multi-tenant n8n governance platform.
+
+## Features
+
+- **Environment Management**: Manage dev, staging, and production n8n environments
+- **Workflow Management**: Fetch workflows directly from N8N API
+- **Workflow Upload**: Upload workflow JSON files or ZIP archives to N8N
+- **GitHub Integration**: Sync workflows to/from GitHub repositories
+- **Workflow Snapshots**: Version control for workflows
+- **Multi-tenant**: Support for multiple organizations
+
+## Tech Stack
+
+- **FastAPI**: Modern Python web framework
+- **Supabase**: PostgreSQL database with real-time capabilities
+- **N8N API**: Direct integration with n8n instances
+- **GitHub API**: Workflow version control
+
+## Setup
+
+### 1. Install Dependencies
+
+```bash
+cd n8n-ops-backend
+pip install -r requirements.txt
+```
+
+### 2. Configure Supabase
+
+1. Go to [Supabase](https://supabase.com) and create a new project
+2. Once the project is created, go to **SQL Editor**
+3. Copy the contents of `database_schema.sql` and run it in the SQL Editor
+4. Go to **Settings > API** to get your:
+   - **Project URL** (SUPABASE_URL)
+   - **anon/public key** (SUPABASE_KEY)
+   - **service_role key** (SUPABASE_SERVICE_KEY)
+
+### 3. Create .env File
+
+Copy `.env.example` to `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Update the following values in `.env`:
+
+```env
+# N8N Configuration (already configured)
+N8N_API_URL=https://ns8i839t.rpcld.net
+N8N_API_KEY=123
+
+# Supabase Configuration (update these)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-anon-key
+SUPABASE_SERVICE_KEY=your-service-role-key
+
+# Database (update this)
+DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.your-project.supabase.co:5432/postgres
+
+# GitHub Configuration (optional, for workflow sync)
+GITHUB_TOKEN=your-github-token
+GITHUB_REPO_OWNER=your-org
+GITHUB_REPO_NAME=your-repo
+GITHUB_BRANCH=main
+
+# Security (generate a secure key)
+SECRET_KEY=your-secret-key-here-change-in-production
+```
+
+To generate a secure SECRET_KEY:
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+### 4. Insert Test Tenant
+
+After setting up Supabase, insert a test tenant in the SQL Editor:
+
+```sql
+-- Insert test tenant
+INSERT INTO tenants (id, name, email, subscription_tier)
+VALUES ('00000000-0000-0000-0000-000000000000', 'Test Organization', 'test@example.com', 'pro');
+
+-- Insert dev environment
+INSERT INTO environments (tenant_id, name, type, base_url, api_key)
+VALUES (
+    '00000000-0000-0000-0000-000000000000',
+    'Development',
+    'dev',
+    'https://ns8i839t.rpcld.net',
+    '123'
+);
+```
+
+### 5. Run the Server
+
+```bash
+# Development mode with auto-reload
+uvicorn app.main:app --reload --port 8000
+
+# Or using Python
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+The API will be available at:
+- **API**: http://localhost:8000
+- **Swagger Docs**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+## API Endpoints
+
+### Environments
+
+- `GET /api/v1/environments` - List all environments
+- `GET /api/v1/environments/{id}` - Get environment by ID
+- `POST /api/v1/environments` - Create new environment
+- `PATCH /api/v1/environments/{id}` - Update environment
+- `DELETE /api/v1/environments/{id}` - Delete environment
+- `POST /api/v1/environments/test-connection` - Test N8N connection
+- `POST /api/v1/environments/{id}/update-connection-status` - Update last connected timestamp
+
+### Workflows
+
+- `GET /api/v1/workflows?environment=dev` - Get workflows from N8N
+- `GET /api/v1/workflows/{id}?environment=dev` - Get workflow by ID
+- `POST /api/v1/workflows/upload?environment=dev` - Upload workflow files (.json or .zip)
+- `POST /api/v1/workflows/{id}/activate?environment=dev` - Activate workflow
+- `POST /api/v1/workflows/{id}/deactivate?environment=dev` - Deactivate workflow
+- `POST /api/v1/workflows/sync-from-github?environment=dev` - Sync workflows from GitHub
+
+## Project Structure
+
+```
+n8n-ops-backend/
+├── app/
+│   ├── api/
+│   │   └── endpoints/
+│   │       ├── environments.py  # Environment CRUD
+│   │       └── workflows.py     # Workflow management
+│   ├── core/
+│   │   └── config.py           # Configuration
+│   ├── schemas/
+│   │   ├── environment.py      # Pydantic models for environments
+│   │   └── workflow.py         # Pydantic models for workflows
+│   ├── services/
+│   │   ├── database.py         # Supabase database service
+│   │   ├── github_service.py   # GitHub integration
+│   │   └── n8n_client.py       # N8N API client
+│   └── main.py                 # FastAPI application
+├── database_schema.sql         # Supabase schema
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+## Testing
+
+### Test N8N Connection
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/environments/test-connection" \
+  -H "Content-Type: application/json" \
+  -d '{"base_url": "https://ns8i839t.rpcld.net", "api_key": "123"}'
+```
+
+### Get Workflows
+
+```bash
+curl "http://localhost:8000/api/v1/workflows?environment=dev"
+```
+
+### Upload Workflow
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/workflows/upload?environment=dev" \
+  -F "files=@workflow.json"
+```
+
+## Next Steps
+
+1. Set up Supabase project and apply schema
+2. Update .env with your Supabase credentials
+3. Insert test tenant and environment data
+4. Run the backend server
+5. Test the endpoints using Swagger docs at http://localhost:8000/docs
+6. Update the frontend to use the real API

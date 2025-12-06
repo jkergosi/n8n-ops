@@ -154,6 +154,58 @@ n8n-ops/
 └── [Feature Documentation]/      # Additional setup guides
 ```
 
+
+## On First Load
+When starting a new session, automatically:
+1. Check if `n8n-ops-ui/node_modules` exists. If not, run `npm install` in `n8n-ops-ui`
+2. Check if Python dependencies are installed. If uvicorn import fails, run `pip install -r requirements.txt` in `n8n-ops-backend`
+
+## Ports Configuration
+**IMPORTANT:** Always read `.env.local` in the project root for port assignments before starting servers.
+
+Each worktree has unique ports:
+- `BACKEND_PORT` - Use for uvicorn (e.g., 4001)
+- `FRONTEND_PORT` - Use for vite (e.g., 3001)
+
+**Never use default ports (8000, 5173).** Always use the ports from `.env.local`.
+
+## Starting the Application
+When asked to "start the app" or "start servers":
+
+### 1. Read ports first
+```bash
+cat .env.local
+```
+
+### 2. Start Backend (use BACKEND_PORT from .env.local)
+```bash
+cd n8n-ops-backend
+python -m uvicorn app.main:app --reload --port <BACKEND_PORT>
+```
+
+### 3. Start Frontend (use FRONTEND_PORT from .env.local)
+```bash
+cd n8n-ops-ui
+npm run dev -- --port <FRONTEND_PORT>
+```
+
+## Environment Files
+- `.env.local` - Port configuration (auto-generated per worktree, DO NOT use defaults)
+- `n8n-ops-backend/.env` - Backend secrets (Supabase, etc.)
+- `n8n-ops-ui/.env` - Frontend environment variables
+
+## Quick Reference
+| Worktree | Frontend | Backend |
+|----------|----------|---------|
+| main     | 3000     | 4000    |
+| f1       | 3001     | 4001    |
+| f2       | 3002     | 4002    |
+| f3       | 3003     | 4003    |
+| f4       | 3004     | 4004    |
+
+
+
+
 ## Key Files & Their Responsibilities
 
 ### Backend

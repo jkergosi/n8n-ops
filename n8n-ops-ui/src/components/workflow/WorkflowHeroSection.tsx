@@ -145,7 +145,7 @@ export function WorkflowHeroSection({
         {/* Card 1: What It Does */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <CardTitle className="text-base font-semibold flex items-center gap-2 mb-3">
               <Activity className="h-4 w-4 text-blue-500" />
               What It Does
             </CardTitle>
@@ -181,7 +181,7 @@ export function WorkflowHeroSection({
         {/* Card 2: Is It Healthy? */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <CardTitle className="text-base font-semibold flex items-center gap-2 mb-3">
               <Shield className="h-4 w-4 text-green-500" />
               Is It Healthy?
             </CardTitle>
@@ -247,7 +247,7 @@ export function WorkflowHeroSection({
         {/* Card 3: What To Fix */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <CardTitle className="text-base font-semibold flex items-center gap-2 mb-3">
               <AlertTriangle className="h-4 w-4 text-yellow-500" />
               What To Fix
             </CardTitle>

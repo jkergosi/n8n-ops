@@ -7,6 +7,16 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Table,
   TableBody,
   TableCell,
@@ -45,6 +55,8 @@ import {
   AlertCircle,
   Info,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Database,
   Globe,
   Mail,
@@ -274,7 +286,6 @@ function JsonTreeNode({
 function JsonViewerTab({ workflow }: { workflow: Workflow }) {
   const [copied, setCopied] = useState(false);
   const [allExpanded, setAllExpanded] = useState(true);
-  const [viewMode, setViewMode] = useState<'tree' | 'raw'>('tree');
   const [treeKey, setTreeKey] = useState(0); // Force re-render for expand/collapse all
   const [isViewerExpanded, setIsViewerExpanded] = useState(false);
 
@@ -403,33 +414,13 @@ function JsonViewerTab({ workflow }: { workflow: Workflow }) {
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex items-center border rounded-md">
-              <Button
-                variant={viewMode === 'tree' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('tree')}
-                className="rounded-r-none"
-              >
-                Tree
-              </Button>
-              <Button
-                variant={viewMode === 'raw' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('raw')}
-                className="rounded-l-none"
-              >
-                Raw
-              </Button>
-            </div>
-            {viewMode === 'tree' && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={toggleExpandAll}
-              >
-                {allExpanded ? 'Collapse All' : 'Expand All'}
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleExpandAll}
+            >
+              {allExpanded ? 'Collapse All' : 'Expand All'}
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -490,29 +481,16 @@ function JsonViewerTab({ workflow }: { workflow: Workflow }) {
               {isViewerExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
             </Button>
           </div>
-          {viewMode === 'tree' ? (
-            <div
-              className="p-4 rounded-lg bg-gray-100 dark:bg-zinc-800 overflow-auto text-sm font-mono border border-gray-200 dark:border-zinc-700 transition-all duration-300"
-              style={{ height: isViewerExpanded ? 'calc(100vh - 300px)' : '500px', minHeight: isViewerExpanded ? '500px' : undefined }}
-            >
-              <JsonTreeNode
-                key={treeKey}
-                value={exportableJson}
-                defaultExpanded={allExpanded}
-              />
-            </div>
-          ) : (
-            <pre
-              className="p-4 rounded-lg bg-gray-100 dark:bg-zinc-800 overflow-auto text-sm font-mono leading-relaxed border border-gray-200 dark:border-zinc-700 transition-all duration-300"
-              style={{ height: isViewerExpanded ? 'calc(100vh - 300px)' : '500px', minHeight: isViewerExpanded ? '500px' : undefined, tabSize: 2 }}
-            >
-              <code
-                dangerouslySetInnerHTML={{
-                  __html: highlightJson(fullJsonString),
-                }}
-              />
-            </pre>
-          )}
+          <div
+            className="p-4 rounded-lg bg-gray-100 dark:bg-zinc-800 overflow-auto text-sm font-mono border border-gray-200 dark:border-zinc-700 transition-all duration-300"
+            style={{ height: isViewerExpanded ? 'calc(100vh - 300px)' : '500px', minHeight: isViewerExpanded ? '500px' : undefined }}
+          >
+            <JsonTreeNode
+              key={treeKey}
+              value={exportableJson}
+              defaultExpanded={allExpanded}
+            />
+          </div>
         </div>
 
       </CardContent>
@@ -573,9 +551,22 @@ export function WorkflowDetailPage() {
   const queryClient = useQueryClient();
   const environment = (searchParams.get('environment') || 'dev') as EnvironmentType;
   const [activeTab, setActiveTab] = useState('overview');
+  const [analysisSection, setAnalysisSection] = useState<string>('graph');
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
   const [recommendationFilter, setRecommendationFilter] = useState<string>('all');
   const [recommendationSort, setRecommendationSort] = useState<{ field: string; direction: 'asc' | 'desc' }>({ field: 'impact', direction: 'desc' });
+  const [showDisableConfirm, setShowDisableConfirm] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    graph: true,
+    structure: false,
+    reliability: false,
+    performance: false,
+    cost: false,
+    maintainability: false,
+    security: false,
+    nodes: false,
+    recommendations: false,
+  });
 
   // Workflow query
   const { data: workflowResponse, isLoading, error } = useQuery({
@@ -613,6 +604,17 @@ export function WorkflowDetailPage() {
     enabled: !!id && !!workflow,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });
+
+  // Fetch environments to get the n8n base URL
+  const { data: environments } = useQuery({
+    queryKey: ['environments'],
+    queryFn: () => api.getEnvironments(),
+  });
+
+  // Get the current environment's base URL
+  const currentEnvironment = useMemo(() => {
+    return environments?.data?.find((env) => env.type === environment);
+  }, [environments, environment]);
 
   // Executions query for metrics
   const { data: executionsData } = useQuery({
@@ -963,19 +965,21 @@ export function WorkflowDetailPage() {
     },
   });
 
-  // Get N8N URL for opening workflows
-  const getN8nUrl = () => {
-    const devUrl = localStorage.getItem('dev_n8n_url') || 'http://localhost:5678';
-    return devUrl;
-  };
-
   const openInN8N = () => {
     if (!workflow) return;
-    const n8nUrl = getN8nUrl();
-    window.open(`${n8nUrl}/workflow/${workflow.id}`, '_blank');
+    if (currentEnvironment?.baseUrl) {
+      window.open(`${currentEnvironment.baseUrl}/workflow/${workflow.id}`, '_blank');
+    } else {
+      toast.error('N8N URL not configured for this environment');
+    }
   };
 
   const handleDisable = () => {
+    setShowDisableConfirm(true);
+  };
+
+  const confirmDisable = () => {
+    setShowDisableConfirm(false);
     toggleActiveMutation.mutate();
   };
 
@@ -1143,68 +1147,222 @@ export function WorkflowDetailPage() {
             <FileText className="h-4 w-4" />
             Overview
           </TabsTrigger>
-          <TabsTrigger value="recommendations" className="flex items-center gap-1">
-            <Lightbulb className="h-4 w-4" />
-            Recommendations
-          </TabsTrigger>
-          <TabsTrigger value="graph" className="flex items-center gap-1">
-            <Share2 className="h-4 w-4" />
-            Graph
-          </TabsTrigger>
-          <TabsTrigger value="nodes" className="flex items-center gap-1">
-            <Layers className="h-4 w-4" />
-            Nodes
-          </TabsTrigger>
-          <TabsTrigger value="structure" className="flex items-center gap-1">
+          <TabsTrigger value="analysis" className="flex items-center gap-1">
             <Network className="h-4 w-4" />
-            Structure
-          </TabsTrigger>
-          <TabsTrigger value="reliability" className="flex items-center gap-1">
-            <AlertTriangle className="h-4 w-4" />
-            Reliability
-          </TabsTrigger>
-          <TabsTrigger value="performance" className="flex items-center gap-1">
-            <Zap className="h-4 w-4" />
-            Performance
-          </TabsTrigger>
-          <TabsTrigger value="cost" className="flex items-center gap-1">
-            <DollarSign className="h-4 w-4" />
-            Cost
-          </TabsTrigger>
-          <TabsTrigger value="security" className="flex items-center gap-1">
-            <Lock className="h-4 w-4" />
-            Security
-          </TabsTrigger>
-          <TabsTrigger value="maintainability" className="flex items-center gap-1">
-            <Wrench className="h-4 w-4" />
-            Maintainability
+            Analysis
           </TabsTrigger>
           <TabsTrigger value="governance" className="flex items-center gap-1">
             <Scale className="h-4 w-4" />
             Governance
           </TabsTrigger>
+          <TabsTrigger value="history" className="flex items-center gap-1">
+            <History className="h-4 w-4" />
+            History
+          </TabsTrigger>
           <TabsTrigger value="drift" className="flex items-center gap-1">
             <GitCompare className="h-4 w-4" />
             Drift
           </TabsTrigger>
-          <TabsTrigger value="versions" className="flex items-center gap-1">
-            <History className="h-4 w-4" />
-            Versions
-          </TabsTrigger>
-          <TabsTrigger value="optimize" className="flex items-center gap-1">
-            <Lightbulb className="h-4 w-4" />
-            Optimize
-          </TabsTrigger>
-          <TabsTrigger value="json" className="flex items-center gap-1">
+          <TabsTrigger value="source" className="flex items-center gap-1">
             <Code className="h-4 w-4" />
-            JSON
+            Source
           </TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
+          {/* Status & Health */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Status</CardTitle>
+                <Activity className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2">
+                  {analysis.security.level === 'excellent' || analysis.security.level === 'good' ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-500" />
+                  ) : analysis.security.level === 'warning' ? (
+                    <AlertCircle className="h-5 w-5 text-yellow-500" />
+                  ) : (
+                    <XCircle className="h-5 w-5 text-red-500" />
+                  )}
+                  <span className="text-sm font-medium capitalize">
+                    {analysis.security.level === 'excellent' || analysis.security.level === 'good' ? 'Healthy' :
+                     analysis.security.level === 'warning' ? 'Degraded' : 'Broken'}
+                  </span>
+                </div>
+                {workflow.active ? (
+                  <Badge variant="success" className="mt-2 flex items-center gap-1 w-fit">
+                    <PlayCircle className="h-3 w-3" />
+                    Active
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="mt-2 flex items-center gap-1 w-fit">
+                    <PauseCircle className="h-3 w-3" />
+                    Inactive
+                  </Badge>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Runs</CardTitle>
+                <Activity className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{executionMetrics?.totalExecutions || 0}</div>
+                <p className="text-xs text-muted-foreground">
+                  {executionMetrics?.successRate ? `${executionMetrics.successRate.toFixed(0)}% success` : 'No executions'}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Avg Duration</CardTitle>
+                <Clock className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {executionMetrics?.avgDurationMs ? `${(executionMetrics.avgDurationMs / 1000).toFixed(1)}s` : '-'}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {executionMetrics?.p95DurationMs ? `P95: ${(executionMetrics.p95DurationMs / 1000).toFixed(1)}s` : 'No data'}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Last Execution</CardTitle>
+                <Clock className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm font-medium">
+                  {executionMetrics?.lastExecutedAt ? new Date(executionMetrics.lastExecutedAt).toLocaleDateString() : 'Never'}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Last change: {new Date(workflow.updatedAt).toLocaleDateString()}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* High-Level Risks & Flags */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5" />
+                Risks & Flags
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 md:grid-cols-2">
+                {analysis.security.level === 'critical' && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
+                    <XCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-red-800 dark:text-red-200">Critical Security Issues</p>
+                      <p className="text-sm text-red-600 dark:text-red-400">Review security assessment</p>
+                    </div>
+                  </div>
+                )}
+                {driftData?.hasDrift && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800">
+                    <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-yellow-800 dark:text-yellow-200">Git Drift Detected</p>
+                      <p className="text-sm text-yellow-600 dark:text-yellow-400">Workflow differs from Git</p>
+                    </div>
+                  </div>
+                )}
+                {executionMetrics && executionMetrics.successRate < 80 && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800">
+                    <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-orange-800 dark:text-orange-200">High Failure Rate</p>
+                      <p className="text-sm text-orange-600 dark:text-orange-400">{((100 - executionMetrics.successRate).toFixed(0))}% failure rate</p>
+                    </div>
+                  </div>
+                )}
+                {analysis.reliability.level === 'critical' && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
+                    <XCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-red-800 dark:text-red-200">Reliability Issues</p>
+                      <p className="text-sm text-red-600 dark:text-red-400">Missing error handling</p>
+                    </div>
+                  </div>
+                )}
+                {!driftData?.hasDrift && !analysis.security.level.includes('critical') && !analysis.reliability.level.includes('critical') && (!executionMetrics || executionMetrics.successRate >= 80) && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800">
+                    <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-green-800 dark:text-green-200">No Critical Issues</p>
+                      <p className="text-sm text-green-600 dark:text-green-400">Workflow appears healthy</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Top Recommendations (3 max) */}
+          {filteredAndSortedRecommendations.length > 0 && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <Lightbulb className="h-5 w-5" />
+                    Top Recommendations
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setActiveTab('analysis');
+                      setAnalysisSection('recommendations');
+                    }}
+                    className="flex items-center gap-1"
+                  >
+                    View All
+                    <ExternalLink className="h-3 w-3" />
+                  </Button>
+                </div>
+                <CardDescription>Most impactful improvements (sorted by impact)</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {filteredAndSortedRecommendations.slice(0, 3).map((rec) => (
+                    <div key={rec.id} className="flex items-start gap-3 p-3 rounded-lg border">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-sm">{rec.text}</span>
+                          {rec.impact && (
+                            <Badge
+                              variant={
+                                rec.impact === 'high' ? 'destructive' :
+                                rec.impact === 'medium' ? 'warning' : 'secondary'
+                              }
+                              className="text-xs"
+                            >
+                              {rec.impact}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">{rec.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Summary & Basic Info */}
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* Summary */}
             <Card>
               <CardHeader>
                 <CardTitle>Summary</CardTitle>
@@ -1239,7 +1397,6 @@ export function WorkflowDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Basic Info */}
             <Card>
               <CardHeader>
                 <CardTitle>Basic Information</CardTitle>
@@ -1333,123 +1490,619 @@ export function WorkflowDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* Recommendations Tab */}
-        <TabsContent value="recommendations" className="space-y-6">
+        {/* Analysis Tab */}
+        <TabsContent value="analysis" className="space-y-6">
+          {/* Graph Section - Always visible, not collapsible */}
+          <WorkflowGraphTab workflow={workflow} />
+
+          {/* Structure Section - Collapsible */}
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Lightbulb className="h-5 w-5" />
-                Actionable Recommendations ({filteredAndSortedRecommendations.length})
-              </CardTitle>
+            <CardHeader
+              className="cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => setExpandedSections(prev => ({ ...prev, structure: !prev.structure }))}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Network className="h-5 w-5" />
+                  Structure
+                  <ScoreBadge score={analysis.graph.complexityScore} level={analysis.graph.complexityLevel} />
+                </CardTitle>
+                {expandedSections.structure ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+              <CardDescription>Workflow graph structure and complexity analysis</CardDescription>
+            </CardHeader>
+            {expandedSections.structure && (
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="text-2xl font-bold">{analysis.graph.nodeCount}</div>
+                    <div className="text-sm text-muted-foreground">Total Nodes</div>
+                  </div>
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="text-2xl font-bold">{analysis.graph.edgeCount}</div>
+                    <div className="text-sm text-muted-foreground">Connections</div>
+                  </div>
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="text-2xl font-bold">{analysis.graph.maxDepth}</div>
+                    <div className="text-sm text-muted-foreground">Max Depth</div>
+                  </div>
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="text-2xl font-bold">{analysis.graph.maxBranching}</div>
+                    <div className="text-sm text-muted-foreground">Max Branching</div>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Flow Patterns</h4>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        {analysis.graph.isLinear ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <Info className="h-4 w-4 text-blue-500" />
+                        )}
+                        <span className="text-sm">Linear Flow: {analysis.graph.isLinear ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {analysis.graph.hasFanOut ? (
+                          <Info className="h-4 w-4 text-blue-500" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        )}
+                        <span className="text-sm">Fan-out Pattern: {analysis.graph.hasFanOut ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {analysis.graph.hasFanIn ? (
+                          <Info className="h-4 w-4 text-blue-500" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        )}
+                        <span className="text-sm">Fan-in Pattern: {analysis.graph.hasFanIn ? 'Yes' : 'No'}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {analysis.graph.hasCycles ? (
+                          <AlertCircle className="h-4 w-4 text-yellow-500" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        )}
+                        <span className="text-sm">Cycles Detected: {analysis.graph.hasCycles ? 'Yes' : 'No'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Entry/Exit Points</h4>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <PlayCircle className="h-4 w-4 text-green-500" />
+                        <span className="text-sm">Trigger Nodes: {analysis.graph.triggerCount}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Box className="h-4 w-4 text-blue-500" />
+                        <span className="text-sm">Sink Nodes: {analysis.graph.sinkCount}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-lg border">
+                  <h4 className="font-medium mb-2">Complexity Analysis</h4>
+                  <p className="text-sm text-muted-foreground">
+                    This workflow has a complexity score of <strong>{analysis.graph.complexityScore}/100</strong> ({analysis.graph.complexityLevel}).
+                    {analysis.graph.complexityLevel === 'simple' && ' The workflow is straightforward with minimal branching.'}
+                    {analysis.graph.complexityLevel === 'moderate' && ' The workflow has some branching but is manageable.'}
+                    {analysis.graph.complexityLevel === 'complex' && ' Consider breaking this workflow into smaller sub-workflows.'}
+                    {analysis.graph.complexityLevel === 'very-complex' && ' This workflow should be refactored into smaller, more manageable pieces.'}
+                  </p>
+                </div>
+              </CardContent>
+            )}
+          </Card>
+
+
+
+          {/* Performance Section - Collapsible */}
+          <Card>
+            <CardHeader
+              className="cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => setExpandedSections(prev => ({ ...prev, performance: !prev.performance }))}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Zap className="h-5 w-5" />
+                  Performance
+                  <ScoreBadge score={analysis.performance.score} level={analysis.performance.level} />
+                </CardTitle>
+                {expandedSections.performance ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+              <CardDescription>Execution duration, parallelism, and bottleneck analysis</CardDescription>
+            </CardHeader>
+            {expandedSections.performance && (
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="flex items-center gap-2">
+                      {analysis.performance.hasParallelism ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                      ) : (
+                        <AlertCircle className="h-5 w-5 text-yellow-500" />
+                      )}
+                      <span className="font-medium">Parallelism</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {analysis.performance.hasParallelism
+                        ? 'Workflow utilizes parallel execution paths'
+                        : 'Workflow runs sequentially - consider parallelizing'}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="text-2xl font-bold capitalize">{analysis.performance.estimatedComplexity}</div>
+                    <div className="text-sm text-muted-foreground">Estimated Execution Load</div>
+                  </div>
+                </div>
+                {analysis.performance.sequentialBottlenecks.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-yellow-600">Sequential Bottlenecks</h4>
+                    <IssueList issues={analysis.performance.sequentialBottlenecks} type="warning" />
+                  </div>
+                )}
+                {analysis.performance.redundantCalls.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-red-600">Redundant Calls Detected</h4>
+                    <IssueList issues={analysis.performance.redundantCalls} type="error" />
+                  </div>
+                )}
+                {analysis.performance.largePayloadRisks.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Large Payload Risks</h4>
+                    <IssueList issues={analysis.performance.largePayloadRisks} type="info" />
+                  </div>
+                )}
+                <RecommendationList recommendations={analysis.performance.recommendations} />
+              </CardContent>
+            )}
+          </Card>
+
+          {/* Cost Section - Collapsible */}
+          <Card>
+            <CardHeader
+              className="cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => setExpandedSections(prev => ({ ...prev, cost: !prev.cost }))}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  Cost
+                  <Badge
+                    variant={
+                      analysis.cost.level === 'low' ? 'success' :
+                      analysis.cost.level === 'medium' ? 'default' :
+                      analysis.cost.level === 'high' ? 'warning' : 'destructive'
+                    }
+                    className="text-sm font-medium"
+                  >
+                    {analysis.cost.level.toUpperCase()} COST
+                  </Badge>
+                </CardTitle>
+                {expandedSections.cost ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+              <CardDescription>API usage, LLM costs, and execution frequency analysis</CardDescription>
+            </CardHeader>
+            {expandedSections.cost && (
+              <CardContent className="space-y-6">
+                <div className="p-4 rounded-lg bg-muted">
+                  <div className="text-sm font-medium text-muted-foreground">Trigger Frequency</div>
+                  <div className="text-lg font-medium mt-1">{analysis.cost.triggerFrequency}</div>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {analysis.cost.apiHeavyNodes.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="font-medium flex items-center gap-2">
+                        <Globe className="h-4 w-4" />
+                        API-Heavy Nodes ({analysis.cost.apiHeavyNodes.length})
+                      </h4>
+                      <div className="flex flex-wrap gap-1">
+                        {analysis.cost.apiHeavyNodes.map((node, i) => (
+                          <Badge key={i} variant="outline">{node}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {analysis.cost.llmNodes.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="font-medium flex items-center gap-2 text-yellow-600">
+                        <DollarSign className="h-4 w-4" />
+                        LLM/AI Nodes ({analysis.cost.llmNodes.length})
+                      </h4>
+                      <div className="flex flex-wrap gap-1">
+                        {analysis.cost.llmNodes.map((node, i) => (
+                          <Badge key={i} variant="warning">{node}</Badge>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        LLM nodes can be expensive - monitor usage closely
+                      </p>
+                    </div>
+                  )}
+                </div>
+                {analysis.cost.costAmplifiers.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-yellow-600">Cost Amplifiers</h4>
+                    <IssueList issues={analysis.cost.costAmplifiers} type="warning" />
+                  </div>
+                )}
+                {analysis.cost.throttlingCandidates.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Throttling Candidates</h4>
+                    <IssueList issues={analysis.cost.throttlingCandidates} type="info" />
+                  </div>
+                )}
+                <RecommendationList recommendations={analysis.cost.recommendations} />
+              </CardContent>
+            )}
+          </Card>
+
+          {/* Maintainability Section - Collapsible */}
+          <Card>
+            <CardHeader
+              className="cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => setExpandedSections(prev => ({ ...prev, maintainability: !prev.maintainability }))}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Wrench className="h-5 w-5" />
+                  Maintainability
+                  <ScoreBadge score={analysis.maintainability.score} level={analysis.maintainability.level} />
+                </CardTitle>
+                {expandedSections.maintainability ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+              <CardDescription>Naming consistency, documentation, and readability analysis</CardDescription>
+            </CardHeader>
+            {expandedSections.maintainability && (
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="text-2xl font-bold">{analysis.maintainability.namingConsistency}%</div>
+                    <div className="text-sm text-muted-foreground">Naming Consistency</div>
+                  </div>
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="text-2xl font-bold">{analysis.maintainability.logicalGroupingScore}%</div>
+                    <div className="text-sm text-muted-foreground">Logical Grouping</div>
+                  </div>
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="text-2xl font-bold">{analysis.maintainability.readabilityScore}%</div>
+                    <div className="text-sm text-muted-foreground">Readability Score</div>
+                  </div>
+                </div>
+                {analysis.maintainability.missingDescriptions.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-yellow-600">Missing Descriptions</h4>
+                    <IssueList issues={analysis.maintainability.missingDescriptions} type="warning" />
+                  </div>
+                )}
+                {analysis.maintainability.missingAnnotations.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Nodes with Default/Generic Names</h4>
+                    <div className="flex flex-wrap gap-1">
+                      {analysis.maintainability.missingAnnotations.slice(0, 10).map((node, i) => (
+                        <Badge key={i} variant="outline">{node}</Badge>
+                      ))}
+                      {analysis.maintainability.missingAnnotations.length > 10 && (
+                        <Badge variant="secondary">+{analysis.maintainability.missingAnnotations.length - 10} more</Badge>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {analysis.maintainability.nodeReuseOpportunities.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Node Reuse Opportunities</h4>
+                    <IssueList issues={analysis.maintainability.nodeReuseOpportunities} type="info" />
+                  </div>
+                )}
+                <RecommendationList recommendations={analysis.maintainability.recommendations} />
+              </CardContent>
+            )}
+          </Card>
+
+          {/* Security Section - Collapsible */}
+          <Card>
+            <CardHeader
+              className="cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => setExpandedSections(prev => ({ ...prev, security: !prev.security }))}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Lock className="h-5 w-5" />
+                  Security
+                  <ScoreBadge score={analysis.security.score} level={analysis.security.level} />
+                </CardTitle>
+                {expandedSections.security ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+              <CardDescription>Credential usage, hardcoded secrets, and security risks</CardDescription>
+            </CardHeader>
+            {expandedSections.security && (
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="text-2xl font-bold">{analysis.security.credentialCount}</div>
+                    <div className="text-sm text-muted-foreground">Total Credentials Used</div>
+                  </div>
+                  <div className="p-4 rounded-lg bg-muted">
+                    <div className="text-2xl font-bold">{analysis.security.credentialTypes.length}</div>
+                    <div className="text-sm text-muted-foreground">Unique Credential Types</div>
+                  </div>
+                </div>
+                {analysis.security.credentialTypes.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Credential Types</h4>
+                    <div className="flex flex-wrap gap-1">
+                      {analysis.security.credentialTypes.map((type, i) => (
+                        <Badge key={i} variant="secondary" className="flex items-center gap-1">
+                          <Lock className="h-3 w-3" />
+                          {type}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {analysis.security.hardcodedSecretSignals.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-red-600">Hardcoded Secret Signals</h4>
+                    <IssueList issues={analysis.security.hardcodedSecretSignals} type="error" />
+                  </div>
+                )}
+                {analysis.security.overPrivilegedRisks.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-yellow-600">Over-Privileged Risks</h4>
+                    <IssueList issues={analysis.security.overPrivilegedRisks} type="warning" />
+                  </div>
+                )}
+                {analysis.security.secretReuseRisks.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Secret Reuse (Blast Radius)</h4>
+                    <IssueList issues={analysis.security.secretReuseRisks} type="info" />
+                  </div>
+                )}
+                <RecommendationList recommendations={analysis.security.recommendations} />
+              </CardContent>
+            )}
+          </Card>
+
+          {/* Nodes Section - Collapsible */}
+          <Card>
+            <CardHeader
+              className="cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => setExpandedSections(prev => ({ ...prev, nodes: !prev.nodes }))}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Layers className="h-5 w-5" />
+                  Nodes ({analysis.nodes.length})
+                </CardTitle>
+                {expandedSections.nodes ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
+              <CardDescription>All nodes in this workflow with their details</CardDescription>
+            </CardHeader>
+            {expandedSections.nodes && (
+              <CardContent className="space-y-6">
+                <div>
+                  <h4 className="font-medium mb-4">Nodes Used ({analysis.nodes.length})</h4>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Credentials</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {analysis.nodes.map((nodeAnalysis) => {
+                        const workflowNode = workflow?.nodes.find(n => n.id === nodeAnalysis.id);
+                        if (!workflowNode) return null;
+                        return (
+                          <TableRow
+                            key={nodeAnalysis.id}
+                            className="cursor-pointer hover:bg-muted/50"
+                            onClick={() => setSelectedNode(workflowNode)}
+                          >
+                            <TableCell className="font-medium">
+                              {nodeAnalysis.isTrigger && (
+                                <Badge variant="success" className="mr-2 text-xs">Trigger</Badge>
+                              )}
+                              {nodeAnalysis.name}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="secondary" className="text-xs">
+                                {formatNodeType(nodeAnalysis.type)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="capitalize text-muted-foreground">
+                              {nodeAnalysis.category}
+                            </TableCell>
+                            <TableCell>
+                              {nodeAnalysis.isCredentialed ? (
+                                <div className="flex items-center gap-1">
+                                  <Lock className="h-3 w-3 text-yellow-500" />
+                                  <span className="text-xs">Yes</span>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">None</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-medium mb-4">Node Categories</h4>
+                    <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+                      {Object.entries(
+                        analysis.nodes.reduce((acc: Record<string, number>, node) => {
+                          acc[node.category] = (acc[node.category] || 0) + 1;
+                          return acc;
+                        }, {})
+                      ).map(([category, count]) => (
+                        <div key={category} className="p-3 rounded-lg bg-muted text-center">
+                          <div className="text-2xl font-bold">{count}</div>
+                          <div className="text-xs text-muted-foreground capitalize">{category}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {triggerNodes.length > 0 && (
+                    <div>
+                      <h4 className="font-medium mb-4 flex items-center gap-2">
+                        <GitBranch className="h-4 w-4" />
+                        Triggers ({triggerNodes.length})
+                      </h4>
+                      <div className="space-y-2">
+                        {triggerNodes.map((node) => (
+                          <div key={node.id} className="flex items-center gap-2 p-2 rounded-md bg-muted">
+                            <Badge variant="outline" className="text-xs">
+                              {formatNodeType(node.type)}
+                            </Badge>
+                            <span className="text-sm">{node.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            )}
+          </Card>
+
+          {/* Recommendations Section - Collapsible */}
+          <Card>
+            <CardHeader
+              className="cursor-pointer hover:bg-muted/50 transition-colors"
+              onClick={() => setExpandedSections(prev => ({ ...prev, recommendations: !prev.recommendations }))}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Lightbulb className="h-5 w-5" />
+                  Recommendations ({filteredAndSortedRecommendations.length})
+                </CardTitle>
+                {expandedSections.recommendations ? (
+                  <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                )}
+              </div>
               <CardDescription>
                 Actionable improvements from all advisory tabs - filtered to show only items requiring action
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              {/* Filters */}
-              <div className="mb-4 flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-2">
-                  <Filter className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Filter by Category:</span>
+            {expandedSections.recommendations && (
+              <CardContent>
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Filter by Category:</span>
+                  </div>
+                  <select
+                    value={recommendationFilter}
+                    onChange={(e) => setRecommendationFilter(e.target.value)}
+                    className="px-3 py-1.5 text-sm border rounded-md bg-background"
+                  >
+                    <option value="all">All Categories</option>
+                    <option value="reliability">Reliability</option>
+                    <option value="performance">Performance</option>
+                    <option value="cost">Cost</option>
+                    <option value="security">Security</option>
+                    <option value="maintainability">Maintainability</option>
+                    <option value="governance">Governance</option>
+                    <option value="drift">Drift</option>
+                    <option value="optimization">Optimization</option>
+                  </select>
                 </div>
-                <select
-                  value={recommendationFilter}
-                  onChange={(e) => setRecommendationFilter(e.target.value)}
-                  className="px-3 py-1.5 text-sm border rounded-md bg-background"
-                >
-                  <option value="all">All Categories</option>
-                  <option value="reliability">Reliability</option>
-                  <option value="performance">Performance</option>
-                  <option value="cost">Cost</option>
-                  <option value="security">Security</option>
-                  <option value="maintainability">Maintainability</option>
-                  <option value="governance">Governance</option>
-                  <option value="drift">Drift</option>
-                  <option value="optimization">Optimization</option>
-                </select>
-              </div>
 
-              {/* Recommendations Table */}
-              {filteredAndSortedRecommendations.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[30%]">
-                        <button
-                          onClick={() => handleSort('text')}
-                          className="flex items-center gap-1 hover:text-foreground"
-                        >
-                          Recommendation
-                          <ArrowUpDown className="h-3 w-3" />
-                        </button>
-                      </TableHead>
-                      <TableHead className="w-[40%]">
-                        Description
-                      </TableHead>
-                      <TableHead>
-                        <button
-                          onClick={() => handleSort('category')}
-                          className="flex items-center gap-1 hover:text-foreground"
-                        >
-                          Category
-                          <ArrowUpDown className="h-3 w-3" />
-                        </button>
-                      </TableHead>
-                      <TableHead>
-                        <button
-                          onClick={() => handleSort('impact')}
-                          className="flex items-center gap-1 hover:text-foreground"
-                        >
-                          Impact
-                          <ArrowUpDown className="h-3 w-3" />
-                        </button>
-                      </TableHead>
-                      <TableHead>
-                        <button
-                          onClick={() => handleSort('effort')}
-                          className="flex items-center gap-1 hover:text-foreground"
-                        >
-                          Effort
-                          <ArrowUpDown className="h-3 w-3" />
-                        </button>
-                      </TableHead>
-                      <TableHead className="w-[100px]">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredAndSortedRecommendations.map((rec) => {
-                      // Map source to tab name
-                      const tabMap: Record<string, string> = {
-                        'reliability': 'reliability',
-                        'performance': 'performance',
-                        'cost': 'cost',
-                        'security': 'security',
-                        'maintainability': 'maintainability',
-                        'governance': 'governance',
-                        'drift': 'drift',
-                        'optimization': 'optimize',
-                      };
-                      
-                      const targetTab = tabMap[rec.source] || rec.source;
-                      
-                      return (
+                {filteredAndSortedRecommendations.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[30%]">
+                          <button
+                            onClick={() => handleSort('text')}
+                            className="flex items-center gap-1 hover:text-foreground"
+                          >
+                            Recommendation
+                            <ArrowUpDown className="h-3 w-3" />
+                          </button>
+                        </TableHead>
+                        <TableHead className="w-[40%]">Description</TableHead>
+                        <TableHead>
+                          <button
+                            onClick={() => handleSort('category')}
+                            className="flex items-center gap-1 hover:text-foreground"
+                          >
+                            Category
+                            <ArrowUpDown className="h-3 w-3" />
+                          </button>
+                        </TableHead>
+                        <TableHead>
+                          <button
+                            onClick={() => handleSort('impact')}
+                            className="flex items-center gap-1 hover:text-foreground"
+                          >
+                            Impact
+                            <ArrowUpDown className="h-3 w-3" />
+                          </button>
+                        </TableHead>
+                        <TableHead>
+                          <button
+                            onClick={() => handleSort('effort')}
+                            className="flex items-center gap-1 hover:text-foreground"
+                          >
+                            Effort
+                            <ArrowUpDown className="h-3 w-3" />
+                          </button>
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredAndSortedRecommendations.map((rec) => (
                         <TableRow key={rec.id}>
                           <TableCell className="font-medium">{rec.text}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {rec.description}
-                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{rec.description}</TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="capitalize">
-                              {rec.category}
-                            </Badge>
+                            <Badge variant="outline" className="capitalize">{rec.category}</Badge>
                           </TableCell>
                           <TableCell>
                             {rec.impact ? (
                               <Badge
                                 variant={
                                   rec.impact === 'high' ? 'destructive' :
-                                  rec.impact === 'medium' ? 'warning' :
-                                  'secondary'
+                                  rec.impact === 'medium' ? 'warning' : 'secondary'
                                 }
                                 className="capitalize"
                               >
@@ -1464,8 +2117,7 @@ export function WorkflowDetailPage() {
                               <Badge
                                 variant={
                                   rec.effort === 'high' ? 'destructive' :
-                                  rec.effort === 'medium' ? 'warning' :
-                                  'secondary'
+                                  rec.effort === 'medium' ? 'warning' : 'secondary'
                                 }
                                 className="capitalize"
                               >
@@ -1475,553 +2127,22 @@ export function WorkflowDetailPage() {
                               <span className="text-muted-foreground text-sm">-</span>
                             )}
                           </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setActiveTab(targetTab)}
-                              className="flex items-center gap-1 text-xs"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              View Details
-                            </Button>
-                          </TableCell>
                         </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <CheckCircle2 className="h-12 w-12 mx-auto mb-4 text-green-500" />
-                  <p>No actionable recommendations found for the selected filter.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Graph Tab - DAG Visualization */}
-        <TabsContent value="graph" className="space-y-6">
-          <WorkflowGraphTab workflow={workflow} />
-        </TabsContent>
-
-        {/* Nodes Tab */}
-        <TabsContent value="nodes" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Nodes Used ({analysis.nodes.length})</CardTitle>
-              <CardDescription>All nodes in this workflow with their details</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Credentials</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {analysis.nodes.map((nodeAnalysis) => {
-                    // Find the full workflow node
-                    const workflowNode = workflow?.nodes.find(n => n.id === nodeAnalysis.id);
-                    if (!workflowNode) return null;
-                    
-                    return (
-                      <TableRow 
-                        key={nodeAnalysis.id}
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => setSelectedNode(workflowNode)}
-                      >
-                        <TableCell className="font-medium">
-                          {nodeAnalysis.isTrigger && (
-                            <Badge variant="success" className="mr-2 text-xs">Trigger</Badge>
-                          )}
-                          {nodeAnalysis.name}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary" className="text-xs">
-                            {formatNodeType(nodeAnalysis.type)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="capitalize text-muted-foreground">
-                          {nodeAnalysis.category}
-                        </TableCell>
-                        <TableCell>
-                          {nodeAnalysis.isCredentialed ? (
-                            <div className="flex items-center gap-1">
-                              <Lock className="h-3 w-3 text-yellow-500" />
-                              <span className="text-xs">Yes</span>
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">None</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-          {/* Node Categories Summary */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Node Categories</CardTitle>
-              <CardDescription>Distribution of node types in this workflow</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
-                {Object.entries(
-                  analysis.nodes.reduce((acc: Record<string, number>, node) => {
-                    acc[node.category] = (acc[node.category] || 0) + 1;
-                    return acc;
-                  }, {})
-                ).map(([category, count]) => (
-                  <div key={category} className="p-3 rounded-lg bg-muted text-center">
-                    <div className="text-2xl font-bold">{count}</div>
-                    <div className="text-xs text-muted-foreground capitalize">{category}</div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Triggers */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <GitBranch className="h-4 w-4" />
-                Triggers ({triggerNodes.length})
-              </CardTitle>
-              <CardDescription>How this workflow gets executed</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {triggerNodes.length > 0 ? (
-                <div className="space-y-2">
-                  {triggerNodes.map((node) => (
-                    <div key={node.id} className="flex items-center gap-2 p-2 rounded-md bg-muted">
-                      <Badge variant="outline" className="text-xs">
-                        {formatNodeType(node.type)}
-                      </Badge>
-                      <span className="text-sm">{node.name}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No trigger nodes found. This workflow needs to be executed manually.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Structure / Graph Assessment Tab */}
-        <TabsContent value="structure" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Structural / Graph Assessment</span>
-                <ScoreBadge score={analysis.graph.complexityScore} level={analysis.graph.complexityLevel} />
-              </CardTitle>
-              <CardDescription>Workflow graph structure and complexity analysis</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.graph.nodeCount}</div>
-                  <div className="text-sm text-muted-foreground">Total Nodes</div>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.graph.edgeCount}</div>
-                  <div className="text-sm text-muted-foreground">Connections</div>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.graph.maxDepth}</div>
-                  <div className="text-sm text-muted-foreground">Max Depth</div>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.graph.maxBranching}</div>
-                  <div className="text-sm text-muted-foreground">Max Branching</div>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <h4 className="font-medium">Flow Patterns</h4>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      {analysis.graph.isLinear ? (
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <Info className="h-4 w-4 text-blue-500" />
-                      )}
-                      <span className="text-sm">Linear Flow: {analysis.graph.isLinear ? 'Yes' : 'No'}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {analysis.graph.hasFanOut ? (
-                        <Info className="h-4 w-4 text-blue-500" />
-                      ) : (
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      )}
-                      <span className="text-sm">Fan-out Pattern: {analysis.graph.hasFanOut ? 'Yes' : 'No'}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {analysis.graph.hasFanIn ? (
-                        <Info className="h-4 w-4 text-blue-500" />
-                      ) : (
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      )}
-                      <span className="text-sm">Fan-in Pattern: {analysis.graph.hasFanIn ? 'Yes' : 'No'}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {analysis.graph.hasCycles ? (
-                        <AlertCircle className="h-4 w-4 text-yellow-500" />
-                      ) : (
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      )}
-                      <span className="text-sm">Cycles Detected: {analysis.graph.hasCycles ? 'Yes' : 'No'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h4 className="font-medium">Entry/Exit Points</h4>
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <PlayCircle className="h-4 w-4 text-green-500" />
-                      <span className="text-sm">Trigger Nodes: {analysis.graph.triggerCount}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Box className="h-4 w-4 text-blue-500" />
-                      <span className="text-sm">Sink Nodes: {analysis.graph.sinkCount}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-lg border">
-                <h4 className="font-medium mb-2">Complexity Analysis</h4>
-                <p className="text-sm text-muted-foreground">
-                  This workflow has a complexity score of <strong>{analysis.graph.complexityScore}/100</strong> ({analysis.graph.complexityLevel}).
-                  {analysis.graph.complexityLevel === 'simple' && ' The workflow is straightforward with minimal branching.'}
-                  {analysis.graph.complexityLevel === 'moderate' && ' The workflow has some branching but is manageable.'}
-                  {analysis.graph.complexityLevel === 'complex' && ' Consider breaking this workflow into smaller sub-workflows.'}
-                  {analysis.graph.complexityLevel === 'very-complex' && ' This workflow should be refactored into smaller, more manageable pieces.'}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Reliability Tab */}
-        <TabsContent value="reliability" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Reliability & Failure Assessment</span>
-                <ScoreBadge score={analysis.reliability.score} level={analysis.reliability.level} />
-              </CardTitle>
-              <CardDescription>Error handling, retry patterns, and failure risk analysis</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.reliability.continueOnFailCount}</div>
-                  <div className="text-sm text-muted-foreground">Continue-on-Fail Nodes</div>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.reliability.errorHandlingNodes}</div>
-                  <div className="text-sm text-muted-foreground">Error Handling Nodes</div>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.reliability.retryNodes}</div>
-                  <div className="text-sm text-muted-foreground">Retry-Enabled Nodes</div>
-                </div>
-              </div>
-
-              {analysis.reliability.missingErrorHandling.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium text-yellow-600">Missing Error Handling</h4>
-                  <IssueList issues={analysis.reliability.missingErrorHandling} type="warning" />
-                </div>
-              )}
-
-              {analysis.reliability.failureHotspots.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium">Failure Hotspots</h4>
-                  <p className="text-sm text-muted-foreground mb-2">
-                    These nodes are most likely to fail and should have proper error handling:
-                  </p>
-                  <IssueList issues={analysis.reliability.failureHotspots} type="info" />
-                </div>
-              )}
-
-              <RecommendationList recommendations={analysis.reliability.recommendations} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Performance Tab */}
-        <TabsContent value="performance" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Performance & Efficiency Assessment</span>
-                <ScoreBadge score={analysis.performance.score} level={analysis.performance.level} />
-              </CardTitle>
-              <CardDescription>Execution duration, parallelism, and bottleneck analysis</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="flex items-center gap-2">
-                    {analysis.performance.hasParallelism ? (
-                      <CheckCircle2 className="h-5 w-5 text-green-500" />
-                    ) : (
-                      <AlertCircle className="h-5 w-5 text-yellow-500" />
-                    )}
-                    <span className="font-medium">Parallelism</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {analysis.performance.hasParallelism
-                      ? 'Workflow utilizes parallel execution paths'
-                      : 'Workflow runs sequentially - consider parallelizing'}
-                  </p>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold capitalize">{analysis.performance.estimatedComplexity}</div>
-                  <div className="text-sm text-muted-foreground">Estimated Execution Load</div>
-                </div>
-              </div>
-
-              {analysis.performance.sequentialBottlenecks.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium text-yellow-600">Sequential Bottlenecks</h4>
-                  <IssueList issues={analysis.performance.sequentialBottlenecks} type="warning" />
-                </div>
-              )}
-
-              {analysis.performance.redundantCalls.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium text-red-600">Redundant Calls Detected</h4>
-                  <IssueList issues={analysis.performance.redundantCalls} type="error" />
-                </div>
-              )}
-
-              {analysis.performance.largePayloadRisks.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium">Large Payload Risks</h4>
-                  <IssueList issues={analysis.performance.largePayloadRisks} type="info" />
-                </div>
-              )}
-
-              <RecommendationList recommendations={analysis.performance.recommendations} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Cost Tab */}
-        <TabsContent value="cost" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Cost & Usage Assessment</span>
-                <Badge
-                  variant={
-                    analysis.cost.level === 'low' ? 'success' :
-                    analysis.cost.level === 'medium' ? 'default' :
-                    analysis.cost.level === 'high' ? 'warning' : 'destructive'
-                  }
-                  className="text-sm font-medium"
-                >
-                  {analysis.cost.level.toUpperCase()} COST
-                </Badge>
-              </CardTitle>
-              <CardDescription>API usage, LLM costs, and execution frequency analysis</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="p-4 rounded-lg bg-muted">
-                <div className="text-sm font-medium text-muted-foreground">Trigger Frequency</div>
-                <div className="text-lg font-medium mt-1">{analysis.cost.triggerFrequency}</div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                {analysis.cost.apiHeavyNodes.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="font-medium flex items-center gap-2">
-                      <Globe className="h-4 w-4" />
-                      API-Heavy Nodes ({analysis.cost.apiHeavyNodes.length})
-                    </h4>
-                    <div className="flex flex-wrap gap-1">
-                      {analysis.cost.apiHeavyNodes.map((node, i) => (
-                        <Badge key={i} variant="outline">{node}</Badge>
                       ))}
-                    </div>
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <CheckCircle2 className="h-12 w-12 mx-auto mb-4 text-green-500" />
+                    <p>No actionable recommendations found for the selected filter.</p>
                   </div>
                 )}
-
-                {analysis.cost.llmNodes.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="font-medium flex items-center gap-2 text-yellow-600">
-                      <DollarSign className="h-4 w-4" />
-                      LLM/AI Nodes ({analysis.cost.llmNodes.length})
-                    </h4>
-                    <div className="flex flex-wrap gap-1">
-                      {analysis.cost.llmNodes.map((node, i) => (
-                        <Badge key={i} variant="warning">{node}</Badge>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      LLM nodes can be expensive - monitor usage closely
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {analysis.cost.costAmplifiers.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium text-yellow-600">Cost Amplifiers</h4>
-                  <IssueList issues={analysis.cost.costAmplifiers} type="warning" />
-                </div>
-              )}
-
-              {analysis.cost.throttlingCandidates.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium">Throttling Candidates</h4>
-                  <IssueList issues={analysis.cost.throttlingCandidates} type="info" />
-                </div>
-              )}
-
-              <RecommendationList recommendations={analysis.cost.recommendations} />
-            </CardContent>
+              </CardContent>
+            )}
           </Card>
         </TabsContent>
 
-        {/* Security Tab */}
-        <TabsContent value="security" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Security & Secrets Assessment</span>
-                <ScoreBadge score={analysis.security.score} level={analysis.security.level} />
-              </CardTitle>
-              <CardDescription>Credential usage, hardcoded secrets, and security risks</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.security.credentialCount}</div>
-                  <div className="text-sm text-muted-foreground">Total Credentials Used</div>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.security.credentialTypes.length}</div>
-                  <div className="text-sm text-muted-foreground">Unique Credential Types</div>
-                </div>
-              </div>
-
-              {analysis.security.credentialTypes.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium">Credential Types</h4>
-                  <div className="flex flex-wrap gap-1">
-                    {analysis.security.credentialTypes.map((type, i) => (
-                      <Badge key={i} variant="secondary" className="flex items-center gap-1">
-                        <Lock className="h-3 w-3" />
-                        {type}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {analysis.security.hardcodedSecretSignals.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium text-red-600">Hardcoded Secret Signals</h4>
-                  <IssueList issues={analysis.security.hardcodedSecretSignals} type="error" />
-                </div>
-              )}
-
-              {analysis.security.overPrivilegedRisks.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium text-yellow-600">Over-Privileged Risks</h4>
-                  <IssueList issues={analysis.security.overPrivilegedRisks} type="warning" />
-                </div>
-              )}
-
-              {analysis.security.secretReuseRisks.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium">Secret Reuse (Blast Radius)</h4>
-                  <IssueList issues={analysis.security.secretReuseRisks} type="info" />
-                </div>
-              )}
-
-              <RecommendationList recommendations={analysis.security.recommendations} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Maintainability Tab */}
-        <TabsContent value="maintainability" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span>Maintainability Assessment</span>
-                <ScoreBadge score={analysis.maintainability.score} level={analysis.maintainability.level} />
-              </CardTitle>
-              <CardDescription>Naming consistency, documentation, and readability analysis</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.maintainability.namingConsistency}%</div>
-                  <div className="text-sm text-muted-foreground">Naming Consistency</div>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.maintainability.logicalGroupingScore}%</div>
-                  <div className="text-sm text-muted-foreground">Logical Grouping</div>
-                </div>
-                <div className="p-4 rounded-lg bg-muted">
-                  <div className="text-2xl font-bold">{analysis.maintainability.readabilityScore}%</div>
-                  <div className="text-sm text-muted-foreground">Readability Score</div>
-                </div>
-              </div>
-
-              {analysis.maintainability.missingDescriptions.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium text-yellow-600">Missing Descriptions</h4>
-                  <IssueList issues={analysis.maintainability.missingDescriptions} type="warning" />
-                </div>
-              )}
-
-              {analysis.maintainability.missingAnnotations.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium">Nodes with Default/Generic Names</h4>
-                  <div className="flex flex-wrap gap-1">
-                    {analysis.maintainability.missingAnnotations.slice(0, 10).map((node, i) => (
-                      <Badge key={i} variant="outline">{node}</Badge>
-                    ))}
-                    {analysis.maintainability.missingAnnotations.length > 10 && (
-                      <Badge variant="secondary">+{analysis.maintainability.missingAnnotations.length - 10} more</Badge>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {analysis.maintainability.nodeReuseOpportunities.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-medium">Node Reuse Opportunities</h4>
-                  <IssueList issues={analysis.maintainability.nodeReuseOpportunities} type="info" />
-                </div>
-              )}
-
-              <RecommendationList recommendations={analysis.maintainability.recommendations} />
-            </CardContent>
-          </Card>
-        </TabsContent>
+        {/* Old tabs removed - now consolidated in Analysis tab */}
 
         {/* Governance Tab */}
         <TabsContent value="governance" className="space-y-6">
@@ -2275,67 +2396,12 @@ export function WorkflowDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* Optimization Tab */}
-        <TabsContent value="optimize" className="space-y-6">
+        {/* History Tab */}
+        <TabsContent value="history" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Optimization Opportunities</CardTitle>
-              <CardDescription>Ranked recommendations for improving this workflow</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {analysis.optimizations.length > 0 ? (
-                <div className="space-y-4">
-                  {analysis.optimizations.map((opt, i) => (
-                    <div
-                      key={i}
-                      className={`p-4 rounded-lg border ${
-                        opt.impact === 'high' ? 'border-red-200 bg-red-50 dark:bg-red-950/20' :
-                        opt.impact === 'medium' ? 'border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20' :
-                        'border-gray-200 bg-gray-50 dark:bg-gray-800/20'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            variant={
-                              opt.impact === 'high' ? 'destructive' :
-                              opt.impact === 'medium' ? 'warning' : 'secondary'
-                            }
-                          >
-                            {opt.impact.toUpperCase()}
-                          </Badge>
-                          <h4 className="font-medium">{opt.title}</h4>
-                        </div>
-                        <Badge variant="outline" className="capitalize">{opt.category.replace('-', ' ')}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-2">{opt.description}</p>
-                      <div className="flex gap-4 mt-3 text-xs">
-                        <span className="text-muted-foreground">
-                          <strong>Impact:</strong> {opt.impact}
-                        </span>
-                        <span className="text-muted-foreground">
-                          <strong>Effort:</strong> {opt.effort}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <CheckCircle2 className="h-12 w-12 mx-auto mb-4 text-green-500" />
-                  <p>No optimization opportunities detected. This workflow looks well-optimized!</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Versions Tab */}
-        <TabsContent value="versions" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Version History</CardTitle>
-              <CardDescription>Track changes and workflow versions over time</CardDescription>
+              <CardTitle>History</CardTitle>
+              <CardDescription>Change intelligence, version timeline, and semantic diffs</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
@@ -2455,8 +2521,8 @@ export function WorkflowDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* JSON Tab */}
-        <TabsContent value="json" className="space-y-6">
+        {/* Source Tab */}
+        <TabsContent value="source" className="space-y-6">
           <JsonViewerTab workflow={workflow} />
         </TabsContent>
       </Tabs>

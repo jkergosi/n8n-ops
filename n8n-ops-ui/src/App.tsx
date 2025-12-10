@@ -13,10 +13,10 @@ import { EnvironmentsPage } from '@/pages/EnvironmentsPage';
 import { WorkflowsPage } from '@/pages/WorkflowsPage';
 import { WorkflowDetailPage } from '@/pages/WorkflowDetailPage';
 import { ExecutionsPage } from '@/pages/ExecutionsPage';
-import { TagsPage } from '@/pages/TagsPage';
 import { SnapshotsPage } from '@/pages/SnapshotsPage';
 import { DeploymentsPage } from '@/pages/DeploymentsPage';
 import { ObservabilityPage } from '@/pages/ObservabilityPage';
+import { DriftPage } from '@/pages/DriftPage';
 import { TeamPage } from '@/pages/TeamPage';
 import { BillingPage } from '@/pages/BillingPage';
 import { N8NUsersPage } from '@/pages/N8NUsersPage';
@@ -34,6 +34,8 @@ import {
   SettingsPage,
 } from '@/pages/admin';
 import { useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
+import { canAccessRoute, mapBackendRoleToFrontendRole } from '@/lib/permissions';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -77,6 +79,48 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Role Protected Route Component - checks role permissions and redirects to dashboard if unauthorized
+function RoleProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user) {
+      const userRole = mapBackendRoleToFrontendRole(user.role);
+      const pathname = location.pathname;
+      
+      // Check if user can access this route
+      if (!canAccessRoute(pathname, userRole)) {
+        // Redirect to dashboard if unauthorized
+        navigate('/', { replace: true });
+      }
+    }
+  }, [user, location.pathname, navigate]);
+
+  // If no user, let ProtectedRoute handle it
+  if (!user) {
+    return <>{children}</>;
+  }
+
+  const userRole = mapBackendRoleToFrontendRole(user.role);
+  const canAccess = canAccessRoute(location.pathname, userRole);
+
+  if (!canAccess) {
+    // Show loading while redirecting
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]"></div>
+          <p className="mt-4 text-muted-foreground">Redirecting...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="n8n-ops-theme">
@@ -101,31 +145,31 @@ function App() {
                   </ProtectedRoute>
                 }
               >
-                <Route path="/" element={<DashboardPage />} />
-                <Route path="/environments" element={<EnvironmentsPage />} />
-                <Route path="/environments/new" element={<EnvironmentSetupPage />} />
-                <Route path="/environments/:id/edit" element={<EnvironmentSetupPage />} />
-                <Route path="/environments/:id/restore" element={<RestorePage />} />
-                <Route path="/workflows" element={<WorkflowsPage />} />
-                <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
-                <Route path="/executions" element={<ExecutionsPage />} />
-                <Route path="/tags" element={<TagsPage />} />
-                <Route path="/snapshots" element={<SnapshotsPage />} />
-                <Route path="/deployments" element={<DeploymentsPage />} />
-                <Route path="/observability" element={<ObservabilityPage />} />
-                <Route path="/n8n-users" element={<N8NUsersPage />} />
-                <Route path="/credentials" element={<CredentialsPage />} />
-                <Route path="/team" element={<TeamPage />} />
-                <Route path="/billing" element={<BillingPage />} />
-                <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/" element={<RoleProtectedRoute><DashboardPage /></RoleProtectedRoute>} />
+                <Route path="/environments" element={<RoleProtectedRoute><EnvironmentsPage /></RoleProtectedRoute>} />
+                <Route path="/environments/new" element={<RoleProtectedRoute><EnvironmentSetupPage /></RoleProtectedRoute>} />
+                <Route path="/environments/:id/edit" element={<RoleProtectedRoute><EnvironmentSetupPage /></RoleProtectedRoute>} />
+                <Route path="/environments/:id/restore" element={<RoleProtectedRoute><RestorePage /></RoleProtectedRoute>} />
+                <Route path="/workflows" element={<RoleProtectedRoute><WorkflowsPage /></RoleProtectedRoute>} />
+                <Route path="/workflows/:id" element={<RoleProtectedRoute><WorkflowDetailPage /></RoleProtectedRoute>} />
+                <Route path="/executions" element={<RoleProtectedRoute><ExecutionsPage /></RoleProtectedRoute>} />
+                <Route path="/snapshots" element={<RoleProtectedRoute><SnapshotsPage /></RoleProtectedRoute>} />
+                <Route path="/deployments" element={<RoleProtectedRoute><DeploymentsPage /></RoleProtectedRoute>} />
+                <Route path="/drift" element={<RoleProtectedRoute><DriftPage /></RoleProtectedRoute>} />
+                <Route path="/observability" element={<RoleProtectedRoute><ObservabilityPage /></RoleProtectedRoute>} />
+                <Route path="/n8n-users" element={<RoleProtectedRoute><N8NUsersPage /></RoleProtectedRoute>} />
+                <Route path="/credentials" element={<RoleProtectedRoute><CredentialsPage /></RoleProtectedRoute>} />
+                <Route path="/team" element={<RoleProtectedRoute><TeamPage /></RoleProtectedRoute>} />
+                <Route path="/billing" element={<RoleProtectedRoute><BillingPage /></RoleProtectedRoute>} />
+                <Route path="/profile" element={<RoleProtectedRoute><ProfilePage /></RoleProtectedRoute>} />
                 {/* Admin Routes */}
-                <Route path="/admin/tenants" element={<TenantsPage />} />
-                <Route path="/admin/billing" element={<SystemBillingPage />} />
-                <Route path="/admin/performance" element={<PerformancePage />} />
-                <Route path="/admin/audit-logs" element={<AuditLogsPage />} />
-                <Route path="/admin/notifications" element={<NotificationsPage />} />
-                <Route path="/admin/security" element={<SecurityPage />} />
-                <Route path="/admin/settings" element={<SettingsPage />} />
+                <Route path="/admin/tenants" element={<RoleProtectedRoute><TenantsPage /></RoleProtectedRoute>} />
+                <Route path="/admin/billing" element={<RoleProtectedRoute><SystemBillingPage /></RoleProtectedRoute>} />
+                <Route path="/admin/performance" element={<RoleProtectedRoute><PerformancePage /></RoleProtectedRoute>} />
+                <Route path="/admin/audit-logs" element={<RoleProtectedRoute><AuditLogsPage /></RoleProtectedRoute>} />
+                <Route path="/admin/notifications" element={<RoleProtectedRoute><NotificationsPage /></RoleProtectedRoute>} />
+                <Route path="/admin/security" element={<RoleProtectedRoute><SecurityPage /></RoleProtectedRoute>} />
+                <Route path="/admin/settings" element={<RoleProtectedRoute><SettingsPage /></RoleProtectedRoute>} />
               </Route>
               </Routes>
             </BrowserRouter>

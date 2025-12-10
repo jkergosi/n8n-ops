@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
+import { mapBackendRoleToFrontendRole } from '@/lib/permissions';
 import { UserCircle, Save, Mail, User, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -20,7 +21,9 @@ export function ProfilePage() {
     role: user?.role || 'viewer' as 'admin' | 'developer' | 'viewer',
   });
   
-  const isAdmin = user?.role === 'admin';
+  // Check if current user is admin (using frontend role mapping)
+  const currentUserRole = user ? mapBackendRoleToFrontendRole(user.role) : 'user';
+  const isAdmin = currentUserRole === 'admin' || currentUserRole === 'superuser';
 
   // Update form data when user changes
   useEffect(() => {
@@ -105,17 +108,6 @@ export function ProfilePage() {
         <CardContent className="space-y-6">
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="user-id">User ID</Label>
-              <Input
-                id="user-id"
-                value={user.id}
-                disabled
-                className="bg-muted"
-              />
-              <p className="text-xs text-muted-foreground">Your unique user identifier</p>
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="name">
                 <User className="h-4 w-4 inline mr-1" />
                 Name
@@ -161,39 +153,41 @@ export function ProfilePage() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="role">
-                <Shield className="h-4 w-4 inline mr-1" />
-                Role
-              </Label>
-              {isEditing && isAdmin ? (
-                <select
-                  id="role"
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'developer' | 'viewer' })}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="admin">Admin</option>
-                  <option value="developer">Developer</option>
-                  <option value="viewer">Viewer</option>
-                </select>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Input
+            {isAdmin && (
+              <div className="space-y-2">
+                <Label htmlFor="role">
+                  <Shield className="h-4 w-4 inline mr-1" />
+                  Role
+                </Label>
+                {isEditing ? (
+                  <select
                     id="role"
-                    value={user.role}
-                    disabled
-                    className="bg-muted"
-                  />
-                  <Badge variant="secondary" className="capitalize">
-                    {user.role}
-                  </Badge>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {isAdmin ? 'Only administrators can change roles' : 'Role is managed by administrators'}
-              </p>
-            </div>
+                    value={formData.role}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'developer' | 'viewer' })}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="developer">Developer</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="role"
+                      value={user.role}
+                      disabled
+                      className="bg-muted"
+                    />
+                    <Badge variant="secondary" className="capitalize">
+                      {user.role}
+                    </Badge>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Only administrators can view and change roles
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2 pt-4 border-t">

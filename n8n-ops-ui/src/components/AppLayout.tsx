@@ -1,3 +1,4 @@
+import React from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { useAppStore } from '@/store/use-app-store';
@@ -56,10 +57,15 @@ import {
   Bug,
   Palette,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  GitCompare,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { isMenuItemVisible, mapBackendRoleToFrontendRole, type Role } from '@/lib/permissions';
 
 interface NavItem {
+  id: string;
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -77,28 +83,42 @@ const navigationSections: NavSection[] = [
   {
     title: 'N8N Ops',
     items: [
-      { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-      { name: 'Environments', href: '/environments', icon: Server },
-      { name: 'Workflows', href: '/workflows', icon: Workflow },
-      { name: 'Executions', href: '/executions', icon: ListChecks },
-      { name: 'Tags', href: '/tags', icon: Tag },
-      { name: 'Snapshots', href: '/snapshots', icon: Camera },
-      { name: 'Deployments', href: '/deployments', icon: Rocket, requiredPlan: 'pro', feature: 'environment_promotion' },
-      { name: 'Observability', href: '/observability', icon: Activity, requiredPlan: 'pro', feature: 'execution_metrics' },
-      { name: 'N8N Users', href: '/n8n-users', icon: UserCog },
-      { name: 'Credentials', href: '/credentials', icon: Key },
+      { id: 'dashboard', name: 'Dashboard', href: '/', icon: LayoutDashboard },
+      { id: 'environments', name: 'Environments', href: '/environments', icon: Server },
+      { id: 'workflows', name: 'Workflows', href: '/workflows', icon: Workflow },
+      { id: 'executions', name: 'Executions', href: '/executions', icon: ListChecks },
+    ],
+  },
+  {
+    title: 'Operations',
+    items: [
+      { id: 'deployments', name: 'Deployments', href: '/deployments', icon: Rocket, requiredPlan: 'pro', feature: 'environment_promotion' },
+      { id: 'snapshots', name: 'Snapshots', href: '/snapshots', icon: Camera },
+      { id: 'drift', name: 'Drift', href: '/drift', icon: GitCompare },
+    ],
+  },
+  {
+    title: 'Observability',
+    items: [
+      { id: 'observability', name: 'Observability', href: '/observability', icon: Activity, requiredPlan: 'pro', feature: 'execution_metrics' },
+      { id: 'alerts', name: 'Alerts', href: '/admin/notifications', icon: Bell, requiredPlan: 'pro', feature: 'alerting' },
+    ],
+  },
+  {
+    title: 'Identity & Secrets',
+    items: [
+      { id: 'credentials', name: 'Credentials', href: '/credentials', icon: Key },
+      { id: 'users', name: 'n8n Users', href: '/n8n-users', icon: UserCog },
     ],
   },
   {
     title: 'Admin',
     items: [
-      { name: 'Tenants', href: '/admin/tenants', icon: Building2, requiredPlan: 'enterprise' },
-      { name: 'System Billing', href: '/admin/billing', icon: CreditCard, requiredPlan: 'enterprise' },
-      { name: 'Performance', href: '/admin/performance', icon: BarChart3, requiredPlan: 'enterprise' },
-      { name: 'Audit Logs', href: '/admin/audit-logs', icon: FileText, requiredPlan: 'pro', feature: 'audit_logs' },
-      { name: 'Notifications', href: '/admin/notifications', icon: Bell, requiredPlan: 'pro', feature: 'alerting' },
-      { name: 'Security', href: '/admin/security', icon: Shield, requiredPlan: 'enterprise', feature: 'sso_scim' },
-      { name: 'Settings', href: '/admin/settings', icon: Settings },
+      { id: 'tenants', name: 'Tenants', href: '/admin/tenants', icon: Building2, requiredPlan: 'enterprise' },
+      { id: 'billing', name: 'Billing', href: '/admin/billing', icon: CreditCard, requiredPlan: 'enterprise' },
+      { id: 'auditLogs', name: 'Audit Logs', href: '/admin/audit-logs', icon: FileText, requiredPlan: 'pro', feature: 'audit_logs' },
+      { id: 'security', name: 'Security', href: '/admin/security', icon: Shield, requiredPlan: 'enterprise', feature: 'sso_scim' },
+      { id: 'systemSettings', name: 'System Settings', href: '/admin/settings', icon: Settings },
     ],
   },
 ];
@@ -110,11 +130,33 @@ export function AppLayout() {
   const { sidebarOpen, toggleSidebar } = useAppStore();
   const { canUseFeature, planName } = useFeatures();
   const { theme, setTheme } = useTheme();
+  
+  // State for collapsible sections - default all sections to expanded
+  const [expandedSections, setExpandedSections] = React.useState<Record<string, boolean>>(() => {
+    const initialState: Record<string, boolean> = {};
+    navigationSections.forEach((section) => {
+      initialState[section.title] = true; // Default to expanded
+    });
+    return initialState;
+  });
+
+  const toggleSection = (sectionTitle: string) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [sectionTitle]: !prev[sectionTitle],
+    }));
+  };
 
   const handleUserSwitch = async (userId: string) => {
     await loginAs(userId);
     // Refresh the page to reload data for new user
     window.location.reload();
+  };
+
+  // Get user's role mapped to frontend role system
+  const getUserRole = (): Role => {
+    if (!user?.role) return 'user';
+    return mapBackendRoleToFrontendRole(user.role);
   };
 
   // Check if a nav item is accessible based on plan
@@ -158,45 +200,60 @@ export function AppLayout() {
 
           {/* Navigation */}
           <nav className="flex-1 px-4 py-4 overflow-y-auto">
-            {navigationSections.map((section, sectionIndex) => (
-              <div key={section.title} className={cn(sectionIndex > 0 && 'mt-6')}>
-                <h3 className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  {section.title}
-                </h3>
-                <div className="space-y-1">
-                  {section.items.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = location.pathname === item.href;
-                    const isAvailable = isFeatureAvailable(item);
-                    return (
-                      <Link
-                        key={item.href}
-                        to={item.href}
-                        className={cn(
-                          'flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors',
-                          isActive
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-foreground/80 hover:bg-accent hover:text-accent-foreground',
-                          !isAvailable && 'opacity-60'
-                        )}
-                      >
-                        <Icon className="h-5 w-5" />
-                        <span className="flex-1">{item.name}</span>
-                        {!isAvailable && item.requiredPlan && (
-                          <span className="flex items-center">
-                            {item.requiredPlan === 'enterprise' ? (
-                              <Crown className="h-3 w-3 text-amber-500" />
-                            ) : (
-                              <Sparkles className="h-3 w-3 text-blue-500" />
-                            )}
-                          </span>
-                        )}
-                      </Link>
-                    );
-                  })}
+            {navigationSections.map((section, sectionIndex) => {
+              const isExpanded = expandedSections[section.title] ?? true;
+              return (
+                <div key={section.title} className={cn(sectionIndex > 0 && 'mt-6')}>
+                  <button
+                    onClick={() => toggleSection(section.title)}
+                    className="w-full flex items-center justify-between px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                  >
+                    <span>{section.title}</span>
+                    {isExpanded ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </button>
+                  {isExpanded && (
+                    <div className="space-y-1">
+                      {section.items
+                        .filter((item) => isMenuItemVisible(item.id, getUserRole()))
+                        .map((item) => {
+                          const Icon = item.icon;
+                          const isActive = location.pathname === item.href;
+                          const isAvailable = isFeatureAvailable(item);
+                          return (
+                            <Link
+                              key={item.href}
+                              to={item.href}
+                              className={cn(
+                                'flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors',
+                                isActive
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'text-foreground/80 hover:bg-accent hover:text-accent-foreground',
+                                !isAvailable && 'opacity-60'
+                              )}
+                            >
+                              <Icon className="h-5 w-5" />
+                              <span className="flex-1">{item.name}</span>
+                              {!isAvailable && item.requiredPlan && (
+                                <span className="flex items-center">
+                                  {item.requiredPlan === 'enterprise' ? (
+                                    <Crown className="h-3 w-3 text-amber-500" />
+                                  ) : (
+                                    <Sparkles className="h-3 w-3 text-blue-500" />
+                                  )}
+                                </span>
+                              )}
+                            </Link>
+                          );
+                        })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </nav>
 
           {/* User Info & Menu */}
@@ -234,12 +291,6 @@ export function AppLayout() {
                     <Link to="/team" className="cursor-pointer">
                       <Users className="mr-2 h-4 w-4" />
                       Team
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to="/profile/api-keys" className="cursor-pointer">
-                      <Key className="mr-2 h-4 w-4" />
-                      API Keys
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>

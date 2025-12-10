@@ -41,6 +41,7 @@ export function TeamPage() {
 
   const [editForm, setEditForm] = useState({
     name: '',
+    email: '',
     role: 'viewer' as 'admin' | 'developer' | 'viewer',
     status: 'active' as 'active' | 'pending' | 'inactive',
   });
@@ -74,14 +75,32 @@ export function TeamPage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, updates }: { id: string; updates: Partial<TeamMember> }) =>
       api.updateTeamMember(id, updates),
-    onSuccess: () => {
-      toast.success('Team member updated successfully');
+    onSuccess: (_, variables) => {
+      // Check if email was changed
+      if (variables.updates.email && variables.updates.email !== selectedMember?.email) {
+        toast.success('Email updated. Verification email sent to the new address.');
+      } else {
+        toast.success('Team member updated successfully');
+      }
       queryClient.invalidateQueries({ queryKey: ['team-members'] });
       setEditDialogOpen(false);
       setSelectedMember(null);
     },
     onError: () => {
       toast.error('Failed to update team member');
+    },
+  });
+
+  const sendEmailVerificationMutation = useMutation({
+    mutationFn: async ({ id, email }: { id: string; email: string }) => {
+      // Use resend invite endpoint for email verification
+      return api.resendInvitation(id);
+    },
+    onSuccess: () => {
+      toast.success('Verification email sent successfully');
+    },
+    onError: () => {
+      toast.error('Failed to send verification email');
     },
   });
 
@@ -134,6 +153,7 @@ export function TeamPage() {
     setSelectedMember(member);
     setEditForm({
       name: member.name,
+      email: member.email,
       role: member.role as 'admin' | 'developer' | 'viewer',
       status: member.status as 'active' | 'pending' | 'inactive',
     });
@@ -142,9 +162,29 @@ export function TeamPage() {
 
   const handleEditSubmit = () => {
     if (!selectedMember) return;
+    
+    const updates: Partial<TeamMember> = {
+      name: editForm.name,
+      role: editForm.role,
+      status: editForm.status,
+    };
+    
+    // If email changed, include it in updates (backend should handle verification)
+    if (editForm.email !== selectedMember.email) {
+      updates.email = editForm.email;
+    }
+    
     updateMutation.mutate({
       id: selectedMember.id,
-      updates: editForm,
+      updates,
+    });
+  };
+
+  const handleSendEmailVerification = () => {
+    if (!selectedMember) return;
+    sendEmailVerificationMutation.mutate({
+      id: selectedMember.id,
+      email: editForm.email,
     });
   };
 
@@ -391,6 +431,37 @@ export function TeamPage() {
                 value={editForm.name}
                 onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-email">Email Address</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="edit-email"
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                  placeholder="member@example.com"
+                  className="flex-1"
+                />
+                {editForm.email !== selectedMember?.email && editForm.email && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSendEmailVerification}
+                    disabled={sendEmailVerificationMutation.isPending}
+                  >
+                    <Mail className="h-3 w-3 mr-1" />
+                    {sendEmailVerificationMutation.isPending ? 'Sending...' : 'Send Invite'}
+                  </Button>
+                )}
+              </div>
+              {editForm.email !== selectedMember?.email && (
+                <p className="text-xs text-muted-foreground">
+                  A verification email will be sent to the new address when you save. The user will need to verify the new email before it becomes active.
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">

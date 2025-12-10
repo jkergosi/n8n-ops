@@ -43,17 +43,21 @@ export function EnvironmentsPage() {
   const [syncingEnvId, setSyncingEnvId] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
     name: string;
-    type: EnvironmentType;
+    type?: string;
     baseUrl: string;
     apiKey: string;
+    isProduction: boolean;
+    allowUpload: boolean;
     gitRepoUrl: string;
     gitBranch: string;
     gitPat: string;
   }>({
     name: '',
-    type: 'dev',
+    type: undefined,
     baseUrl: '',
     apiKey: '',
+    isProduction: false,
+    allowUpload: true,
     gitRepoUrl: '',
     gitBranch: 'main',
     gitPat: '',
@@ -208,6 +212,8 @@ export function EnvironmentsPage() {
       type: env.type,
       baseUrl: env.baseUrl,
       apiKey: env.apiKey || '',
+      isProduction: env.isProduction ?? false,
+      allowUpload: env.allowUpload ?? false,
       gitRepoUrl: env.gitRepoUrl || '',
       gitBranch: env.gitBranch || 'main',
       gitPat: env.gitPat || '',
@@ -219,9 +225,11 @@ export function EnvironmentsPage() {
     setEditingEnv(null);
     setFormData({
       name: '',
-      type: 'dev',
+      type: undefined,
       baseUrl: '',
       apiKey: '',
+      isProduction: false,
+      allowUpload: true,
       gitRepoUrl: '',
       gitBranch: 'main',
       gitPat: '',
@@ -233,9 +241,11 @@ export function EnvironmentsPage() {
     setIsAddMode(false);
     setFormData({
       name: '',
-      type: 'dev',
+      type: undefined,
       baseUrl: '',
       apiKey: '',
+      isProduction: false,
+      allowUpload: true,
       gitRepoUrl: '',
       gitBranch: 'main',
       gitPat: '',
@@ -336,6 +346,8 @@ export function EnvironmentsPage() {
         type: formData.type,
         base_url: formData.baseUrl,
         api_key: formData.apiKey,
+        is_production: formData.isProduction,
+        allow_upload: formData.allowUpload,
         git_repo_url: formData.gitRepoUrl || undefined,
         git_branch: formData.gitBranch || undefined,
         git_pat: formData.gitPat || undefined,
@@ -348,6 +360,8 @@ export function EnvironmentsPage() {
           name: formData.name,
           base_url: formData.baseUrl,
           api_key: formData.apiKey,
+          is_production: formData.isProduction,
+          allow_upload: formData.allowUpload,
           git_repo_url: formData.gitRepoUrl || undefined,
           git_branch: formData.gitBranch || undefined,
           git_pat: formData.gitPat || undefined,
@@ -551,19 +565,57 @@ export function EnvironmentsPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="type">Type</Label>
-              <select
+              <Label htmlFor="type">Type (Optional)</Label>
+              <Input
                 id="type"
-                value={formData.type}
+                value={formData.type || ''}
                 onChange={(e) =>
-                  setFormData({ ...formData, type: e.target.value as any })
+                  setFormData({ ...formData, type: e.target.value || undefined })
                 }
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <option value="dev">Development</option>
-                <option value="staging">Staging</option>
-                <option value="production">Production</option>
-              </select>
+                placeholder="e.g., dev, staging, production, qa"
+              />
+              <p className="text-xs text-muted-foreground">
+                Optional metadata for categorization and display. Not used for business logic.
+              </p>
+            </div>
+
+            {/* Business Logic Flags */}
+            <div className="space-y-3 p-4 border rounded-lg bg-muted/50">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="isProduction"
+                  checked={formData.isProduction}
+                  onChange={(e) =>
+                    setFormData({ ...formData, isProduction: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="isProduction" className="cursor-pointer">
+                  Production Environment
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground ml-6">
+                When enabled, pipeline rules will be stricter (e.g., disallow placeholder credentials, prevent overwriting hotfixes).
+              </p>
+
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="allowUpload"
+                  checked={formData.allowUpload}
+                  onChange={(e) =>
+                    setFormData({ ...formData, allowUpload: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <Label htmlFor="allowUpload" className="cursor-pointer">
+                  Allow Workflow Upload
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground ml-6">
+                When enabled, workflows can be uploaded/backed up to GitHub from this environment.
+              </p>
             </div>
 
             {/* n8n API Card */}

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials
+from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -82,6 +82,12 @@ app.include_router(
     promotions.router,
     prefix=f"{settings.API_V1_PREFIX}/promotions",
     tags=["promotions"]
+)
+
+app.include_router(
+    pipelines.router,
+    prefix=f"{settings.API_V1_PREFIX}/pipelines",
+    tags=["pipelines"]
 )
 
 app.include_router(

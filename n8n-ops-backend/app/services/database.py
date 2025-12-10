@@ -286,6 +286,23 @@ class DatabaseService:
         response = self.client.table("workflows").upsert(workflow_record, on_conflict="tenant_id,environment_id,n8n_workflow_id").execute()
         return response.data[0] if response.data else None
 
+    async def update_workflow_sync_status(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        n8n_workflow_id: str,
+        sync_status: str
+    ) -> bool:
+        """Update sync_status for a workflow"""
+        try:
+            response = self.client.table("workflows").update({
+                "sync_status": sync_status
+            }).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq("n8n_workflow_id", n8n_workflow_id).execute()
+            return len(response.data) > 0
+        except Exception as e:
+            print(f"Failed to update sync status: {str(e)}")
+            return False
+
     async def sync_workflows_from_n8n(self, tenant_id: str, environment_id: str, n8n_workflows: List[Dict[str, Any]], workflows_with_analysis: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
         """Sync workflows from N8N API to database cache (batch operation)"""
         from datetime import datetime
@@ -513,6 +530,60 @@ class DatabaseService:
                 results.append(result)
 
         return results
+
+    # Pipeline operations
+    async def get_pipelines(self, tenant_id: str) -> List[Dict[str, Any]]:
+        """Get all pipelines for a tenant"""
+        response = self.client.table("pipelines").select("*").eq("tenant_id", tenant_id).order("created_at", desc=True).execute()
+        return response.data
+
+    async def get_pipeline(self, pipeline_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific pipeline"""
+        response = self.client.table("pipelines").select("*").eq("id", pipeline_id).eq("tenant_id", tenant_id).single().execute()
+        return response.data
+
+    async def create_pipeline(self, pipeline_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new pipeline"""
+        response = self.client.table("pipelines").insert(pipeline_data).execute()
+        return response.data[0]
+
+    async def update_pipeline(self, pipeline_id: str, tenant_id: str, pipeline_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a pipeline"""
+        from datetime import datetime
+        pipeline_data["updated_at"] = datetime.utcnow().isoformat()
+        response = self.client.table("pipelines").update(pipeline_data).eq("id", pipeline_id).eq("tenant_id", tenant_id).execute()
+        return response.data[0] if response.data else None
+
+    async def delete_pipeline(self, pipeline_id: str, tenant_id: str) -> bool:
+        """Delete a pipeline (soft delete by setting is_active=false)"""
+        response = self.client.table("pipelines").update({"is_active": False}).eq("id", pipeline_id).eq("tenant_id", tenant_id).execute()
+        return True
+
+    # Promotion operations
+    async def create_promotion(self, promotion_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a promotion record"""
+        response = self.client.table("promotions").insert(promotion_data).execute()
+        return response.data[0]
+
+    async def get_promotion(self, promotion_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific promotion"""
+        response = self.client.table("promotions").select("*").eq("id", promotion_id).eq("tenant_id", tenant_id).single().execute()
+        return response.data
+
+    async def get_promotions(self, tenant_id: str, status: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get promotions for a tenant"""
+        query = self.client.table("promotions").select("*").eq("tenant_id", tenant_id)
+        if status:
+            query = query.eq("status", status)
+        response = query.order("created_at", desc=True).limit(limit).execute()
+        return response.data
+
+    async def update_promotion(self, promotion_id: str, tenant_id: str, promotion_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a promotion"""
+        from datetime import datetime
+        promotion_data["updated_at"] = datetime.utcnow().isoformat()
+        response = self.client.table("promotions").update(promotion_data).eq("id", promotion_id).eq("tenant_id", tenant_id).execute()
+        return response.data[0] if response.data else None
 
 
 # Global instance

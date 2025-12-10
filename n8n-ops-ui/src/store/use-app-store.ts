@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { EnvironmentType } from '@/types';
 
 interface AppState {
+  // selectedEnvironment can now be either an environment ID (preferred) or type string (for backward compatibility)
   selectedEnvironment: EnvironmentType;
   setSelectedEnvironment: (env: EnvironmentType) => void;
 

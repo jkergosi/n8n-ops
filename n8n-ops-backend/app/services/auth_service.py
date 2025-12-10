@@ -203,6 +203,45 @@ async def get_current_user(
     """Dependency to get the current authenticated user."""
     token = credentials.credentials
 
+    # Check for dev token (format: dev-token-{user_id})
+    if token.startswith("dev-token-"):
+        user_id = token.replace("dev-token-", "")
+        # Get user from database
+        try:
+            user_response = db_service.client.table("users").select("*, tenants(*)").eq(
+                "id", user_id
+            ).execute()
+
+            if not user_response.data or len(user_response.data) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid dev token - user not found"
+                )
+
+            user = user_response.data[0]
+            tenant = user.get("tenants")
+
+            return {
+                "user": {
+                    "id": user["id"],
+                    "email": user["email"],
+                    "name": user["name"],
+                    "role": user.get("role", "admin"),
+                },
+                "tenant": {
+                    "id": tenant["id"],
+                    "name": tenant["name"],
+                    "subscription_tier": tenant.get("subscription_tier", "free"),
+                } if tenant else None
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Dev token validation failed: {str(e)}"
+            )
+
     # Verify the token with Auth0
     auth0_payload = await auth_service.verify_token(token)
 

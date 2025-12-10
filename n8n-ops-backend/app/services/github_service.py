@@ -53,7 +53,8 @@ class GitHubService:
         workflow_id: str,
         workflow_name: str,
         workflow_data: Dict[str, Any],
-        commit_message: Optional[str] = None
+        commit_message: Optional[str] = None,
+        environment_type: Optional[str] = None
     ) -> bool:
         """Sync a workflow to GitHub repository"""
         if not self.is_configured() or not self.repo:
@@ -62,7 +63,11 @@ class GitHubService:
         try:
             # Use sanitized workflow name as filename
             sanitized_name = self._sanitize_filename(workflow_name)
-            file_path = f"workflows/{sanitized_name}.json"
+            # Use environment-specific path if provided (e.g., workflows/dev/, workflows/staging/)
+            if environment_type:
+                file_path = f"workflows/{environment_type}/{sanitized_name}.json"
+            else:
+                file_path = f"workflows/{sanitized_name}.json"
 
             # Add workflow ID comment to the data
             workflow_with_comment = {

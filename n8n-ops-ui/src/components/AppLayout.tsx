@@ -56,10 +56,10 @@ import {
   Book,
   Bug,
   Palette,
+  GitMerge,
   ChevronRight,
   ChevronDown,
   ChevronUp,
-  GitCompare,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isMenuItemVisible, mapBackendRoleToFrontendRole, type Role } from '@/lib/permissions';
@@ -92,9 +92,9 @@ const navigationSections: NavSection[] = [
   {
     title: 'Operations',
     items: [
+      { id: 'pipelines', name: 'Pipelines', href: '/pipelines', icon: GitMerge, requiredPlan: 'pro', feature: 'environment_promotion' },
       { id: 'deployments', name: 'Deployments', href: '/deployments', icon: Rocket, requiredPlan: 'pro', feature: 'environment_promotion' },
       { id: 'snapshots', name: 'Snapshots', href: '/snapshots', icon: Camera },
-      { id: 'drift', name: 'Drift', href: '/drift', icon: GitCompare },
     ],
   },
   {

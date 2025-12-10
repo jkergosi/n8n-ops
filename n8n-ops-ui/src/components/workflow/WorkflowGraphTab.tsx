@@ -17,6 +17,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Play,
   AlertTriangle,
   Key,
@@ -31,6 +37,7 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Network,
 } from 'lucide-react';
 import type { Workflow, WorkflowNode, Execution } from '@/types';
 import { apiClient } from '@/lib/api-client';
@@ -616,6 +623,7 @@ function calculateLayout(nodes: WorkflowNode[], connections: Record<string, any>
 
 export function WorkflowGraphTab({ workflow }: WorkflowGraphTabProps) {
   const [showLegend, setShowLegend] = useState(true);
+  const [showGraphModal, setShowGraphModal] = useState(false);
   const [hoveredNode, setHoveredNode] = useState<Node | null>(null);
   const [hoveredEdge, setHoveredEdge] = useState<Edge | null>(null);
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);
@@ -910,62 +918,136 @@ export function WorkflowGraphTab({ workflow }: WorkflowGraphTabProps) {
         )}
       </Card>
 
-      {/* Graph */}
-      <Card className="overflow-hidden">
-        <CardContent className="p-0">
-          <div style={{ height: '500px', width: '100%', paddingLeft: '30px', paddingRight: '30px' }} className="bg-slate-50 dark:bg-slate-900">
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onNodeClick={onNodeClick}
-              onNodeMouseEnter={onNodeMouseEnter}
-              onNodeMouseLeave={onNodeMouseLeave}
-              onNodeMouseMove={onNodeMouseMove}
-              onEdgeMouseEnter={onEdgeMouseEnter}
-              onEdgeMouseLeave={onEdgeMouseLeave}
-              onEdgeMouseMove={onEdgeMouseMove}
-              nodeTypes={nodeTypes}
-              fitView
-              fitViewOptions={{ padding: 0.2, maxZoom: 1.5 }}
-              minZoom={0.1}
-              maxZoom={2}
-              defaultEdgeOptions={{
-                type: 'smoothstep',
-              }}
-              proOptions={{ hideAttribution: true }}
-            >
-              <Background color="#94a3b8" gap={20} size={1} />
-              <Controls
-                showZoom={true}
-                showFitView={true}
-                showInteractive={false}
-              />
-              <MiniMap
-                nodeStrokeWidth={3}
-                nodeColor={(n) => {
-                  if (n.data?.isTrigger) return '#22c55e';
-                  if (n.data?.isError) return '#ef4444';
-                  if (n.data?.isBranching) return '#a855f7';
-                  if (n.data?.hasCredentials) return '#eab308';
-                  if (n.data?.category === 'ai') return '#ec4899';
-                  if (n.data?.category === 'database') return '#3b82f6';
-                  if (n.data?.category === 'api') return '#f97316';
-                  return '#64748b';
-                }}
-                maskColor="rgba(0,0,0,0.1)"
-                className="!bg-white dark:!bg-slate-800"
-              />
-            </ReactFlow>
+      {/* Graph Preview Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Network className="h-5 w-5" />
+                Workflow Graph
+              </CardTitle>
+              <CardDescription>Interactive DAG visualization of your workflow</CardDescription>
+            </div>
+            <Button onClick={() => setShowGraphModal(true)}>
+              <Maximize2 className="h-4 w-4 mr-2" />
+              View Graph
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="p-4 rounded-lg bg-muted">
+              <div className="text-2xl font-bold">{workflow.nodes.length}</div>
+              <div className="text-sm text-muted-foreground">Total Nodes</div>
+            </div>
+            <div className="p-4 rounded-lg bg-muted">
+              <div className="text-2xl font-bold">{initialEdges.length}</div>
+              <div className="text-sm text-muted-foreground">Connections</div>
+            </div>
+            <div className="p-4 rounded-lg bg-muted">
+              <div className="text-2xl font-bold">{stats.triggerCount}</div>
+              <div className="text-sm text-muted-foreground">Triggers</div>
+            </div>
+            <div className="p-4 rounded-lg bg-muted">
+              <div className="text-2xl font-bold">{stats.branchCount}</div>
+              <div className="text-sm text-muted-foreground">Branch Points</div>
+            </div>
+          </div>
+          <div className="mt-4 p-4 rounded-lg border border-dashed bg-slate-50 dark:bg-slate-900 text-center">
+            <p className="text-sm text-muted-foreground mb-2">
+              Click "View Graph" to open the interactive workflow visualization
+            </p>
+            <Button variant="outline" size="sm" onClick={() => setShowGraphModal(true)}>
+              <Maximize2 className="h-4 w-4 mr-2" />
+              Open Graph Viewer
+            </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Node Hover Tooltip */}
-      {hoveredNode && !selectedNode && (
+      {/* Graph Modal */}
+      <Dialog open={showGraphModal} onOpenChange={setShowGraphModal}>
+        <DialogContent className="max-w-[95vw] w-[95vw] h-[95vh] max-h-[95vh] p-0 gap-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <Network className="h-5 w-5" />
+              Workflow Graph - {workflow.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="relative flex-1 overflow-hidden" style={{ height: 'calc(95vh - 80px)' }}>
+            {/* Graph Container - positioned to account for side panel */}
+            <div 
+              className="absolute inset-0 bg-slate-50 dark:bg-slate-900 transition-all duration-300"
+              style={{ 
+                paddingLeft: '30px', 
+                paddingRight: selectedNode ? '0' : '30px',
+                right: selectedNode ? '384px' : '0'
+              }}
+            >
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onNodeClick={onNodeClick}
+                onNodeMouseEnter={onNodeMouseEnter}
+                onNodeMouseLeave={onNodeMouseLeave}
+                onNodeMouseMove={onNodeMouseMove}
+                onEdgeMouseEnter={onEdgeMouseEnter}
+                onEdgeMouseLeave={onEdgeMouseLeave}
+                onEdgeMouseMove={onEdgeMouseMove}
+                nodeTypes={nodeTypes}
+                fitView
+                fitViewOptions={{ padding: 0.2, maxZoom: 1.5 }}
+                minZoom={0.1}
+                maxZoom={2}
+                defaultEdgeOptions={{
+                  type: 'smoothstep',
+                }}
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background color="#94a3b8" gap={20} size={1} />
+                <Controls
+                  showZoom={true}
+                  showFitView={true}
+                  showInteractive={false}
+                />
+                <MiniMap
+                  nodeStrokeWidth={3}
+                  nodeColor={(n) => {
+                    if (n.data?.isTrigger) return '#22c55e';
+                    if (n.data?.isError) return '#ef4444';
+                    if (n.data?.isBranching) return '#a855f7';
+                    if (n.data?.hasCredentials) return '#eab308';
+                    if (n.data?.category === 'ai') return '#ec4899';
+                    if (n.data?.category === 'database') return '#3b82f6';
+                    if (n.data?.category === 'api') return '#f97316';
+                    return '#64748b';
+                  }}
+                  maskColor="rgba(0,0,0,0.1)"
+                  className="!bg-white dark:!bg-slate-800"
+                />
+              </ReactFlow>
+            </div>
+
+            {/* Node Details Panel - positioned within modal */}
+            {selectedNode && (
+              <NodeDetailsPanel
+                node={selectedNode}
+                metrics={nodeMetrics.get(selectedNode.id)}
+                executions={executions}
+                onClose={() => setSelectedNode(null)}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Node Hover Tooltip - only show when modal is open */}
+      {showGraphModal && hoveredNode && !selectedNode && (
         <div
-          className="fixed pointer-events-none z-50"
+          className="fixed pointer-events-none z-[60]"
           style={{
             left: `${tooltipPosition.x}px`,
             top: `${tooltipPosition.y}px`,
@@ -980,10 +1062,10 @@ export function WorkflowGraphTab({ workflow }: WorkflowGraphTabProps) {
         </div>
       )}
 
-      {/* Edge Hover Tooltip */}
-      {hoveredEdge && (
+      {/* Edge Hover Tooltip - only show when modal is open */}
+      {showGraphModal && hoveredEdge && (
         <div
-          className="fixed pointer-events-none z-50"
+          className="fixed pointer-events-none z-[60]"
           style={{
             left: `${tooltipPosition.x}px`,
             top: `${tooltipPosition.y}px`,
@@ -1003,16 +1085,6 @@ export function WorkflowGraphTab({ workflow }: WorkflowGraphTabProps) {
             );
           })()}
         </div>
-      )}
-
-      {/* Node Details Panel */}
-      {selectedNode && (
-        <NodeDetailsPanel
-          node={selectedNode}
-          metrics={nodeMetrics.get(selectedNode.id)}
-          executions={executions}
-          onClose={() => setSelectedNode(null)}
-        />
       )}
     </div>
   );

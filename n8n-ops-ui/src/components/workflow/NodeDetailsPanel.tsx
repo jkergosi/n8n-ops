@@ -48,7 +48,7 @@ export function NodeDetailsPanel({
   const credentialEntries = Object.entries(credentials);
 
   return (
-    <div className={`fixed right-0 top-0 h-full bg-white dark:bg-slate-900 shadow-xl z-50 overflow-y-auto border-l border-slate-200 dark:border-slate-800 transition-all duration-300 ${isExpanded ? 'w-[700px]' : 'w-96'}`}>
+    <div className={`absolute right-0 top-0 h-full bg-white dark:bg-slate-900 shadow-xl z-50 overflow-y-auto border-l border-slate-200 dark:border-slate-800 transition-all duration-300 ${isExpanded ? 'w-[700px]' : 'w-96'}`}>
       <Card className="border-0 rounded-none h-full shadow-none">
         <CardHeader className="border-b sticky top-0 bg-white dark:bg-slate-900 z-10">
           <div className="flex items-center justify-between">

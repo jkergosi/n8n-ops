@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/use-app-store';
-import { Upload, PlayCircle, PauseCircle, Search, ArrowUpDown, ArrowUp, ArrowDown, X, Edit, Trash2, Loader2, RefreshCw, ExternalLink } from 'lucide-react';
+import { Upload, PlayCircle, PauseCircle, Search, ArrowUpDown, ArrowUp, ArrowDown, X, Edit, Trash2, Loader2, RefreshCw, ExternalLink, CheckCircle2, AlertCircle, RefreshCcw, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Workflow, EnvironmentType } from '@/types';
@@ -93,10 +93,37 @@ export function WorkflowsPage() {
     queryFn: () => api.getEnvironments(),
   });
 
+  // Get available environments for the tenant (filtered and sorted)
+  const availableEnvironments = useMemo(() => {
+    if (!environments?.data) return [];
+    // Filter to only active environments and sort by name (type is now optional)
+    return environments.data
+      .filter((env) => env.isActive)
+      .sort((a, b) => {
+        // Sort by type if available, then by name
+        if (a.type && b.type && a.type !== b.type) {
+          return a.type.localeCompare(b.type);
+        }
+        return a.name.localeCompare(b.name);
+      });
+  }, [environments]);
+
   // Get the current environment's base URL and ID
+  // selectedEnvironment can now be either a type string or an environment ID
   const currentEnvironment = environments?.data?.find(
-    (env) => env.type === selectedEnvironment
+    (env) => env.id === selectedEnvironment || env.type === selectedEnvironment
   );
+
+  // Set default environment if none selected and environments are available
+  useEffect(() => {
+    if (availableEnvironments.length > 0) {
+      const found = availableEnvironments.find(env => env.id === selectedEnvironment || env.type === selectedEnvironment);
+      if (!found) {
+        // Default to first environment's ID (prefer ID over type)
+        setSelectedEnvironment(availableEnvironments[0].id);
+      }
+    }
+  }, [availableEnvironments, selectedEnvironment, setSelectedEnvironment]);
 
   // Fetch executions for the current environment to get execution counts per workflow
   const { data: executions } = useQuery({
@@ -324,6 +351,53 @@ export function WorkflowsPage() {
     );
   };
 
+  const getSyncStatusDisplay = (syncStatus?: string) => {
+    if (!syncStatus) {
+      return (
+        <Badge variant="outline" className="text-xs">
+          Unknown
+        </Badge>
+      );
+    }
+
+    switch (syncStatus) {
+      case 'in_sync':
+        return (
+          <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+            In Sync
+          </Badge>
+        );
+      case 'local_changes':
+        return (
+          <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-200">
+            <AlertCircle className="h-3 w-3 mr-1" />
+            Local Changes
+          </Badge>
+        );
+      case 'update_available':
+        return (
+          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+            <RefreshCcw className="h-3 w-3 mr-1" />
+            Update Available
+          </Badge>
+        );
+      case 'conflict':
+        return (
+          <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            Conflict
+          </Badge>
+        );
+      default:
+        return (
+          <Badge variant="outline" className="text-xs">
+            {syncStatus}
+          </Badge>
+        );
+    }
+  };
+
   const clearFilters = () => {
     setSearchQuery('');
     setSelectedTag([]);
@@ -476,7 +550,7 @@ export function WorkflowsPage() {
             <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
             {isRefreshing ? 'Refreshing...' : 'Refresh from N8N'}
           </Button>
-          {selectedEnvironment === 'dev' && (
+          {currentEnvironment?.allowUpload && (
             <Button onClick={handleUploadClick}>
               <Upload className="h-4 w-4 mr-2" />
               Upload Workflow
@@ -530,10 +604,17 @@ export function WorkflowsPage() {
                 value={selectedEnvironment}
                 onChange={(e) => setSelectedEnvironment(e.target.value as EnvironmentType)}
                 className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                disabled={availableEnvironments.length === 0}
               >
-                <option value="dev">Development</option>
-                <option value="staging">Staging</option>
-                <option value="production">Production</option>
+                {availableEnvironments.length === 0 ? (
+                  <option value="">No environments available</option>
+                ) : (
+                  availableEnvironments.map((env) => (
+                    <option key={env.id} value={env.type}>
+                      {env.name} ({env.type})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
@@ -592,6 +673,7 @@ export function WorkflowsPage() {
                   <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => handleSort('active')}>
                     Status {getSortIcon('active')}
                   </TableHead>
+                  <TableHead>Sync Status</TableHead>
                   <TableHead>Tags</TableHead>
                   <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => handleSort('executions')}>
                     Executions {getSortIcon('executions')}
@@ -625,6 +707,9 @@ export function WorkflowsPage() {
                           Inactive
                         </Badge>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      {getSyncStatusDisplay(workflow.syncStatus)}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">

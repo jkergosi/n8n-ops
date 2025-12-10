@@ -181,22 +181,19 @@ async def create_environment(
 ):
     """Create a new environment"""
     try:
-        # Check if environment type already exists for this tenant
-        existing = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment.n8n_type.value)
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Environment type '{environment.n8n_type.value}' already exists for this tenant"
-            )
+        # Type is now optional metadata - no uniqueness check needed
+        # Multiple environments can have the same type
 
         environment_data = {
             "tenant_id": MOCK_TENANT_ID,
             "n8n_name": environment.n8n_name,
-            "n8n_type": environment.n8n_type.value,
+            "n8n_type": environment.n8n_type,  # Optional, can be None
             "n8n_base_url": environment.n8n_base_url,
             "n8n_api_key": environment.n8n_api_key,
             "n8n_encryption_key": environment.n8n_encryption_key,
             "is_active": environment.is_active,
+            "is_production": environment.is_production,
+            "allow_upload": environment.allow_upload,
             "git_repo_url": environment.git_repo_url,
             "git_branch": environment.git_branch,
             "git_pat": environment.git_pat

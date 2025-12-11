@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     STRIPE_PRO_PRICE_ID_MONTHLY: str = ""
     STRIPE_PRO_PRICE_ID_YEARLY: str = ""
 
+    # Email Configuration (SMTP)
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = "noreply@n8nops.com"
+    SMTP_FROM_NAME: str = "N8N Ops"
+    FRONTEND_URL: str = "http://localhost:5173"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

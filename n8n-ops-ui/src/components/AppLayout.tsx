@@ -37,6 +37,7 @@ import { PlanBadge } from '@/components/FeatureGate';
 import { useTheme } from '@/components/ThemeProvider';
 import {
   LayoutDashboard,
+  LayoutGrid,
   Server,
   Workflow,
   ListChecks,
@@ -71,6 +72,7 @@ import {
   Search,
   PanelLeftClose,
   PanelLeftOpen,
+  History,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isMenuItemVisible, mapBackendRoleToFrontendRole, type Role } from '@/lib/permissions';
@@ -127,6 +129,9 @@ const navigationSections: NavSection[] = [
     items: [
       { id: 'tenants', name: 'Tenants', href: '/admin/tenants', icon: Building2, requiredPlan: 'enterprise' },
       { id: 'billing', name: 'Billing', href: '/admin/billing', icon: CreditCard, requiredPlan: 'enterprise' },
+      { id: 'featureMatrix', name: 'Feature Matrix', href: '/admin/entitlements/matrix', icon: LayoutGrid, requiredPlan: 'enterprise' },
+      { id: 'tenantOverrides', name: 'Tenant Overrides', href: '/admin/entitlements/overrides', icon: Shield, requiredPlan: 'enterprise' },
+      { id: 'entitlementsAudit', name: 'Entitlements Audit', href: '/admin/entitlements/audit', icon: History, requiredPlan: 'enterprise' },
       { id: 'auditLogs', name: 'Audit Logs', href: '/admin/audit-logs', icon: FileText, requiredPlan: 'pro', feature: 'audit_logs_enabled' },
       { id: 'security', name: 'Security', href: '/admin/security', icon: Shield, requiredPlan: 'enterprise', feature: 'sso_saml' },
       { id: 'systemSettings', name: 'System Settings', href: '/admin/settings', icon: Settings },

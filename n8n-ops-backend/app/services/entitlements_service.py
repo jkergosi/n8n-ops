@@ -1,6 +1,7 @@
-"""Entitlements service for plan-based feature access (Phase 1)."""
-from typing import Any, Dict, Optional, Tuple, Union
+"""Entitlements service for plan-based feature access (Phase 1 + Phase 3 Overrides)."""
+from typing import Any, Dict, List, Optional, Tuple, Union
 from fastapi import HTTPException, status
+from datetime import datetime, timezone
 import logging
 
 from app.services.database import db_service
@@ -139,23 +140,43 @@ class EntitlementsService:
             plan_id = tenant_plan.get("plan_id")
             plan_features = await self._get_plan_features(plan_id)
 
-            # Build effective entitlements
+            # Build base entitlements from plan
             features = {}
+            feature_types = {}  # Track feature types for override merging
             for pf in plan_features:
                 feature_name = pf.get("feature_name")
                 feature_type = pf.get("feature_type")
                 value = pf.get("value", {})
+                feature_types[feature_name] = feature_type
 
                 if feature_type == "flag":
                     features[feature_name] = value.get("enabled", False)
                 elif feature_type == "limit":
                     features[feature_name] = value.get("value", 0)
 
+            # Phase 3: Apply tenant-specific overrides
+            overrides = await self._get_tenant_overrides(tenant_id)
+            overrides_applied = []
+            for override in overrides:
+                feature_name = override.get("feature_name")
+                feature_type = override.get("feature_type")
+                value = override.get("value", {})
+
+                if feature_type == "flag":
+                    features[feature_name] = value.get("enabled", False)
+                elif feature_type == "limit":
+                    features[feature_name] = value.get("value", 0)
+                overrides_applied.append(feature_name)
+
+            if overrides_applied:
+                logger.info(f"Applied {len(overrides_applied)} overrides for tenant {tenant_id}: {overrides_applied}")
+
             result = {
                 "plan_id": plan_id,
                 "plan_name": tenant_plan.get("plan_name", "free"),
                 "entitlements_version": tenant_plan.get("entitlements_version", 1),
-                "features": features
+                "features": features,
+                "overrides_applied": overrides_applied  # Track which features were overridden
             }
 
             # Cache result
@@ -209,13 +230,32 @@ class EntitlementsService:
         display_name = FEATURE_DISPLAY_NAMES.get(feature_name, feature_name)
         return False, f"{display_name} limit reached ({limit}). Upgrade your plan to increase this limit.", current_count, limit
 
-    async def enforce_flag(self, tenant_id: str, feature_name: str) -> None:
+    async def enforce_flag(
+        self,
+        tenant_id: str,
+        feature_name: str,
+        user_id: Optional[str] = None,
+        endpoint: Optional[str] = None,
+        log_denial: bool = True,
+    ) -> None:
         """
         Enforce flag feature access - raises 403 if not enabled.
         Use this as a guard in endpoint handlers.
+
+        Phase 3: Logs denial to audit log if log_denial=True.
         """
         allowed, message = await self.check_flag(tenant_id, feature_name)
         if not allowed:
+            # Phase 3: Log denial
+            if log_denial:
+                from app.services.audit_service import audit_service
+                await audit_service.log_denial(
+                    tenant_id=tenant_id,
+                    feature_key=feature_name,
+                    user_id=user_id,
+                    endpoint=endpoint,
+                )
+
             required_plan = FEATURE_REQUIRED_PLANS.get(feature_name, "pro")
             display_name = FEATURE_DISPLAY_NAMES.get(feature_name, feature_name)
             raise HTTPException(
@@ -233,16 +273,35 @@ class EntitlementsService:
         self,
         tenant_id: str,
         feature_name: str,
-        current_count: int
+        current_count: int,
+        user_id: Optional[str] = None,
+        endpoint: Optional[str] = None,
+        resource_type: Optional[str] = None,
+        log_limit_exceeded: bool = True,
     ) -> None:
         """
         Enforce limit - raises 403 if limit exceeded.
         Use this before creating new resources.
+
+        Phase 3: Logs limit exceeded to audit log if log_limit_exceeded=True.
         """
         allowed, message, current, limit = await self.check_limit(
             tenant_id, feature_name, current_count
         )
         if not allowed:
+            # Phase 3: Log limit exceeded
+            if log_limit_exceeded:
+                from app.services.audit_service import audit_service
+                await audit_service.log_limit_exceeded(
+                    tenant_id=tenant_id,
+                    feature_key=feature_name,
+                    current_value=current,
+                    limit_value=limit,
+                    user_id=user_id,
+                    endpoint=endpoint,
+                    resource_type=resource_type,
+                )
+
             display_name = FEATURE_DISPLAY_NAMES.get(feature_name, feature_name)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -316,6 +375,52 @@ class EntitlementsService:
             return result
         except Exception as e:
             logger.error(f"Failed to get plan features: {e}")
+            return []
+
+    async def _get_tenant_overrides(self, tenant_id: str) -> List[Dict[str, Any]]:
+        """
+        Get active, non-expired tenant feature overrides.
+
+        Phase 3: Returns overrides that should be applied on top of base plan features.
+        Only returns overrides where:
+        - is_active = true
+        - expires_at IS NULL OR expires_at > NOW()
+        """
+        try:
+            # Query active overrides with feature details
+            response = db_service.client.table("tenant_feature_overrides").select(
+                "id, value, expires_at, feature:feature_id(id, name, type, display_name)"
+            ).eq("tenant_id", tenant_id).eq("is_active", True).execute()
+
+            now = datetime.now(timezone.utc)
+            result = []
+            for override in response.data or []:
+                # Check expiration
+                expires_at = override.get("expires_at")
+                if expires_at:
+                    # Parse ISO timestamp
+                    try:
+                        expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                        if expiry <= now:
+                            # Expired, skip
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
+                feature = override.get("feature", {})
+                result.append({
+                    "override_id": override.get("id"),
+                    "feature_id": feature.get("id"),
+                    "feature_name": feature.get("name"),
+                    "feature_type": feature.get("type"),
+                    "feature_display_name": feature.get("display_name"),
+                    "value": override.get("value", {}),
+                    "expires_at": expires_at
+                })
+
+            return result
+        except Exception as e:
+            logger.error(f"Failed to get tenant overrides for {tenant_id}: {e}")
             return []
 
     async def _get_free_plan_defaults(self) -> Dict[str, Any]:

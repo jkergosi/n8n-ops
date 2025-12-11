@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List
+import secrets
+import logging
 
 from app.schemas.team import (
     TeamMemberCreate,
@@ -9,6 +11,7 @@ from app.schemas.team import (
 )
 from app.services.database import db_service
 from app.core.entitlements_gate import require_entitlement
+from app.services.email_service import email_service
 
 router = APIRouter()
 
@@ -131,13 +134,29 @@ async def create_team_member(
                 detail=f"Team member limit reached ({limits['max_members']}). Upgrade your plan to add more members."
             )
 
+        # Generate invitation token
+        invitation_token = secrets.token_urlsafe(32)
+        
+        # Get tenant info for email
+        tenant_response = db_service.client.table("tenants").select("name").eq(
+            "id", MOCK_TENANT_ID
+        ).single().execute()
+        org_name = tenant_response.data.get("name", "the organization") if tenant_response.data else "the organization"
+        
+        # Get current user info for inviter name
+        # Note: In production, this should come from authenticated user context
+        inviter_name = "A team administrator"
+        
         # Create team member
+        from datetime import datetime
         member_data = {
             "tenant_id": MOCK_TENANT_ID,
-            "email": member.email,
+            "email": member.email.lower().strip(),
             "name": member.name,
             "role": member.role,
-            "status": "pending"  # Will be active after they accept invitation
+            "status": "pending",  # Will be active after they accept invitation
+            "invitation_token": invitation_token,
+            "invited_at": datetime.utcnow().isoformat()
         }
 
         response = db_service.client.table("users").insert(member_data).execute()
@@ -148,7 +167,24 @@ async def create_team_member(
                 detail="Failed to create team member"
             )
 
-        # TODO: Send invitation email
+        # Send invitation email
+        try:
+            email_sent = await email_service.send_team_invitation(
+                to_email=member.email.lower().strip(),
+                to_name=member.name,
+                organization_name=org_name,
+                inviter_name=inviter_name,
+                role=member.role,
+                invitation_token=invitation_token
+            )
+            
+            if not email_sent:
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to send invitation email to {member.email}, but team member was created")
+        except Exception as email_error:
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error sending invitation email to {member.email}: {str(email_error)}")
+            # Don't fail the request if email fails
 
         return response.data[0]
 
@@ -284,7 +320,41 @@ async def resend_invitation(
                 detail="User is already active"
             )
 
-        # TODO: Send invitation email
+        # Get tenant and inviter info
+        tenant_response = db_service.client.table("tenants").select("name").eq(
+            "id", MOCK_TENANT_ID
+        ).single().execute()
+        org_name = tenant_response.data.get("name", "the organization") if tenant_response.data else "the organization"
+        
+        inviter_name = "A team administrator"  # In production, get from authenticated user
+        
+        # Get or generate invitation token
+        invitation_token = member.data.get("invitation_token")
+        if not invitation_token:
+            invitation_token = secrets.token_urlsafe(32)
+            from datetime import datetime
+            db_service.client.table("users").update({
+                "invitation_token": invitation_token,
+                "invited_at": datetime.utcnow().isoformat()
+            }).eq("id", member_id).execute()
+
+        # Send invitation email
+        try:
+            email_sent = await email_service.send_team_invitation(
+                to_email=member.data.get("email"),
+                to_name=member.data.get("name"),
+                organization_name=org_name,
+                inviter_name=inviter_name,
+                role=member.data.get("role", "developer"),
+                invitation_token=invitation_token
+            )
+            
+            if not email_sent:
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to resend invitation email to {member.data.get('email')}")
+        except Exception as email_error:
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error resending invitation email: {str(email_error)}")
 
         return {"message": "Invitation sent successfully"}
 

@@ -35,6 +35,9 @@ import {
   NotificationsPage,
   SecurityPage,
   SettingsPage,
+  FeatureMatrixPage,
+  TenantOverridesPage,
+  EntitlementsAuditPage,
 } from '@/pages/admin';
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -177,6 +180,9 @@ function App() {
                 <Route path="/admin/notifications" element={<RoleProtectedRoute><NotificationsPage /></RoleProtectedRoute>} />
                 <Route path="/admin/security" element={<RoleProtectedRoute><SecurityPage /></RoleProtectedRoute>} />
                 <Route path="/admin/settings" element={<RoleProtectedRoute><SettingsPage /></RoleProtectedRoute>} />
+                <Route path="/admin/entitlements/matrix" element={<RoleProtectedRoute><FeatureMatrixPage /></RoleProtectedRoute>} />
+                <Route path="/admin/entitlements/overrides" element={<RoleProtectedRoute><TenantOverridesPage /></RoleProtectedRoute>} />
+                <Route path="/admin/entitlements/audit" element={<RoleProtectedRoute><EntitlementsAuditPage /></RoleProtectedRoute>} />
               </Route>
               </Routes>
             </BrowserRouter>

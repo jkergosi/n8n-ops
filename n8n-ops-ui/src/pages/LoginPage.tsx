@@ -52,10 +52,13 @@ export function LoginPage() {
         <CardContent className="space-y-6">
           <div className="space-y-4">
             <Button onClick={handleLogin} className="w-full" size="lg">
-              Sign In
+              Sign In / Sign Up
             </Button>
             <p className="text-sm text-muted-foreground text-center">
-              Sign in with your account to continue
+              New users will be guided through a quick setup process
+            </p>
+            <p className="text-xs text-muted-foreground text-center">
+              If you already have an account, sign in. If not, you can create one during the sign-in process.
             </p>
           </div>
 

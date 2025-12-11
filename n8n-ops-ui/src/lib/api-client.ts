@@ -47,6 +47,12 @@ import type {
   AlertEvent,
   EventCatalogItem,
   Entitlements,
+  AdminFeature,
+  AdminPlan,
+  FeatureMatrix,
+  TenantFeatureOverride,
+  FeatureConfigAudit,
+  FeatureAccessLog,
 } from '@/types';
 
 // Helper function to determine if a string is a UUID
@@ -152,6 +158,80 @@ class ApiClient {
   }> {
     const response = await this.client.get('/auth/status');
     return { data: response.data };
+  }
+
+  // Onboarding endpoints
+  async checkEmail(email: string): Promise<{
+    data: {
+      exists: boolean;
+      has_auth0_account: boolean;
+      has_n8n_ops_account: boolean;
+      message: string | null;
+    };
+  }> {
+    const response = await this.client.post('/auth/check-email', { email });
+    return { data: response.data };
+  }
+
+  async onboardingOrganization(data: {
+    organization_name: string;
+    industry?: string;
+    company_size?: string;
+  }): Promise<{ data: { success: boolean; tenant_id: string; tenant_name: string } }> {
+    const response = await this.client.post('/auth/onboarding/organization', data);
+    return { data: response.data };
+  }
+
+  async onboardingSelectPlan(data: {
+    plan_name: string;
+    billing_cycle?: string;
+  }): Promise<{ data: { success: boolean; plan: string; billing_cycle: string } }> {
+    const response = await this.client.post('/auth/onboarding/select-plan', data);
+    return { data: response.data };
+  }
+
+  async onboardingPayment(data: {
+    plan_name: string;
+    billing_cycle: string;
+    success_url: string;
+    cancel_url: string;
+  }): Promise<{
+    data: {
+      success: boolean;
+      requires_payment: boolean;
+      checkout_url?: string;
+      session_id?: string;
+      message?: string;
+    };
+  }> {
+    const response = await this.client.post('/auth/onboarding/payment', data);
+    return { data: response.data };
+  }
+
+  async onboardingInviteTeam(data: {
+    invites: Array<{ email: string; role: string }>;
+  }): Promise<{
+    data: {
+      success: boolean;
+      invited_count: number;
+      errors?: string[];
+    };
+  }> {
+    const response = await this.client.post('/auth/onboarding/invite-team', data);
+    return { data: response.data };
+  }
+
+  async onboardingComplete(): Promise<{ data: { success: boolean; message: string } }> {
+    const response = await this.client.post('/auth/onboarding/complete', {});
+    return { data: response.data };
+  }
+
+  // Legacy onboarding endpoint (for backward compatibility)
+  async completeOnboarding(organizationName?: string): Promise<{ data: UserResponse }> {
+    const response = await this.client.post('/auth/onboarding', {
+      organization_name: organizationName,
+    });
+    return { data: response.data.user };
   }
 
   // Environment endpoints
@@ -1228,6 +1308,335 @@ class ApiClient {
         description: e.description,
         category: e.category,
       })),
+    };
+  }
+
+  // Admin Entitlements endpoints
+  async getFeatureMatrix(): Promise<{ data: FeatureMatrix }> {
+    const response = await this.client.get('/admin/entitlements/features/matrix');
+    const data = response.data;
+    return {
+      data: {
+        features: (data.features || []).map((f: any) => ({
+          featureId: f.feature_id,
+          featureKey: f.feature_key,
+          featureDisplayName: f.feature_display_name,
+          featureType: f.feature_type,
+          description: f.description,
+          status: f.status,
+          planValues: f.plan_values,
+        })),
+        plans: (data.plans || []).map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          displayName: p.display_name,
+          description: p.description,
+          sortOrder: p.sort_order,
+          isActive: p.is_active,
+          tenantCount: 0,
+          createdAt: '',
+          updatedAt: '',
+        })),
+        totalFeatures: data.total_features,
+      },
+    };
+  }
+
+  async getAdminFeatures(params?: {
+    status?: string;
+    type?: string;
+  }): Promise<{ data: { features: AdminFeature[]; total: number } }> {
+    const queryParams: any = {};
+    if (params?.status) queryParams.status_filter = params.status;
+    if (params?.type) queryParams.type_filter = params.type;
+
+    const response = await this.client.get('/admin/entitlements/features', { params: queryParams });
+    return {
+      data: {
+        features: (response.data.features || []).map((f: any) => ({
+          id: f.id,
+          key: f.key,
+          displayName: f.display_name,
+          description: f.description,
+          type: f.type,
+          defaultValue: f.default_value,
+          status: f.status,
+          createdAt: f.created_at,
+          updatedAt: f.updated_at,
+        })),
+        total: response.data.total,
+      },
+    };
+  }
+
+  async getAdminFeature(featureId: string): Promise<{ data: AdminFeature }> {
+    const response = await this.client.get(`/admin/entitlements/features/${featureId}`);
+    const f = response.data;
+    return {
+      data: {
+        id: f.id,
+        key: f.key,
+        displayName: f.display_name,
+        description: f.description,
+        type: f.type,
+        defaultValue: f.default_value,
+        status: f.status,
+        createdAt: f.created_at,
+        updatedAt: f.updated_at,
+      },
+    };
+  }
+
+  async getAdminPlans(): Promise<{ data: { plans: AdminPlan[]; total: number } }> {
+    const response = await this.client.get('/admin/entitlements/plans');
+    return {
+      data: {
+        plans: (response.data.plans || []).map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          displayName: p.display_name,
+          description: p.description,
+          sortOrder: p.sort_order,
+          isActive: p.is_active,
+          tenantCount: p.tenant_count,
+          createdAt: p.created_at,
+          updatedAt: p.updated_at,
+        })),
+        total: response.data.total,
+      },
+    };
+  }
+
+  async getAdminPlan(planId: string): Promise<{ data: AdminPlan }> {
+    const response = await this.client.get(`/admin/entitlements/plans/${planId}`);
+    const p = response.data;
+    return {
+      data: {
+        id: p.id,
+        name: p.name,
+        displayName: p.display_name,
+        description: p.description,
+        sortOrder: p.sort_order,
+        isActive: p.is_active,
+        tenantCount: p.tenant_count,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+      },
+    };
+  }
+
+  async updatePlanFeatureValue(
+    planId: string,
+    featureKey: string,
+    value: Record<string, any>,
+    reason?: string
+  ): Promise<{ data: { planId: string; featureKey: string; value: Record<string, any>; updatedAt: string } }> {
+    const response = await this.client.patch(`/admin/entitlements/plans/${planId}/features/${featureKey}`, {
+      value,
+      reason,
+    });
+    return {
+      data: {
+        planId: response.data.plan_id,
+        featureKey: response.data.feature_key,
+        value: response.data.value,
+        updatedAt: response.data.updated_at,
+      },
+    };
+  }
+
+  async getPlanFeatures(planId: string): Promise<{
+    data: Array<{
+      planId: string;
+      planName: string;
+      featureId: string;
+      featureKey: string;
+      value: Record<string, any>;
+      updatedAt: string;
+    }>;
+  }> {
+    const response = await this.client.get(`/admin/entitlements/plans/${planId}/features`);
+    return {
+      data: (response.data || []).map((f: any) => ({
+        planId: f.plan_id,
+        planName: f.plan_name,
+        featureId: f.feature_id,
+        featureKey: f.feature_key,
+        value: f.value,
+        updatedAt: f.updated_at,
+      })),
+    };
+  }
+
+  async clearEntitlementsCache(): Promise<{ data: { message: string } }> {
+    const response = await this.client.post('/admin/entitlements/cache/clear');
+    return { data: response.data };
+  }
+
+  // Tenant Feature Overrides endpoints
+  async getTenantOverrides(tenantId: string): Promise<{ data: { overrides: TenantFeatureOverride[]; total: number } }> {
+    const response = await this.client.get(`/tenants/${tenantId}/entitlements/overrides`);
+    return {
+      data: {
+        overrides: (response.data.overrides || []).map((o: any) => ({
+          id: o.id,
+          tenantId: o.tenant_id,
+          featureId: o.feature_id,
+          featureKey: o.feature_key,
+          featureDisplayName: o.feature_display_name,
+          value: o.value,
+          reason: o.reason,
+          createdBy: o.created_by,
+          createdByEmail: o.created_by_email,
+          expiresAt: o.expires_at,
+          isActive: o.is_active,
+          createdAt: o.created_at,
+          updatedAt: o.updated_at,
+        })),
+        total: response.data.total,
+      },
+    };
+  }
+
+  async createTenantOverride(
+    tenantId: string,
+    data: { featureKey: string; value: Record<string, any>; reason?: string; expiresAt?: string }
+  ): Promise<{ data: TenantFeatureOverride }> {
+    const response = await this.client.post(`/tenants/${tenantId}/entitlements/overrides`, {
+      feature_key: data.featureKey,
+      value: data.value,
+      reason: data.reason,
+      expires_at: data.expiresAt,
+    });
+    const o = response.data;
+    return {
+      data: {
+        id: o.id,
+        tenantId: o.tenant_id,
+        featureId: o.feature_id,
+        featureKey: o.feature_key,
+        featureDisplayName: o.feature_display_name,
+        value: o.value,
+        reason: o.reason,
+        createdBy: o.created_by,
+        createdByEmail: o.created_by_email,
+        expiresAt: o.expires_at,
+        isActive: o.is_active,
+        createdAt: o.created_at,
+        updatedAt: o.updated_at,
+      },
+    };
+  }
+
+  async updateTenantOverride(
+    tenantId: string,
+    overrideId: string,
+    data: { value?: Record<string, any>; reason?: string; expiresAt?: string; isActive?: boolean }
+  ): Promise<{ data: TenantFeatureOverride }> {
+    const payload: any = {};
+    if (data.value !== undefined) payload.value = data.value;
+    if (data.reason !== undefined) payload.reason = data.reason;
+    if (data.expiresAt !== undefined) payload.expires_at = data.expiresAt;
+    if (data.isActive !== undefined) payload.is_active = data.isActive;
+
+    const response = await this.client.patch(`/tenants/${tenantId}/entitlements/overrides/${overrideId}`, payload);
+    const o = response.data;
+    return {
+      data: {
+        id: o.id,
+        tenantId: o.tenant_id,
+        featureId: o.feature_id,
+        featureKey: o.feature_key,
+        featureDisplayName: o.feature_display_name,
+        value: o.value,
+        reason: o.reason,
+        createdBy: o.created_by,
+        createdByEmail: o.created_by_email,
+        expiresAt: o.expires_at,
+        isActive: o.is_active,
+        createdAt: o.created_at,
+        updatedAt: o.updated_at,
+      },
+    };
+  }
+
+  async deleteTenantOverride(tenantId: string, overrideId: string): Promise<void> {
+    await this.client.delete(`/tenants/${tenantId}/entitlements/overrides/${overrideId}`);
+  }
+
+  // Audit Logs endpoints
+  async getFeatureConfigAudits(params?: {
+    tenantId?: string;
+    featureKey?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ data: { audits: FeatureConfigAudit[]; total: number; page: number; pageSize: number } }> {
+    const queryParams: any = {};
+    if (params?.tenantId) queryParams.tenant_id = params.tenantId;
+    if (params?.featureKey) queryParams.feature_key = params.featureKey;
+    if (params?.page) queryParams.page = params.page;
+    if (params?.pageSize) queryParams.page_size = params.pageSize;
+
+    const response = await this.client.get('/tenants/entitlements/audits', { params: queryParams });
+    return {
+      data: {
+        audits: (response.data.audits || []).map((a: any) => ({
+          id: a.id,
+          tenantId: a.tenant_id,
+          entityType: a.entity_type,
+          entityId: a.entity_id,
+          featureKey: a.feature_key,
+          action: a.action,
+          oldValue: a.old_value,
+          newValue: a.new_value,
+          changedBy: a.changed_by,
+          changedByEmail: a.changed_by_email,
+          changedAt: a.changed_at,
+          reason: a.reason,
+        })),
+        total: response.data.total,
+        page: response.data.page,
+        pageSize: response.data.page_size,
+      },
+    };
+  }
+
+  async getFeatureAccessLogs(params?: {
+    tenantId?: string;
+    featureKey?: string;
+    result?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ data: { logs: FeatureAccessLog[]; total: number; page: number; pageSize: number } }> {
+    const queryParams: any = {};
+    if (params?.tenantId) queryParams.tenant_id = params.tenantId;
+    if (params?.featureKey) queryParams.feature_key = params.featureKey;
+    if (params?.result) queryParams.result = params.result;
+    if (params?.page) queryParams.page = params.page;
+    if (params?.pageSize) queryParams.page_size = params.pageSize;
+
+    const response = await this.client.get('/tenants/entitlements/access-logs', { params: queryParams });
+    return {
+      data: {
+        logs: (response.data.logs || []).map((l: any) => ({
+          id: l.id,
+          tenantId: l.tenant_id,
+          userId: l.user_id,
+          userEmail: l.user_email,
+          featureKey: l.feature_key,
+          accessType: l.access_type,
+          result: l.result,
+          currentValue: l.current_value,
+          limitValue: l.limit_value,
+          endpoint: l.endpoint,
+          resourceType: l.resource_type,
+          resourceId: l.resource_id,
+          accessedAt: l.accessed_at,
+        })),
+        total: response.data.total,
+        page: response.data.page,
+        pageSize: response.data.page_size,
+      },
     };
   }
 }

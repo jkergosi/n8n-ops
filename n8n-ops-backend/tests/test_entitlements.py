@@ -294,12 +294,15 @@ class TestEntitlementsService:
             service, "_get_tenant_plan", new_callable=AsyncMock
         ) as mock_get_plan, patch.object(
             service, "_get_plan_features", new_callable=AsyncMock
-        ) as mock_get_features:
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
             mock_get_plan.return_value = mock_tenant_plan
             mock_get_features.return_value = mock_plan_features_free
+            mock_get_overrides.return_value = []
 
             with pytest.raises(HTTPException) as exc_info:
-                await service.enforce_flag("tenant-123", "workflow_ci_cd")
+                await service.enforce_flag("tenant-123", "workflow_ci_cd", log_denial=False)
 
             assert exc_info.value.status_code == 403
             assert exc_info.value.detail["error"] == "feature_not_available"
@@ -333,12 +336,15 @@ class TestEntitlementsService:
             service, "_get_tenant_plan", new_callable=AsyncMock
         ) as mock_get_plan, patch.object(
             service, "_get_plan_features", new_callable=AsyncMock
-        ) as mock_get_features:
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
             mock_get_plan.return_value = mock_tenant_plan
             mock_get_features.return_value = mock_plan_features_free
+            mock_get_overrides.return_value = []
 
             with pytest.raises(HTTPException) as exc_info:
-                await service.enforce_limit("tenant-123", "workflow_limits", 10)
+                await service.enforce_limit("tenant-123", "workflow_limits", 10, log_limit_exceeded=False)
 
             assert exc_info.value.status_code == 403
             assert exc_info.value.detail["error"] == "limit_reached"
@@ -661,11 +667,425 @@ class TestPhase2Features:
             mock_get_features.return_value = mock_pro_plan_phase2
 
             # Should not raise for enabled feature
-            await service.enforce_flag("tenant-123", "observability_alerts")
+            await service.enforce_flag("tenant-123", "observability_alerts", log_denial=False)
 
             # Should raise 403 for disabled feature
             with pytest.raises(HTTPException) as exc_info:
-                await service.enforce_flag("tenant-123", "sso_saml")
+                await service.enforce_flag("tenant-123", "sso_saml", log_denial=False)
 
             assert exc_info.value.status_code == 403
             assert exc_info.value.detail["feature"] == "sso_saml"
+
+
+class TestPhase3Overrides:
+    """Tests for Phase 3: Tenant Feature Overrides."""
+
+    @pytest.fixture
+    def service(self):
+        """Create a fresh service instance for each test."""
+        service = EntitlementsService()
+        service.clear_cache()
+        return service
+
+    @pytest.fixture
+    def mock_tenant_plan_free(self):
+        """Mock tenant plan data for free plan."""
+        return {
+            "plan_id": "plan-free",
+            "plan_name": "free",
+            "plan_display_name": "Free Plan",
+            "entitlements_version": 1
+        }
+
+    @pytest.fixture
+    def mock_free_plan_features(self):
+        """Mock plan features for free plan."""
+        return [
+            {"feature_name": "workflow_ci_cd", "feature_type": "flag", "value": {"enabled": False}},
+            {"feature_name": "workflow_limits", "feature_type": "limit", "value": {"value": 10}},
+            {"feature_name": "snapshots_enabled", "feature_type": "flag", "value": {"enabled": True}},
+        ]
+
+    @pytest.fixture
+    def mock_overrides_enable_cicd(self):
+        """Mock override that enables CI/CD for a free plan tenant."""
+        return [
+            {
+                "override_id": "override-1",
+                "feature_id": "feature-cicd",
+                "feature_name": "workflow_ci_cd",
+                "feature_type": "flag",
+                "feature_display_name": "Workflow CI/CD",
+                "value": {"enabled": True},
+                "expires_at": None
+            }
+        ]
+
+    @pytest.fixture
+    def mock_overrides_increase_limit(self):
+        """Mock override that increases workflow limit for a free plan tenant."""
+        return [
+            {
+                "override_id": "override-2",
+                "feature_id": "feature-limits",
+                "feature_name": "workflow_limits",
+                "feature_type": "limit",
+                "feature_display_name": "Workflow Limits",
+                "value": {"value": 50},
+                "expires_at": None
+            }
+        ]
+
+    # ==================== Override Merge Logic ====================
+
+    @pytest.mark.asyncio
+    async def test_override_enables_disabled_flag(
+        self, service, mock_tenant_plan_free, mock_free_plan_features, mock_overrides_enable_cicd
+    ):
+        """Test that an override can enable a feature that's disabled in base plan."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = mock_overrides_enable_cicd
+
+            result = await service.get_tenant_entitlements("tenant-123")
+
+            # Override should enable workflow_ci_cd even though base plan has it disabled
+            assert result["features"]["workflow_ci_cd"] is True
+            assert "workflow_ci_cd" in result.get("overrides_applied", [])
+
+    @pytest.mark.asyncio
+    async def test_override_increases_limit(
+        self, service, mock_tenant_plan_free, mock_free_plan_features, mock_overrides_increase_limit
+    ):
+        """Test that an override can increase a limit value."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = mock_overrides_increase_limit
+
+            result = await service.get_tenant_entitlements("tenant-123")
+
+            # Override should increase workflow_limits from 10 to 50
+            assert result["features"]["workflow_limits"] == 50
+            assert "workflow_limits" in result.get("overrides_applied", [])
+
+    @pytest.mark.asyncio
+    async def test_has_flag_uses_override(
+        self, service, mock_tenant_plan_free, mock_free_plan_features, mock_overrides_enable_cicd
+    ):
+        """Test that has_flag returns overridden value."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = mock_overrides_enable_cicd
+
+            # Free plan has workflow_ci_cd disabled, but override enables it
+            result = await service.has_flag("tenant-123", "workflow_ci_cd")
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_get_limit_uses_override(
+        self, service, mock_tenant_plan_free, mock_free_plan_features, mock_overrides_increase_limit
+    ):
+        """Test that get_limit returns overridden value."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = mock_overrides_increase_limit
+
+            # Free plan has limit 10, but override increases it to 50
+            result = await service.get_limit("tenant-123", "workflow_limits")
+            assert result == 50
+
+    @pytest.mark.asyncio
+    async def test_enforce_flag_allows_with_override(
+        self, service, mock_tenant_plan_free, mock_free_plan_features, mock_overrides_enable_cicd
+    ):
+        """Test that enforce_flag doesn't raise when override enables feature."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = mock_overrides_enable_cicd
+
+            # Should not raise - override enables the feature
+            await service.enforce_flag("tenant-123", "workflow_ci_cd", log_denial=False)
+
+    @pytest.mark.asyncio
+    async def test_enforce_limit_allows_with_override(
+        self, service, mock_tenant_plan_free, mock_free_plan_features, mock_overrides_increase_limit
+    ):
+        """Test that enforce_limit allows higher usage with override."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = mock_overrides_increase_limit
+
+            # Should not raise - current count 25 is under overridden limit of 50
+            await service.enforce_limit("tenant-123", "workflow_limits", 25, log_limit_exceeded=False)
+
+    @pytest.mark.asyncio
+    async def test_no_overrides_uses_base_plan(
+        self, service, mock_tenant_plan_free, mock_free_plan_features
+    ):
+        """Test that base plan values are used when no overrides exist."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = []  # No overrides
+
+            result = await service.get_tenant_entitlements("tenant-123")
+
+            # Should use base plan values
+            assert result["features"]["workflow_ci_cd"] is False
+            assert result["features"]["workflow_limits"] == 10
+            assert result.get("overrides_applied", []) == []
+
+    @pytest.mark.asyncio
+    async def test_multiple_overrides_applied(
+        self, service, mock_tenant_plan_free, mock_free_plan_features
+    ):
+        """Test that multiple overrides are all applied."""
+        multiple_overrides = [
+            {
+                "override_id": "override-1",
+                "feature_id": "feature-cicd",
+                "feature_name": "workflow_ci_cd",
+                "feature_type": "flag",
+                "value": {"enabled": True},
+                "expires_at": None
+            },
+            {
+                "override_id": "override-2",
+                "feature_id": "feature-limits",
+                "feature_name": "workflow_limits",
+                "feature_type": "limit",
+                "value": {"value": 100},
+                "expires_at": None
+            }
+        ]
+
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = multiple_overrides
+
+            result = await service.get_tenant_entitlements("tenant-123")
+
+            # Both overrides should be applied
+            assert result["features"]["workflow_ci_cd"] is True
+            assert result["features"]["workflow_limits"] == 100
+            assert len(result.get("overrides_applied", [])) == 2
+
+
+class TestPhase3AuditLogging:
+    """Tests for Phase 3: Audit Logging on enforcement."""
+
+    @pytest.fixture
+    def service(self):
+        """Create a fresh service instance for each test."""
+        service = EntitlementsService()
+        service.clear_cache()
+        return service
+
+    @pytest.fixture
+    def mock_tenant_plan_free(self):
+        """Mock tenant plan data for free plan."""
+        return {
+            "plan_id": "plan-free",
+            "plan_name": "free",
+            "plan_display_name": "Free Plan",
+            "entitlements_version": 1
+        }
+
+    @pytest.fixture
+    def mock_free_plan_features(self):
+        """Mock plan features for free plan with CI/CD disabled."""
+        return [
+            {"feature_name": "workflow_ci_cd", "feature_type": "flag", "value": {"enabled": False}},
+            {"feature_name": "workflow_limits", "feature_type": "limit", "value": {"value": 10}},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_enforce_flag_logs_denial_when_enabled(
+        self, service, mock_tenant_plan_free, mock_free_plan_features
+    ):
+        """Test that enforce_flag logs denial when log_denial=True."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides, patch(
+            "app.services.entitlements_service.audit_service"
+        ) as mock_audit:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = []
+            mock_audit.log_denial = AsyncMock()
+
+            with pytest.raises(HTTPException):
+                await service.enforce_flag(
+                    "tenant-123",
+                    "workflow_ci_cd",
+                    user_id="user-456",
+                    endpoint="/api/v1/pipelines",
+                    log_denial=True
+                )
+
+            # Verify audit log was called
+            mock_audit.log_denial.assert_called_once_with(
+                tenant_id="tenant-123",
+                feature_key="workflow_ci_cd",
+                user_id="user-456",
+                endpoint="/api/v1/pipelines",
+            )
+
+    @pytest.mark.asyncio
+    async def test_enforce_flag_skips_log_when_disabled(
+        self, service, mock_tenant_plan_free, mock_free_plan_features
+    ):
+        """Test that enforce_flag doesn't log denial when log_denial=False."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides, patch(
+            "app.services.entitlements_service.audit_service"
+        ) as mock_audit:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = []
+            mock_audit.log_denial = AsyncMock()
+
+            with pytest.raises(HTTPException):
+                await service.enforce_flag(
+                    "tenant-123",
+                    "workflow_ci_cd",
+                    log_denial=False
+                )
+
+            # Verify audit log was NOT called
+            mock_audit.log_denial.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_enforce_limit_logs_exceeded_when_enabled(
+        self, service, mock_tenant_plan_free, mock_free_plan_features
+    ):
+        """Test that enforce_limit logs limit exceeded when log_limit_exceeded=True."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides, patch(
+            "app.services.entitlements_service.audit_service"
+        ) as mock_audit:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = []
+            mock_audit.log_limit_exceeded = AsyncMock()
+
+            with pytest.raises(HTTPException):
+                await service.enforce_limit(
+                    "tenant-123",
+                    "workflow_limits",
+                    current_count=15,  # Over the limit of 10
+                    user_id="user-456",
+                    endpoint="/api/v1/workflows/upload",
+                    resource_type="workflow",
+                    log_limit_exceeded=True
+                )
+
+            # Verify audit log was called
+            mock_audit.log_limit_exceeded.assert_called_once_with(
+                tenant_id="tenant-123",
+                feature_key="workflow_limits",
+                current_value=15,
+                limit_value=10,
+                user_id="user-456",
+                endpoint="/api/v1/workflows/upload",
+                resource_type="workflow",
+            )
+
+    @pytest.mark.asyncio
+    async def test_enforce_limit_skips_log_when_disabled(
+        self, service, mock_tenant_plan_free, mock_free_plan_features
+    ):
+        """Test that enforce_limit doesn't log when log_limit_exceeded=False."""
+        with patch.object(
+            service, "_get_tenant_plan", new_callable=AsyncMock
+        ) as mock_get_plan, patch.object(
+            service, "_get_plan_features", new_callable=AsyncMock
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides, patch(
+            "app.services.entitlements_service.audit_service"
+        ) as mock_audit:
+            mock_get_plan.return_value = mock_tenant_plan_free
+            mock_get_features.return_value = mock_free_plan_features
+            mock_get_overrides.return_value = []
+            mock_audit.log_limit_exceeded = AsyncMock()
+
+            with pytest.raises(HTTPException):
+                await service.enforce_limit(
+                    "tenant-123",
+                    "workflow_limits",
+                    current_count=15,
+                    log_limit_exceeded=False
+                )
+
+            # Verify audit log was NOT called
+            mock_audit.log_limit_exceeded.assert_not_called()

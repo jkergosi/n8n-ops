@@ -363,6 +363,13 @@ async def handle_checkout_completed(session):
         "current_period_start": datetime.fromtimestamp(subscription["current_period_start"]).isoformat(),
         "current_period_end": datetime.fromtimestamp(subscription["current_period_end"]).isoformat(),
     }).execute()
+    
+    # Activate tenant if it's still pending (important for onboarding flow)
+    tenant_response = db_service.client.table("tenants").select("status").eq("id", tenant_id).single().execute()
+    if tenant_response.data and tenant_response.data.get("status") == "pending":
+        db_service.client.table("tenants").update({
+            "status": "active"
+        }).eq("id", tenant_id).execute()
 
 
 async def handle_subscription_updated(subscription):

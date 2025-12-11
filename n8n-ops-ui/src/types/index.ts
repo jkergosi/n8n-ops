@@ -591,3 +591,94 @@ export interface Entitlements {
   entitlements_version: number;
   features: Record<string, boolean | number>;
 }
+
+// Admin Entitlements types (Phase 4)
+export type FeatureType = 'flag' | 'limit';
+export type FeatureStatus = 'active' | 'deprecated' | 'hidden';
+
+export interface AdminFeature {
+  id: string;
+  key: string;
+  displayName: string;
+  description?: string;
+  type: FeatureType;
+  defaultValue: Record<string, any>;
+  status: FeatureStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminPlan {
+  id: string;
+  name: string;
+  displayName: string;
+  description?: string;
+  sortOrder: number;
+  isActive: boolean;
+  tenantCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FeatureMatrixEntry {
+  featureId: string;
+  featureKey: string;
+  featureDisplayName: string;
+  featureType: FeatureType;
+  description?: string;
+  status: FeatureStatus;
+  planValues: Record<string, boolean | number>;
+}
+
+export interface FeatureMatrix {
+  features: FeatureMatrixEntry[];
+  plans: AdminPlan[];
+  totalFeatures: number;
+}
+
+export interface TenantFeatureOverride {
+  id: string;
+  tenantId: string;
+  featureId: string;
+  featureKey: string;
+  featureDisplayName: string;
+  value: Record<string, any>;
+  reason?: string;
+  createdBy?: string;
+  createdByEmail?: string;
+  expiresAt?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FeatureConfigAudit {
+  id: string;
+  tenantId?: string;
+  entityType: 'plan_feature' | 'tenant_plan' | 'tenant_override';
+  entityId: string;
+  featureKey?: string;
+  action: 'create' | 'update' | 'delete';
+  oldValue?: Record<string, any>;
+  newValue?: Record<string, any>;
+  changedBy?: string;
+  changedByEmail?: string;
+  changedAt: string;
+  reason?: string;
+}
+
+export interface FeatureAccessLog {
+  id: string;
+  tenantId: string;
+  userId?: string;
+  userEmail?: string;
+  featureKey: string;
+  accessType: 'flag_check' | 'limit_check';
+  result: 'allowed' | 'denied' | 'limit_exceeded';
+  currentValue?: number;
+  limitValue?: number;
+  endpoint?: string;
+  resourceType?: string;
+  resourceId?: string;
+  accessedAt: string;
+}

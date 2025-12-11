@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, status
-from typing import List
+from fastapi import APIRouter, HTTPException, status, Query
+from typing import List, Optional
 
 from app.schemas.tenant import (
     TenantCreate,
@@ -7,7 +7,20 @@ from app.schemas.tenant import (
     TenantResponse,
     TenantStats
 )
+from app.schemas.entitlements import (
+    TenantFeatureOverrideCreate,
+    TenantFeatureOverrideUpdate,
+    TenantFeatureOverrideResponse,
+    TenantFeatureOverrideListResponse,
+    FeatureConfigAuditListResponse,
+    FeatureAccessLogListResponse,
+    AuditEntityType,
+    AccessResult,
+    AuditAction,
+)
 from app.services.database import db_service
+from app.services.audit_service import audit_service
+from app.services.entitlements_service import entitlements_service
 
 router = APIRouter()
 
@@ -304,4 +317,364 @@ async def delete_tenant(tenant_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete tenant: {str(e)}"
+        )
+
+
+# =============================================================================
+# Phase 3: Tenant Feature Overrides
+# =============================================================================
+
+@router.get("/{tenant_id}/overrides", response_model=TenantFeatureOverrideListResponse)
+async def get_tenant_overrides(tenant_id: str):
+    """Get all feature overrides for a tenant (admin only)"""
+    try:
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id").eq(
+            "id", tenant_id
+        ).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Get overrides with feature details
+        response = db_service.client.table("tenant_feature_overrides").select(
+            "*, feature:feature_id(id, name, display_name), created_by_user:created_by(email)"
+        ).eq("tenant_id", tenant_id).order("created_at", desc=True).execute()
+
+        overrides = []
+        for row in response.data or []:
+            feature = row.get("feature", {}) or {}
+            created_by_user = row.get("created_by_user", {}) or {}
+            overrides.append(TenantFeatureOverrideResponse(
+                id=row["id"],
+                tenant_id=row["tenant_id"],
+                feature_id=row["feature_id"],
+                feature_key=feature.get("name", ""),
+                feature_display_name=feature.get("display_name", ""),
+                value=row["value"],
+                reason=row.get("reason"),
+                created_by=row.get("created_by"),
+                created_by_email=created_by_user.get("email"),
+                expires_at=row.get("expires_at"),
+                is_active=row.get("is_active", True),
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            ))
+
+        return TenantFeatureOverrideListResponse(
+            overrides=overrides,
+            total=len(overrides)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch overrides: {str(e)}"
+        )
+
+
+@router.post("/{tenant_id}/overrides", response_model=TenantFeatureOverrideResponse, status_code=status.HTTP_201_CREATED)
+async def create_tenant_override(tenant_id: str, override: TenantFeatureOverrideCreate):
+    """Create a feature override for a tenant (admin only)"""
+    try:
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id").eq(
+            "id", tenant_id
+        ).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Find feature by key
+        feature_response = db_service.client.table("features").select(
+            "id, name, display_name, type"
+        ).eq("name", override.feature_key).single().execute()
+        if not feature_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Feature '{override.feature_key}' not found"
+            )
+        feature = feature_response.data
+
+        # Check if override already exists for this tenant+feature
+        existing = db_service.client.table("tenant_feature_overrides").select("id").eq(
+            "tenant_id", tenant_id
+        ).eq("feature_id", feature["id"]).execute()
+        if existing.data:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Override for feature '{override.feature_key}' already exists. Use PATCH to update."
+            )
+
+        # Create override
+        override_data = {
+            "tenant_id": tenant_id,
+            "feature_id": feature["id"],
+            "value": override.value,
+            "reason": override.reason,
+            "expires_at": override.expires_at.isoformat() if override.expires_at else None,
+            "is_active": True,
+        }
+
+        response = db_service.client.table("tenant_feature_overrides").insert(override_data).execute()
+
+        if not response.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create override"
+            )
+
+        created = response.data[0]
+
+        # Clear entitlements cache for this tenant
+        entitlements_service.clear_cache(tenant_id)
+
+        return TenantFeatureOverrideResponse(
+            id=created["id"],
+            tenant_id=created["tenant_id"],
+            feature_id=created["feature_id"],
+            feature_key=feature["name"],
+            feature_display_name=feature["display_name"],
+            value=created["value"],
+            reason=created.get("reason"),
+            created_by=created.get("created_by"),
+            created_by_email=None,
+            expires_at=created.get("expires_at"),
+            is_active=created.get("is_active", True),
+            created_at=created["created_at"],
+            updated_at=created["updated_at"],
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create override: {str(e)}"
+        )
+
+
+@router.patch("/{tenant_id}/overrides/{override_id}", response_model=TenantFeatureOverrideResponse)
+async def update_tenant_override(
+    tenant_id: str,
+    override_id: str,
+    override: TenantFeatureOverrideUpdate
+):
+    """Update a feature override for a tenant (admin only)"""
+    try:
+        # Get existing override
+        existing = db_service.client.table("tenant_feature_overrides").select(
+            "*, feature:feature_id(id, name, display_name)"
+        ).eq("id", override_id).eq("tenant_id", tenant_id).single().execute()
+
+        if not existing.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Override not found")
+
+        # Build update data
+        update_data = {}
+        if override.value is not None:
+            update_data["value"] = override.value
+        if override.reason is not None:
+            update_data["reason"] = override.reason
+        if override.expires_at is not None:
+            update_data["expires_at"] = override.expires_at.isoformat()
+        if override.is_active is not None:
+            update_data["is_active"] = override.is_active
+
+        if not update_data:
+            # No changes
+            feature = existing.data.get("feature", {}) or {}
+            return TenantFeatureOverrideResponse(
+                id=existing.data["id"],
+                tenant_id=existing.data["tenant_id"],
+                feature_id=existing.data["feature_id"],
+                feature_key=feature.get("name", ""),
+                feature_display_name=feature.get("display_name", ""),
+                value=existing.data["value"],
+                reason=existing.data.get("reason"),
+                created_by=existing.data.get("created_by"),
+                created_by_email=None,
+                expires_at=existing.data.get("expires_at"),
+                is_active=existing.data.get("is_active", True),
+                created_at=existing.data["created_at"],
+                updated_at=existing.data["updated_at"],
+            )
+
+        response = db_service.client.table("tenant_feature_overrides").update(
+            update_data
+        ).eq("id", override_id).execute()
+
+        if not response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Override not found")
+
+        # Clear entitlements cache for this tenant
+        entitlements_service.clear_cache(tenant_id)
+
+        # Fetch updated record with feature details
+        updated = db_service.client.table("tenant_feature_overrides").select(
+            "*, feature:feature_id(id, name, display_name)"
+        ).eq("id", override_id).single().execute()
+
+        feature = updated.data.get("feature", {}) or {}
+        return TenantFeatureOverrideResponse(
+            id=updated.data["id"],
+            tenant_id=updated.data["tenant_id"],
+            feature_id=updated.data["feature_id"],
+            feature_key=feature.get("name", ""),
+            feature_display_name=feature.get("display_name", ""),
+            value=updated.data["value"],
+            reason=updated.data.get("reason"),
+            created_by=updated.data.get("created_by"),
+            created_by_email=None,
+            expires_at=updated.data.get("expires_at"),
+            is_active=updated.data.get("is_active", True),
+            created_at=updated.data["created_at"],
+            updated_at=updated.data["updated_at"],
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update override: {str(e)}"
+        )
+
+
+@router.delete("/{tenant_id}/overrides/{override_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_tenant_override(tenant_id: str, override_id: str):
+    """Delete a feature override for a tenant (admin only)"""
+    try:
+        # Check if override exists
+        existing = db_service.client.table("tenant_feature_overrides").select("id").eq(
+            "id", override_id
+        ).eq("tenant_id", tenant_id).execute()
+
+        if not existing.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Override not found")
+
+        # Delete override
+        db_service.client.table("tenant_feature_overrides").delete().eq(
+            "id", override_id
+        ).execute()
+
+        # Clear entitlements cache for this tenant
+        entitlements_service.clear_cache(tenant_id)
+
+        return None
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete override: {str(e)}"
+        )
+
+
+# =============================================================================
+# Phase 3: Audit Logs
+# =============================================================================
+
+@router.get("/{tenant_id}/audit-logs", response_model=FeatureConfigAuditListResponse)
+async def get_tenant_config_audit_logs(
+    tenant_id: str,
+    entity_type: Optional[str] = Query(None, description="Filter by entity type"),
+    feature_key: Optional[str] = Query(None, description="Filter by feature key"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """Get configuration audit logs for a tenant (admin only)"""
+    try:
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id").eq(
+            "id", tenant_id
+        ).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Convert entity_type string to enum if provided
+        entity_type_enum = None
+        if entity_type:
+            try:
+                entity_type_enum = AuditEntityType(entity_type)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid entity_type. Must be one of: {[e.value for e in AuditEntityType]}"
+                )
+
+        logs, total = await audit_service.get_config_audit_logs(
+            tenant_id=tenant_id,
+            entity_type=entity_type_enum,
+            feature_key=feature_key,
+            page=page,
+            page_size=page_size,
+        )
+
+        return FeatureConfigAuditListResponse(
+            audits=logs,
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch audit logs: {str(e)}"
+        )
+
+
+@router.get("/{tenant_id}/access-logs", response_model=FeatureAccessLogListResponse)
+async def get_tenant_access_logs(
+    tenant_id: str,
+    feature_key: Optional[str] = Query(None, description="Filter by feature key"),
+    result: Optional[str] = Query(None, description="Filter by result (allowed, denied, limit_exceeded)"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """Get feature access logs for a tenant (admin only)"""
+    try:
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id").eq(
+            "id", tenant_id
+        ).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Convert result string to enum if provided
+        result_enum = None
+        if result:
+            try:
+                result_enum = AccessResult(result)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid result. Must be one of: {[e.value for e in AccessResult]}"
+                )
+
+        logs, total = await audit_service.get_access_logs(
+            tenant_id=tenant_id,
+            feature_key=feature_key,
+            result=result_enum,
+            page=page,
+            page_size=page_size,
+        )
+
+        return FeatureAccessLogListResponse(
+            logs=logs,
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch access logs: {str(e)}"
         )

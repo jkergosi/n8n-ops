@@ -5,3 +5,6 @@ export { AuditLogsPage } from './AuditLogsPage';
 export { NotificationsPage } from './NotificationsPage';
 export { SecurityPage } from './SecurityPage';
 export { SettingsPage } from './SettingsPage';
+export { FeatureMatrixPage } from './FeatureMatrixPage';
+export { TenantOverridesPage } from './TenantOverridesPage';
+export { EntitlementsAuditPage } from './EntitlementsAuditPage';

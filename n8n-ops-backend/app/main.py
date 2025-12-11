@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines, deployments, snapshots, observability, notifications
+from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements
 import logging
 import traceback
 
@@ -129,6 +129,12 @@ app.include_router(
     notifications.router,
     prefix=f"{settings.API_V1_PREFIX}/notifications",
     tags=["notifications"]
+)
+
+app.include_router(
+    admin_entitlements.router,
+    prefix=f"{settings.API_V1_PREFIX}/admin/entitlements",
+    tags=["admin-entitlements"]
 )
 
 

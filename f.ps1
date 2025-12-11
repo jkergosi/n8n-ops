@@ -25,16 +25,15 @@ function Show-Menu {
     Write-Host ""
     Write-Host "  FEATURE     START    FINISH   DESTROY" -ForegroundColor White
     Write-Host "  -------     -----    ------   -------" -ForegroundColor Gray
-    Write-Host "  f1          1        f1       d1       (localhost:3001/4001)"
-    Write-Host "  f2          2        f2       d2       (localhost:3002/4002)"
-    Write-Host "  f3          3        f3       d3       (localhost:3003/4003)"
-    Write-Host "  f4          4        f4       d4       (localhost:3004/4004)"
+    Write-Host "  main        M        1                 (localhost:3000/4000)"
+    Write-Host "  f1          2        f1       d1       (localhost:3001/4001)"
+    Write-Host "  f2          3        f2       d2       (localhost:3002/4002)"
+    Write-Host "  f3          4        f3       d3       (localhost:3003/4003)"
+    Write-Host "  f4          5        f4       d4       (localhost:3004/4004)"
     Write-Host ""
     Write-Host "  OTHER" -ForegroundColor Magenta
-    Write-Host "    M   main - Open (localhost:3000/4000)"
-    Write-Host "    C   main - Push"
     Write-Host "    L   List worktrees"
-    Write-Host "    Q   Quit"    
+    Write-Host "    Q   Quit"
     Write-Host ""
 }
 
@@ -89,6 +88,9 @@ function Start-Feature {
     $FrontendPort = $PortMap[$FeatureName].Frontend
     $BackendPort  = $PortMap[$FeatureName].Backend
 
+    $frontendDir = Join-Path $FeaturePath "n8n-ops-ui"
+    $backendDir  = Join-Path $FeaturePath "n8n-ops-backend"
+
     $StartupMessage = @"
 Write-Host ''
 Write-Host '  =======================================' -ForegroundColor Cyan
@@ -100,15 +102,21 @@ Write-Host '  Backend:  http://localhost:$BackendPort' -ForegroundColor Green
 Write-Host ''
 Write-Host '  .env.local has these ports configured' -ForegroundColor Gray
 Write-Host ''
+Write-Host 'Starting frontend and backend as background jobs...' -ForegroundColor Cyan
+
+Start-Job -ScriptBlock { cd '$frontendDir'; npm run dev }
+Start-Job -ScriptBlock { cd '$backendDir'; python -m uvicorn app.main:app --reload --port $BackendPort }
+
 claude --dangerously-skip-permissions
 "@
 
     if (Test-Path $FeaturePath) {
-        Write-Host "Worktree '$FeatureName' exists. Opening Claude Code..." -ForegroundColor Cyan
+        Write-Host "Worktree '$FeatureName' exists. Opening feature window..." -ForegroundColor Cyan
         Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$FeaturePath'; $StartupMessage"
         return
     }
 
+    # Create worktree
     Push-Location $RepoPath
     git fetch origin
     git worktree add $FeaturePath -b $FeatureName
@@ -135,8 +143,8 @@ VITE_PORT=$FrontendPort
         
         Write-Host "Created worktree '$FeatureName'" -ForegroundColor Green
         Write-Host "Location: $FeaturePath" -ForegroundColor Cyan
-        Write-Host "Opening Claude Code..." -ForegroundColor Cyan
-        
+        Write-Host "Opening feature window..." -ForegroundColor Cyan
+
         Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$FeaturePath'; $StartupMessage"
     } else {
         Write-Host "Failed to create worktree" -ForegroundColor Red
@@ -361,25 +369,30 @@ do {
     $choice = Read-Host
 
     switch ($choice.ToUpper()) {
-        # Start
-        "1"  { Start-Feature "f1";   pause }
-        "2"  { Start-Feature "f2";   pause }
-        "3"  { Start-Feature "f3";   pause }
-        "4"  { Start-Feature "f4";   pause }
+        # main
+        "M"  { Start-Feature "main"; pause }
+        "1"  { Commit-Main;          pause }
+
+        # Start features
+        "2"  { Start-Feature "f1";   pause }
+        "3"  { Start-Feature "f2";   pause }
+        "4"  { Start-Feature "f3";   pause }
+        "5"  { Start-Feature "f4";   pause }
+
         # Finish
         "F1" { Finish-Feature "f1";  pause }
         "F2" { Finish-Feature "f2";  pause }
         "F3" { Finish-Feature "f3";  pause }
         "F4" { Finish-Feature "f4";  pause }
+
         # Destroy
         "D1" { Destroy-Feature "f1"; pause }
         "D2" { Destroy-Feature "f2"; pause }
         "D3" { Destroy-Feature "f3"; pause }
         "D4" { Destroy-Feature "f4"; pause }
+
         # Other
-        "M"  { Start-Feature  "main"; pause }
-        "C"  { Commit-Main;           pause }
-        "L"  { List-Worktrees;        pause }
+        "L"  { List-Worktrees;       pause }
         "Q"  { exit }
         default { Write-Host "Invalid choice" -ForegroundColor Red; Start-Sleep -Seconds 1 }
     }

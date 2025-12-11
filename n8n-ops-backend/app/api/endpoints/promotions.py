@@ -254,15 +254,44 @@ async def execute_promotion(
                 detail="Active stage not found"
             )
         
-        # Create pre-promotion snapshot
+        # Step 1: Create Deployment record
+        from app.schemas.deployment import DeploymentStatus, DeploymentCreate, WorkflowChangeType, WorkflowStatus
+        from uuid import uuid4
+        
+        deployment_id = str(uuid4())
+        deployment_data = {
+            "id": deployment_id,
+            "tenant_id": MOCK_TENANT_ID,
+            "pipeline_id": promotion.get("pipeline_id"),
+            "source_environment_id": promotion.get("source_environment_id"),
+            "target_environment_id": promotion.get("target_environment_id"),
+            "status": DeploymentStatus.RUNNING.value,
+            "triggered_by_user_id": promotion.get("created_by", "current_user"),
+            "approved_by_user_id": None,  # Will be set if approval was required
+            "started_at": datetime.utcnow().isoformat(),
+            "finished_at": None,
+            "pre_snapshot_id": None,  # Will be set after pre-snapshot
+            "post_snapshot_id": None,  # Will be set after post-snapshot
+            "summary_json": None,  # Will be set after execution
+        }
+        await db_service.create_deployment(deployment_data)
+        
+        # Step 2: Create pre-promotion snapshot
         target_pre_snapshot_id, _ = await promotion_service.create_snapshot(
             tenant_id=MOCK_TENANT_ID,
             environment_id=promotion.get("target_environment_id"),
             reason="Pre-promotion snapshot",
-            metadata={"promotion_id": promotion_id}
+            metadata={
+                "promotion_id": promotion_id,
+                "deployment_id": deployment_id,
+                "type": "pre_promotion"
+            }
         )
         
-        # Execute promotion
+        # Update deployment with pre_snapshot_id
+        await db_service.update_deployment(deployment_id, {"pre_snapshot_id": target_pre_snapshot_id})
+        
+        # Step 3: Execute promotion
         from app.schemas.pipeline import PipelineStage
         from app.schemas.promotion import WorkflowSelection
         stage_obj = PipelineStage(**active_stage)
@@ -282,19 +311,79 @@ async def execute_promotion(
             credential_issues=credential_issues
         )
         
-        # Update execution result with snapshot IDs
-        execution_result.target_pre_snapshot_id = target_pre_snapshot_id
-        execution_result.target_post_snapshot_id = target_post_snapshot_id
+        # Step 4: Create deployment_workflow records
+        workflow_selections = [WorkflowSelection(**ws) for ws in promotion.get("workflow_selections", [])]
+        for selection in workflow_selections:
+            if not selection.selected:
+                continue
+            
+            # Map change types
+            change_type_map = {
+                "new": WorkflowChangeType.CREATED,
+                "changed": WorkflowChangeType.UPDATED,
+                "staging_hotfix": WorkflowChangeType.UPDATED,
+                "conflict": WorkflowChangeType.SKIPPED,
+                "unchanged": WorkflowChangeType.UNCHANGED,
+            }
+            change_type = change_type_map.get(selection.change_type.value, WorkflowChangeType.UPDATED)
+            
+            # Determine status (check if workflow failed in execution)
+            workflow_status = WorkflowStatus.SUCCESS
+            error_message = None
+            if execution_result.errors:
+                # Check if this workflow had an error
+                for error in execution_result.errors:
+                    if selection.workflow_name in error or selection.workflow_id in error:
+                        workflow_status = WorkflowStatus.FAILED
+                        error_message = error
+                        break
+            
+            if selection.change_type.value == "conflict":
+                workflow_status = WorkflowStatus.SKIPPED
+            
+            workflow_data = {
+                "deployment_id": deployment_id,
+                "workflow_id": selection.workflow_id,
+                "workflow_name_at_time": selection.workflow_name,
+                "change_type": change_type.value,
+                "status": workflow_status.value,
+                "error_message": error_message,
+            }
+            await db_service.create_deployment_workflow(workflow_data)
         
-        # Create post-promotion snapshot
+        # Step 5: Create post-promotion snapshot
         target_post_snapshot_id, _ = await promotion_service.create_snapshot(
             tenant_id=MOCK_TENANT_ID,
             environment_id=promotion.get("target_environment_id"),
             reason="Post-promotion snapshot",
-            metadata={"promotion_id": promotion_id, "source_snapshot_id": promotion.get("source_snapshot_id")}
+            metadata={
+                "promotion_id": promotion_id,
+                "deployment_id": deployment_id,
+                "source_snapshot_id": promotion.get("source_snapshot_id"),
+                "type": "post_promotion"
+            }
         )
         
-        # Update promotion with results
+        # Step 6: Update deployment with results
+        summary_json = {
+            "total": len([ws for ws in workflow_selections if ws.selected]),
+            "created": len([ws for ws in workflow_selections if ws.selected and ws.change_type.value == "new"]),
+            "updated": len([ws for ws in workflow_selections if ws.selected and ws.change_type.value in ["changed", "staging_hotfix"]]),
+            "deleted": 0,  # Deletions not supported in v1
+            "failed": execution_result.workflows_failed,
+            "skipped": execution_result.workflows_skipped,
+        }
+        
+        deployment_status = DeploymentStatus.SUCCESS if execution_result.workflows_failed == 0 else DeploymentStatus.FAILED
+        
+        await db_service.update_deployment(deployment_id, {
+            "status": deployment_status.value,
+            "post_snapshot_id": target_post_snapshot_id,
+            "summary_json": summary_json,
+            "finished_at": datetime.utcnow().isoformat(),
+        })
+        
+        # Update promotion with results (for backward compatibility)
         await db_service.update_promotion(promotion_id, MOCK_TENANT_ID, {
             "status": execution_result.status.value,
             "target_pre_snapshot_id": target_pre_snapshot_id,

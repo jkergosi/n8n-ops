@@ -85,7 +85,7 @@ export function PipelinesPage() {
   });
 
   const getEnvironmentPath = (pipeline: Pipeline): string => {
-    if (!environments?.data || pipeline.environmentIds.length === 0) return 'N/A';
+    if (!environments?.data || !pipeline.environmentIds || pipeline.environmentIds.length === 0) return 'N/A';
     const envNames = pipeline.environmentIds
       .map((id) => {
         const env = environments.data.find((e) => e.id === id);

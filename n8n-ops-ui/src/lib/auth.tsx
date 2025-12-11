@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { apiClient } from './api-client';
 
-// Dev mode - bypass Auth0 entirely
-const DEV_MODE = import.meta.env.VITE_USE_MOCK_AUTH === 'true' || true; // Force dev mode for now
+// DEV MODE - Always enabled, bypasses Auth0 entirely
+// Assumes first user in database is the current user
 
 interface User {
   id: string;
@@ -44,59 +44,120 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initAuth = async () => {
       try {
         // Get list of users from backend
-        const { data } = await apiClient.getDevUsers();
-        setAvailableUsers(data.users || []);
+        try {
+          const { data } = await apiClient.getDevUsers();
+          const users = data.users || [];
+          setAvailableUsers(users);
 
-        // Check if we have a saved user in localStorage
-        const savedUserId = localStorage.getItem('dev_user_id');
-        if (savedUserId && data.users?.length > 0) {
-          const savedUser = data.users.find((u: { id: string }) => u.id === savedUserId);
-          if (savedUser) {
-            await loginAsUser(savedUser.id);
-            return;
+        if (users.length > 0) {
+          // Auto-login as first user
+          const firstUser = users[0];
+          try {
+            const loginResult = await apiClient.devLoginAs(firstUser.id);
+            if (loginResult.data.user && loginResult.data.tenant) {
+              setUser({
+                id: loginResult.data.user.id,
+                email: loginResult.data.user.email,
+                name: loginResult.data.user.name,
+                role: loginResult.data.user.role || 'admin',
+              });
+              setTenant({
+                id: loginResult.data.tenant.id,
+                name: loginResult.data.tenant.name,
+                subscriptionPlan: loginResult.data.tenant.subscription_tier || 'free',
+              });
+              setNeedsOnboarding(false);
+              localStorage.setItem('dev_user_id', firstUser.id);
+              apiClient.setAuthToken(`dev-token-${firstUser.id}`);
+            }
+          } catch (loginError) {
+            console.error('Failed to login as first user:', loginError);
+            // Still don't need onboarding if users exist
+            setNeedsOnboarding(false);
           }
-        }
-
-        // Auto-login as first user if available
-        if (data.users && data.users.length > 0) {
-          await loginAsUser(data.users[0].id);
         } else {
-          // No users exist - need onboarding
-          setNeedsOnboarding(true);
+          // No users exist - but don't require onboarding, just skip auth
+          console.log('No users in database - running without authentication');
+          setNeedsOnboarding(false);
+          // Set a dummy user/tenant so the app works
+          setUser({
+            id: 'dev-user',
+            email: 'dev@example.com',
+            name: 'Dev User',
+            role: 'admin',
+          });
+          setTenant({
+            id: 'dev-tenant',
+            name: 'Dev Tenant',
+            subscriptionPlan: 'enterprise',
+          });
+        }
+        } catch (authError) {
+          // If auth endpoint fails (404), continue without auth (dev mode)
+          console.warn('Auth endpoint not available, continuing without authentication:', authError);
+          setNeedsOnboarding(false);
+          setUser({
+            id: 'dev-user',
+            email: 'dev@example.com',
+            name: 'Dev User',
+            role: 'admin',
+          });
+          setTenant({
+            id: 'dev-tenant',
+            name: 'Dev Tenant',
+            subscriptionPlan: 'enterprise',
+          });
         }
       } catch (error) {
         console.error('Failed to init auth:', error);
-        setNeedsOnboarding(true);
+        // On error, skip auth and use dummy user
+        setNeedsOnboarding(false);
+        setUser({
+          id: 'dev-user',
+          email: 'dev@example.com',
+          name: 'Dev User',
+          role: 'admin',
+        });
+        setTenant({
+          id: 'dev-tenant',
+          name: 'Dev Tenant',
+          subscriptionPlan: 'enterprise',
+        });
       } finally {
         setIsLoading(false);
       }
     };
 
-    if (DEV_MODE) {
-      initAuth();
-    }
+    initAuth();
   }, []);
 
-  const loginAsUser = async (userId: string) => {
+  const login = useCallback(() => {
+    window.location.reload();
+  }, []);
+
+  const logout = useCallback(() => {
+    apiClient.setAuthToken(null);
+    localStorage.removeItem('dev_user_id');
+    window.location.reload();
+  }, []);
+
+  const loginAs = useCallback(async (userId: string) => {
     try {
       setIsLoading(true);
       const { data } = await apiClient.devLoginAs(userId);
-
       if (data.user && data.tenant) {
         setUser({
           id: data.user.id,
           email: data.user.email,
           name: data.user.name,
-          role: data.user.role,
+          role: data.user.role || 'admin',
         });
         setTenant({
           id: data.tenant.id,
           name: data.tenant.name,
           subscriptionPlan: data.tenant.subscription_tier || 'free',
         });
-        setNeedsOnboarding(false);
         localStorage.setItem('dev_user_id', userId);
-        // Set a mock token for API calls
         apiClient.setAuthToken(`dev-token-${userId}`);
       }
     } catch (error) {
@@ -104,53 +165,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const login = useCallback(() => {
-    // In dev mode, just reload to trigger auto-login
-    window.location.reload();
-  }, []);
-
-  const logout = useCallback(() => {
-    apiClient.setAuthToken(null);
-    setUser(null);
-    setTenant(null);
-    setNeedsOnboarding(false);
-    localStorage.removeItem('dev_user_id');
-  }, []);
-
-  const loginAs = useCallback(async (userId: string) => {
-    await loginAsUser(userId);
   }, []);
 
   const completeOnboarding = useCallback(async (organizationName?: string) => {
-    try {
-      const { data } = await apiClient.devCreateUser(organizationName);
-
-      if (data.user && data.tenant) {
-        setUser({
-          id: data.user.id,
-          email: data.user.email,
-          name: data.user.name,
-          role: data.user.role,
-        });
-        setTenant({
-          id: data.tenant.id,
-          name: data.tenant.name,
-          subscriptionPlan: data.tenant.subscription_tier || 'free',
-        });
-        setNeedsOnboarding(false);
-        localStorage.setItem('dev_user_id', data.user.id);
-        apiClient.setAuthToken(`dev-token-${data.user.id}`);
-
-        // Refresh available users
-        const usersResponse = await apiClient.getDevUsers();
-        setAvailableUsers(usersResponse.data.users || []);
-      }
-    } catch (error) {
-      console.error('Failed to complete onboarding:', error);
-      throw error;
-    }
+    // No-op in dev mode - onboarding is disabled
+    setNeedsOnboarding(false);
   }, []);
 
   const isAuthenticated = user !== null && tenant !== null;

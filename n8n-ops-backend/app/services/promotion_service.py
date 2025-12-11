@@ -104,21 +104,38 @@ class PromotionService:
         except Exception as e:
             logger.warning(f"Could not get commit SHA: {str(e)}")
 
-        # Create snapshot record
+        # Create snapshot record using new snapshot table structure
+        from app.schemas.deployment import SnapshotType
         snapshot_id = str(uuid4())
+        
+        # Determine snapshot type from metadata
+        snapshot_type = SnapshotType.AUTO_BACKUP
+        if metadata:
+            if metadata.get("type") == "pre_promotion":
+                snapshot_type = SnapshotType.PRE_PROMOTION
+            elif metadata.get("type") == "post_promotion":
+                snapshot_type = SnapshotType.POST_PROMOTION
+            elif metadata.get("manual"):
+                snapshot_type = SnapshotType.MANUAL_BACKUP
+        
         snapshot_data = {
             "id": snapshot_id,
             "tenant_id": tenant_id,
             "environment_id": environment_id,
-            "reason": reason,
-            "commit_sha": commit_sha,
-            "workflows_count": workflows_synced,
-            "metadata": metadata or {},
-            "created_at": datetime.utcnow().isoformat()
+            "git_commit_sha": commit_sha or "",
+            "type": snapshot_type.value,
+            "created_by_user_id": "current_user",  # TODO: Get from auth
+            "related_deployment_id": metadata.get("deployment_id") if metadata else None,
+            "metadata_json": {
+                **(metadata or {}),
+                "reason": reason,
+                "workflows_count": workflows_synced,
+            },
         }
 
-        # Store snapshot (assuming we have a promotions_snapshots table)
-        # For now, we'll return the snapshot info
+        # Store snapshot in new snapshots table
+        await self.db.create_snapshot(snapshot_data)
+        
         return snapshot_id, commit_sha or ""
 
     async def check_drift(

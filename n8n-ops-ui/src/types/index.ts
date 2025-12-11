@@ -56,31 +56,73 @@ export interface Workflow {
   syncStatus?: SyncStatus;
 }
 
-// Snapshot types
+// Snapshot types (Git-backed environment states)
+export type SnapshotType = 'auto_backup' | 'pre_promotion' | 'post_promotion' | 'manual_backup';
+
 export interface Snapshot {
   id: string;
-  workflowId: string;
-  workflowName: string;
-  version: number;
-  data: Workflow;
-  trigger: string;
+  tenantId: string;
+  environmentId: string;
+  gitCommitSha: string;
+  type: SnapshotType;
   createdAt: string;
-  createdBy: string;
+  createdByUserId?: string;
+  relatedDeploymentId?: string;
+  metadataJson?: {
+    reason?: string;
+    workflowsCount?: number;
+    [key: string]: any;
+  };
 }
 
-// Deployment types
+// Deployment types (Promotion records)
+export type DeploymentStatus = 'pending' | 'running' | 'success' | 'failed' | 'canceled';
+export type WorkflowChangeType = 'created' | 'updated' | 'deleted' | 'skipped' | 'unchanged';
+export type WorkflowStatus = 'success' | 'failed' | 'skipped';
+
+export interface DeploymentWorkflow {
+  id: string;
+  deploymentId: string;
+  workflowId: string;
+  workflowNameAtTime: string;
+  changeType: WorkflowChangeType;
+  status: WorkflowStatus;
+  errorMessage?: string;
+  createdAt: string;
+}
+
 export interface Deployment {
   id: string;
-  workflowId: string;
-  workflowName: string;
-  sourceEnvironment: EnvironmentType;
-  targetEnvironment: EnvironmentType;
-  status: 'pending' | 'running' | 'success' | 'failed';
-  snapshotId?: string;
-  triggeredBy: string;
+  tenantId: string;
+  pipelineId?: string;
+  sourceEnvironmentId: string;
+  targetEnvironmentId: string;
+  status: DeploymentStatus;
+  triggeredByUserId: string;
+  approvedByUserId?: string;
   startedAt: string;
-  completedAt?: string;
-  errorMessage?: string;
+  finishedAt?: string;
+  preSnapshotId?: string;
+  postSnapshotId?: string;
+  summaryJson?: {
+    total: number;
+    created: number;
+    updated: number;
+    deleted: number;
+    failed: number;
+    skipped?: number;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DeploymentDetail extends Deployment {
+  workflows: DeploymentWorkflow[];
+  preSnapshot?: Snapshot;
+  postSnapshot?: Snapshot;
+  pipelineName?: string;
+  sourceEnvironmentName?: string;
+  targetEnvironmentName?: string;
 }
 
 // Execution types
@@ -384,4 +426,131 @@ export interface Promotion {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+}
+
+// Observability types
+export type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d';
+export type EnvironmentStatus = 'healthy' | 'degraded' | 'unreachable';
+export type DriftState = 'in_sync' | 'drift' | 'unknown';
+
+export interface KPIMetrics {
+  totalExecutions: number;
+  successCount: number;
+  failureCount: number;
+  successRate: number;
+  avgDurationMs: number;
+  p95DurationMs?: number;
+  deltaExecutions?: number;
+  deltaSuccessRate?: number;
+}
+
+export interface WorkflowPerformance {
+  workflowId: string;
+  workflowName: string;
+  executionCount: number;
+  successCount: number;
+  failureCount: number;
+  errorRate: number;
+  avgDurationMs: number;
+  p95DurationMs?: number;
+}
+
+export interface EnvironmentHealthData {
+  environmentId: string;
+  environmentName: string;
+  environmentType?: string;
+  status: EnvironmentStatus;
+  latencyMs?: number;
+  uptimePercent: number;
+  activeWorkflows: number;
+  totalWorkflows: number;
+  lastDeploymentAt?: string;
+  lastSnapshotAt?: string;
+  driftState: DriftState;
+  lastCheckedAt?: string;
+}
+
+export interface RecentDeployment {
+  id: string;
+  pipelineName?: string;
+  sourceEnvironmentName: string;
+  targetEnvironmentName: string;
+  status: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+export interface PromotionSyncStats {
+  promotionsTotal: number;
+  promotionsSuccess: number;
+  promotionsFailed: number;
+  promotionsBlocked: number;
+  snapshotsCreated: number;
+  snapshotsRestored: number;
+  driftCount: number;
+  recentDeployments: RecentDeployment[];
+}
+
+export interface ObservabilityOverview {
+  kpiMetrics: KPIMetrics;
+  workflowPerformance: WorkflowPerformance[];
+  environmentHealth: EnvironmentHealthData[];
+  promotionSyncStats?: PromotionSyncStats;
+}
+
+export interface HealthCheckResponse {
+  id: string;
+  tenantId: string;
+  environmentId: string;
+  status: EnvironmentStatus;
+  latencyMs?: number;
+  checkedAt: string;
+  errorMessage?: string;
+}
+
+// Notification/Alert types
+export type ChannelType = 'n8n_workflow';
+export type NotificationStatusType = 'pending' | 'sent' | 'failed' | 'skipped';
+
+export interface NotificationChannel {
+  id: string;
+  tenantId: string;
+  name: string;
+  type: ChannelType;
+  configJson: {
+    environmentId: string;
+    workflowId: string;
+    webhookPath: string;
+  };
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationRule {
+  id: string;
+  tenantId: string;
+  eventType: string;
+  channelIds: string[];
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AlertEvent {
+  id: string;
+  tenantId: string;
+  eventType: string;
+  environmentId?: string;
+  timestamp: string;
+  metadataJson?: Record<string, any>;
+  notificationStatus?: NotificationStatusType;
+  channelsNotified?: string[];
+}
+
+export interface EventCatalogItem {
+  eventType: string;
+  displayName: string;
+  description: string;
+  category: string;
 }

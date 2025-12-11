@@ -12,13 +12,13 @@ import type { Environment } from '@/types';
 
 interface EnvironmentSequenceProps {
   environments: Environment[];
-  selectedEnvironmentIds: string[];
+  selectedEnvironmentIds?: string[];
   onChange: (environmentIds: string[]) => void;
 }
 
 export function EnvironmentSequence({
   environments,
-  selectedEnvironmentIds,
+  selectedEnvironmentIds = [],
   onChange,
 }: EnvironmentSequenceProps) {
   const availableEnvironments = environments.filter(

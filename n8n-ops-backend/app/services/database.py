@@ -91,6 +91,48 @@ class DatabaseService:
         response = self.client.table("deployments").select("*").eq("tenant_id", tenant_id).order("started_at", desc=True).execute()
         return response.data
 
+    async def get_deployment(self, deployment_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific deployment"""
+        response = self.client.table("deployments").select("*").eq("id", deployment_id).eq("tenant_id", tenant_id).single().execute()
+        return response.data
+
+    # Snapshot operations (new Git-backed snapshots)
+    async def create_snapshot(self, snapshot_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a snapshot record"""
+        response = self.client.table("snapshots").insert(snapshot_data).execute()
+        return response.data[0]
+
+    async def get_snapshot(self, snapshot_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific snapshot"""
+        response = self.client.table("snapshots").select("*").eq("id", snapshot_id).eq("tenant_id", tenant_id).single().execute()
+        return response.data
+
+    async def get_snapshots(
+        self,
+        tenant_id: str,
+        environment_id: Optional[str] = None,
+        snapshot_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get snapshots with optional filtering"""
+        query = self.client.table("snapshots").select("*").eq("tenant_id", tenant_id)
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+        if snapshot_type:
+            query = query.eq("type", snapshot_type)
+        response = query.order("created_at", desc=True).execute()
+        return response.data
+
+    # Deployment workflow operations
+    async def create_deployment_workflow(self, workflow_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a deployment workflow record"""
+        response = self.client.table("deployment_workflows").insert(workflow_data).execute()
+        return response.data[0]
+
+    async def get_deployment_workflows(self, deployment_id: str) -> List[Dict[str, Any]]:
+        """Get all workflows for a deployment"""
+        response = self.client.table("deployment_workflows").select("*").eq("deployment_id", deployment_id).execute()
+        return response.data
+
     # Execution operations
     async def create_execution(self, execution_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create an execution record"""
@@ -584,6 +626,397 @@ class DatabaseService:
         promotion_data["updated_at"] = datetime.utcnow().isoformat()
         response = self.client.table("promotions").update(promotion_data).eq("id", promotion_id).eq("tenant_id", tenant_id).execute()
         return response.data[0] if response.data else None
+
+    # Health check operations
+    async def create_health_check(self, health_check_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a health check record"""
+        response = self.client.table("health_checks").insert(health_check_data).execute()
+        return response.data[0] if response.data else None
+
+    async def get_recent_health_checks(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Get recent health checks for an environment"""
+        response = self.client.table("health_checks").select("*").eq(
+            "tenant_id", tenant_id
+        ).eq(
+            "environment_id", environment_id
+        ).order("checked_at", desc=True).limit(limit).execute()
+        return response.data
+
+    async def get_latest_health_check(
+        self,
+        tenant_id: str,
+        environment_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get the most recent health check for an environment"""
+        response = self.client.table("health_checks").select("*").eq(
+            "tenant_id", tenant_id
+        ).eq(
+            "environment_id", environment_id
+        ).order("checked_at", desc=True).limit(1).execute()
+        return response.data[0] if response.data else None
+
+    async def get_uptime_stats(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        since: str
+    ) -> Dict[str, Any]:
+        """Calculate uptime stats for an environment since a given time"""
+        response = self.client.table("health_checks").select("status").eq(
+            "tenant_id", tenant_id
+        ).eq(
+            "environment_id", environment_id
+        ).gte("checked_at", since).execute()
+
+        checks = response.data
+        total = len(checks)
+        healthy = sum(1 for c in checks if c.get("status") == "healthy")
+
+        return {
+            "total_checks": total,
+            "healthy_checks": healthy,
+            "uptime_percent": (healthy / total * 100) if total > 0 else 100.0
+        }
+
+    # Notification channel operations
+    async def create_notification_channel(self, channel_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a notification channel"""
+        response = self.client.table("notification_channels").insert(channel_data).execute()
+        return response.data[0] if response.data else None
+
+    async def get_notification_channels(self, tenant_id: str) -> List[Dict[str, Any]]:
+        """Get all notification channels for a tenant"""
+        response = self.client.table("notification_channels").select("*").eq(
+            "tenant_id", tenant_id
+        ).order("created_at", desc=True).execute()
+        return response.data
+
+    async def get_notification_channel(
+        self,
+        channel_id: str,
+        tenant_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a specific notification channel"""
+        response = self.client.table("notification_channels").select("*").eq(
+            "id", channel_id
+        ).eq("tenant_id", tenant_id).single().execute()
+        return response.data
+
+    async def update_notification_channel(
+        self,
+        channel_id: str,
+        tenant_id: str,
+        channel_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Update a notification channel"""
+        from datetime import datetime
+        channel_data["updated_at"] = datetime.utcnow().isoformat()
+        response = self.client.table("notification_channels").update(channel_data).eq(
+            "id", channel_id
+        ).eq("tenant_id", tenant_id).execute()
+        return response.data[0] if response.data else None
+
+    async def delete_notification_channel(self, channel_id: str, tenant_id: str) -> bool:
+        """Delete a notification channel"""
+        self.client.table("notification_channels").delete().eq(
+            "id", channel_id
+        ).eq("tenant_id", tenant_id).execute()
+        return True
+
+    # Notification rule operations
+    async def create_notification_rule(self, rule_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a notification rule"""
+        response = self.client.table("notification_rules").insert(rule_data).execute()
+        return response.data[0] if response.data else None
+
+    async def get_notification_rules(self, tenant_id: str) -> List[Dict[str, Any]]:
+        """Get all notification rules for a tenant"""
+        response = self.client.table("notification_rules").select("*").eq(
+            "tenant_id", tenant_id
+        ).order("event_type").execute()
+        return response.data
+
+    async def get_notification_rule_by_event(
+        self,
+        tenant_id: str,
+        event_type: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a notification rule by event type"""
+        response = self.client.table("notification_rules").select("*").eq(
+            "tenant_id", tenant_id
+        ).eq("event_type", event_type).execute()
+        return response.data[0] if response.data else None
+
+    async def update_notification_rule(
+        self,
+        rule_id: str,
+        tenant_id: str,
+        rule_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Update a notification rule"""
+        from datetime import datetime
+        rule_data["updated_at"] = datetime.utcnow().isoformat()
+        response = self.client.table("notification_rules").update(rule_data).eq(
+            "id", rule_id
+        ).eq("tenant_id", tenant_id).execute()
+        return response.data[0] if response.data else None
+
+    async def delete_notification_rule(self, rule_id: str, tenant_id: str) -> bool:
+        """Delete a notification rule"""
+        self.client.table("notification_rules").delete().eq(
+            "id", rule_id
+        ).eq("tenant_id", tenant_id).execute()
+        return True
+
+    # Event operations
+    async def create_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create an event record"""
+        response = self.client.table("events").insert(event_data).execute()
+        return response.data[0] if response.data else None
+
+    async def get_events(
+        self,
+        tenant_id: str,
+        limit: int = 50,
+        event_type: Optional[str] = None,
+        environment_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get recent events for a tenant"""
+        query = self.client.table("events").select("*").eq("tenant_id", tenant_id)
+        if event_type:
+            query = query.eq("event_type", event_type)
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+        response = query.order("timestamp", desc=True).limit(limit).execute()
+        return response.data
+
+    async def update_event_notification_status(
+        self,
+        event_id: str,
+        status: str,
+        channels: List[str]
+    ) -> Optional[Dict[str, Any]]:
+        """Update event notification status"""
+        response = self.client.table("events").update({
+            "notification_status": status,
+            "channels_notified": channels
+        }).eq("id", event_id).execute()
+        return response.data[0] if response.data else None
+
+    # Execution stats for observability
+    async def get_execution_stats(
+        self,
+        tenant_id: str,
+        since: str,
+        until: str,
+        environment_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get execution statistics for a time range"""
+        query = self.client.table("executions").select("status, execution_time").eq(
+            "tenant_id", tenant_id
+        ).gte("started_at", since).lt("started_at", until)
+
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+
+        response = query.execute()
+        executions = response.data
+
+        total = len(executions)
+        success = sum(1 for e in executions if e.get("status") == "success")
+        failed = sum(1 for e in executions if e.get("status") == "error")
+
+        # Calculate average duration (filter out None values)
+        durations = [e.get("execution_time") for e in executions if e.get("execution_time") is not None]
+        avg_duration = sum(durations) / len(durations) if durations else 0
+
+        # Calculate p95 duration
+        p95_duration = None
+        if durations:
+            sorted_durations = sorted(durations)
+            p95_index = int(len(sorted_durations) * 0.95)
+            p95_duration = sorted_durations[min(p95_index, len(sorted_durations) - 1)]
+
+        return {
+            "total_executions": total,
+            "success_count": success,
+            "failure_count": failed,
+            "success_rate": (success / total * 100) if total > 0 else 100.0,
+            "avg_duration_ms": avg_duration,
+            "p95_duration_ms": p95_duration
+        }
+
+    async def get_workflow_execution_stats(
+        self,
+        tenant_id: str,
+        since: str,
+        until: str,
+        limit: int = 10,
+        sort_by: str = "executions",
+        environment_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get per-workflow execution statistics"""
+        query = self.client.table("executions").select(
+            "workflow_id, workflow_name, status, execution_time"
+        ).eq("tenant_id", tenant_id).gte("started_at", since).lt("started_at", until)
+
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+
+        response = query.execute()
+        executions = response.data
+
+        # Group by workflow
+        workflow_stats = {}
+        for e in executions:
+            wf_id = e.get("workflow_id")
+            if not wf_id:
+                continue
+
+            if wf_id not in workflow_stats:
+                workflow_stats[wf_id] = {
+                    "workflow_id": wf_id,
+                    "workflow_name": e.get("workflow_name") or wf_id,
+                    "execution_count": 0,
+                    "success_count": 0,
+                    "failure_count": 0,
+                    "durations": []
+                }
+
+            stats = workflow_stats[wf_id]
+            stats["execution_count"] += 1
+            if e.get("status") == "success":
+                stats["success_count"] += 1
+            elif e.get("status") == "error":
+                stats["failure_count"] += 1
+
+            if e.get("execution_time") is not None:
+                stats["durations"].append(e["execution_time"])
+
+        # Calculate final stats and sort
+        result = []
+        for wf_id, stats in workflow_stats.items():
+            avg_duration = sum(stats["durations"]) / len(stats["durations"]) if stats["durations"] else 0
+
+            # Calculate p95
+            p95_duration = None
+            if stats["durations"]:
+                sorted_durations = sorted(stats["durations"])
+                p95_index = int(len(sorted_durations) * 0.95)
+                p95_duration = sorted_durations[min(p95_index, len(sorted_durations) - 1)]
+
+            result.append({
+                "workflow_id": stats["workflow_id"],
+                "workflow_name": stats["workflow_name"],
+                "execution_count": stats["execution_count"],
+                "success_count": stats["success_count"],
+                "failure_count": stats["failure_count"],
+                "error_rate": (stats["failure_count"] / stats["execution_count"] * 100) if stats["execution_count"] > 0 else 0,
+                "avg_duration_ms": avg_duration,
+                "p95_duration_ms": p95_duration
+            })
+
+        # Sort based on sort_by parameter
+        if sort_by == "failures":
+            result.sort(key=lambda x: x["failure_count"], reverse=True)
+        else:  # default: executions
+            result.sort(key=lambda x: x["execution_count"], reverse=True)
+
+        return result[:limit]
+
+    # Deployment stats for observability
+    async def get_deployment_stats(
+        self,
+        tenant_id: str,
+        since: str
+    ) -> Dict[str, Any]:
+        """Get deployment statistics since a given time"""
+        response = self.client.table("deployments").select("status").eq(
+            "tenant_id", tenant_id
+        ).gte("started_at", since).execute()
+
+        deployments = response.data
+        total = len(deployments)
+        success = sum(1 for d in deployments if d.get("status") == "success")
+        failed = sum(1 for d in deployments if d.get("status") == "failed")
+        blocked = sum(1 for d in deployments if d.get("status") == "canceled")
+
+        return {
+            "total": total,
+            "success": success,
+            "failed": failed,
+            "blocked": blocked
+        }
+
+    async def get_recent_deployments_with_details(
+        self,
+        tenant_id: str,
+        limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Get recent deployments with environment names"""
+        response = self.client.table("deployments").select("*").eq(
+            "tenant_id", tenant_id
+        ).order("started_at", desc=True).limit(limit).execute()
+
+        deployments = response.data
+
+        # Get environment names
+        env_ids = set()
+        for d in deployments:
+            if d.get("source_environment_id"):
+                env_ids.add(d["source_environment_id"])
+            if d.get("target_environment_id"):
+                env_ids.add(d["target_environment_id"])
+
+        env_names = {}
+        if env_ids:
+            env_response = self.client.table("environments").select("id, n8n_name").in_(
+                "id", list(env_ids)
+            ).execute()
+            env_names = {e["id"]: e["n8n_name"] for e in env_response.data}
+
+        # Get pipeline names
+        pipeline_ids = [d.get("pipeline_id") for d in deployments if d.get("pipeline_id")]
+        pipeline_names = {}
+        if pipeline_ids:
+            pipeline_response = self.client.table("pipelines").select("id, name").in_(
+                "id", pipeline_ids
+            ).execute()
+            pipeline_names = {p["id"]: p["name"] for p in pipeline_response.data}
+
+        # Enrich deployments
+        for d in deployments:
+            d["source_environment_name"] = env_names.get(d.get("source_environment_id"), "Unknown")
+            d["target_environment_name"] = env_names.get(d.get("target_environment_id"), "Unknown")
+            d["pipeline_name"] = pipeline_names.get(d.get("pipeline_id"))
+
+        return deployments
+
+    # Snapshot stats for observability
+    async def get_snapshot_stats(
+        self,
+        tenant_id: str,
+        since: str
+    ) -> Dict[str, Any]:
+        """Get snapshot statistics since a given time"""
+        response = self.client.table("snapshots").select("type").eq(
+            "tenant_id", tenant_id
+        ).gte("created_at", since).execute()
+
+        snapshots = response.data
+        created = len(snapshots)
+
+        # For restored count, we'd need to track restore events
+        # For now, just return created count
+        return {
+            "created": created,
+            "restored": 0  # TODO: track restore events
+        }
 
 
 # Global instance

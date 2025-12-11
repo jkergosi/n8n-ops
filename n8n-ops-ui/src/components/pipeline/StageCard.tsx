@@ -58,7 +58,13 @@ export function StageCard({
 
   const updatePolicyFlags = (updates: Partial<PipelineStage['policyFlags']>) => {
     updateStage({
-      policyFlags: { ...stage.policyFlags, ...updates },
+      policyFlags: { 
+        allowPlaceholderCredentials: false,
+        allowOverwritingHotfixes: false,
+        allowForcePromotionOnConflicts: false,
+        ...stage.policyFlags, 
+        ...updates 
+      },
     });
   };
 
@@ -376,7 +382,7 @@ export function StageCard({
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={`policy-placeholder-${stage.sourceEnvironmentId}`}
-                  checked={stage.policyFlags.allowPlaceholderCredentials}
+                  checked={stage.policyFlags?.allowPlaceholderCredentials ?? false}
                   onCheckedChange={(checked) =>
                     updatePolicyFlags({ allowPlaceholderCredentials: checked === true })
                   }
@@ -391,7 +397,7 @@ export function StageCard({
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={`policy-hotfix-${stage.sourceEnvironmentId}`}
-                  checked={stage.policyFlags.allowOverwritingHotfixes}
+                  checked={stage.policyFlags?.allowOverwritingHotfixes ?? false}
                   onCheckedChange={(checked) =>
                     updatePolicyFlags({ allowOverwritingHotfixes: checked === true })
                   }
@@ -406,7 +412,7 @@ export function StageCard({
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={`policy-force-${stage.sourceEnvironmentId}`}
-                  checked={stage.policyFlags.allowForcePromotionOnConflicts}
+                  checked={stage.policyFlags?.allowForcePromotionOnConflicts ?? false}
                   onCheckedChange={(checked) =>
                     updatePolicyFlags({ allowForcePromotionOnConflicts: checked === true })
                   }

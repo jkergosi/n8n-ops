@@ -7,6 +7,8 @@ import type {
   Execution,
   Snapshot,
   Deployment,
+  DeploymentDetail,
+  DeploymentWorkflow,
   Pipeline,
   PipelineStage,
   PromotionInitiateRequest,
@@ -33,6 +35,17 @@ import type {
   CheckoutSession,
   PortalSession,
   ApiResponse,
+  TimeRange,
+  ObservabilityOverview,
+  KPIMetrics,
+  WorkflowPerformance,
+  EnvironmentHealthData,
+  PromotionSyncStats,
+  HealthCheckResponse,
+  NotificationChannel,
+  NotificationRule,
+  AlertEvent,
+  EventCatalogItem,
 } from '@/types';
 
 // Helper function to determine if a string is a UUID
@@ -103,6 +116,26 @@ class ApiClient {
   async getDevUsers(): Promise<{ data: { users: Array<{ id: string; email: string; name: string; tenant_id: string }> } }> {
     const response = await this.client.get('/auth/dev/users');
     return { data: response.data };
+  }
+
+  async devLoginAs(userId: string): Promise<{ data: { user: any; tenant: any } }> {
+    const response = await this.client.post(`/auth/dev/login-as/${userId}`);
+    return { data: response.data };
+  }
+
+  async devCreateUser(organizationName?: string): Promise<{ data: { user: any; tenant: any } }> {
+    const response = await this.client.post('/auth/dev/create-user', null, {
+      params: organizationName ? { organization_name: organizationName } : {},
+    });
+    return { data: response.data };
+  }
+
+  setAuthToken(token: string | null): void {
+    if (token) {
+      localStorage.setItem('auth_token', token);
+    } else {
+      localStorage.removeItem('auth_token');
+    }
   }
 
   // Environment endpoints
@@ -444,10 +477,32 @@ class ApiClient {
       stages: validStages.map((stage) => ({
         source_environment_id: stage.sourceEnvironmentId,
         target_environment_id: stage.targetEnvironmentId,
-        gates: stage.gates,
-        approvals: stage.approvals,
-        schedule: stage.schedule,
-        policy_flags: stage.policyFlags,
+        gates: {
+          require_clean_drift: stage.gates?.requireCleanDrift ?? false,
+          run_pre_flight_validation: stage.gates?.runPreFlightValidation ?? false,
+          credentials_exist_in_target: stage.gates?.credentialsExistInTarget ?? false,
+          nodes_supported_in_target: stage.gates?.nodesSupportedInTarget ?? false,
+          webhooks_available: stage.gates?.webhooksAvailable ?? false,
+          target_environment_healthy: stage.gates?.targetEnvironmentHealthy ?? false,
+          max_allowed_risk_level: stage.gates?.maxAllowedRiskLevel ?? 'High',
+        },
+        approvals: {
+          require_approval: stage.approvals?.requireApproval ?? false,
+          approver_role: stage.approvals?.approverRole ?? null,
+          approver_group: stage.approvals?.approverGroup ?? null,
+          required_approvals: stage.approvals?.requiredApprovals ?? null,
+        },
+        schedule: stage.schedule ? {
+          restrict_promotion_times: stage.schedule.restrictPromotionTimes ?? false,
+          allowed_days: stage.schedule.allowedDays ?? null,
+          start_time: stage.schedule.startTime ?? null,
+          end_time: stage.schedule.endTime ?? null,
+        } : null,
+        policy_flags: {
+          allow_placeholder_credentials: stage.policyFlags?.allowPlaceholderCredentials ?? false,
+          allow_overwriting_hotfixes: stage.policyFlags?.allowOverwritingHotfixes ?? false,
+          allow_force_promotion_on_conflicts: stage.policyFlags?.allowForcePromotionOnConflicts ?? false,
+        },
       })),
     };
     const response = await this.client.post<Pipeline>('/pipelines', payload);
@@ -478,10 +533,32 @@ class ApiClient {
       payload.stages = validStages.map((stage) => ({
         source_environment_id: stage.sourceEnvironmentId,
         target_environment_id: stage.targetEnvironmentId,
-        gates: stage.gates,
-        approvals: stage.approvals,
-        schedule: stage.schedule,
-        policy_flags: stage.policyFlags,
+        gates: {
+          require_clean_drift: stage.gates?.requireCleanDrift ?? false,
+          run_pre_flight_validation: stage.gates?.runPreFlightValidation ?? false,
+          credentials_exist_in_target: stage.gates?.credentialsExistInTarget ?? false,
+          nodes_supported_in_target: stage.gates?.nodesSupportedInTarget ?? false,
+          webhooks_available: stage.gates?.webhooksAvailable ?? false,
+          target_environment_healthy: stage.gates?.targetEnvironmentHealthy ?? false,
+          max_allowed_risk_level: stage.gates?.maxAllowedRiskLevel ?? 'High',
+        },
+        approvals: {
+          require_approval: stage.approvals?.requireApproval ?? false,
+          approver_role: stage.approvals?.approverRole ?? null,
+          approver_group: stage.approvals?.approverGroup ?? null,
+          required_approvals: stage.approvals?.requiredApprovals ?? null,
+        },
+        schedule: stage.schedule ? {
+          restrict_promotion_times: stage.schedule.restrictPromotionTimes ?? false,
+          allowed_days: stage.schedule.allowedDays ?? null,
+          start_time: stage.schedule.startTime ?? null,
+          end_time: stage.schedule.endTime ?? null,
+        } : null,
+        policy_flags: {
+          allow_placeholder_credentials: stage.policyFlags?.allowPlaceholderCredentials ?? false,
+          allow_overwriting_hotfixes: stage.policyFlags?.allowOverwritingHotfixes ?? false,
+          allow_force_promotion_on_conflicts: stage.policyFlags?.allowForcePromotionOnConflicts ?? false,
+        },
       }));
     }
     const response = await this.client.patch<Pipeline>(`/pipelines/${id}`, payload);
@@ -528,15 +605,165 @@ class ApiClient {
     return { data: response.data };
   }
 
-  // Snapshot endpoints
-  async getWorkflowSnapshots(workflowId: string): Promise<{ data: Snapshot[] }> {
-    const response = await this.client.get<Snapshot[]>(`/snapshots/workflow/${workflowId}`);
+  // Deployment endpoints
+  async getDeployments(params?: {
+    status?: 'pending' | 'running' | 'success' | 'failed' | 'canceled';
+    pipelineId?: string;
+    environmentId?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{
+    data: {
+      deployments: Deployment[];
+      total: number;
+      page: number;
+      pageSize: number;
+      thisWeekSuccessCount: number;
+      pendingApprovalsCount: number;
+    };
+  }> {
+    const queryParams: any = {};
+    if (params?.status) queryParams.status = params.status;
+    if (params?.pipelineId) queryParams.pipeline_id = params.pipelineId;
+    if (params?.environmentId) queryParams.environment_id = params.environmentId;
+    if (params?.from) queryParams.from = params.from;
+    if (params?.to) queryParams.to = params.to;
+    if (params?.page) queryParams.page = params.page;
+    if (params?.pageSize) queryParams.page_size = params.pageSize;
+    
+    const response = await this.client.get('/deployments', { params: queryParams });
+    // Transform snake_case to camelCase
+    const deployments = (response.data.deployments || []).map((d: any) => ({
+      id: d.id,
+      tenantId: d.tenant_id,
+      pipelineId: d.pipeline_id,
+      sourceEnvironmentId: d.source_environment_id,
+      targetEnvironmentId: d.target_environment_id,
+      status: d.status,
+      triggeredByUserId: d.triggered_by_user_id,
+      approvedByUserId: d.approved_by_user_id,
+      startedAt: d.started_at,
+      finishedAt: d.finished_at,
+      preSnapshotId: d.pre_snapshot_id,
+      postSnapshotId: d.post_snapshot_id,
+      summaryJson: d.summary_json,
+      createdAt: d.created_at,
+      updatedAt: d.updated_at,
+    }));
+    return {
+      data: {
+        deployments,
+        total: response.data.total || 0,
+        page: response.data.page || 1,
+        pageSize: response.data.page_size || 50,
+        thisWeekSuccessCount: response.data.this_week_success_count || 0,
+        pendingApprovalsCount: response.data.pending_approvals_count || 0,
+      },
+    };
+  }
+
+  async getDeployment(deploymentId: string): Promise<{ data: DeploymentDetail }> {
+    const response = await this.client.get(`/deployments/${deploymentId}`);
+    // Transform snake_case to camelCase
+    const d = response.data;
+    const workflows = (d.workflows || []).map((w: any) => ({
+      id: w.id,
+      deploymentId: w.deployment_id,
+      workflowId: w.workflow_id,
+      workflowNameAtTime: w.workflow_name_at_time,
+      changeType: w.change_type,
+      status: w.status,
+      errorMessage: w.error_message,
+      createdAt: w.created_at,
+    }));
+    const deployment: DeploymentDetail = {
+      id: d.id,
+      tenantId: d.tenant_id,
+      pipelineId: d.pipeline_id,
+      sourceEnvironmentId: d.source_environment_id,
+      targetEnvironmentId: d.target_environment_id,
+      status: d.status,
+      triggeredByUserId: d.triggered_by_user_id,
+      approvedByUserId: d.approved_by_user_id,
+      startedAt: d.started_at,
+      finishedAt: d.finished_at,
+      preSnapshotId: d.pre_snapshot_id,
+      postSnapshotId: d.post_snapshot_id,
+      summaryJson: d.summary_json,
+      createdAt: d.created_at,
+      updatedAt: d.updated_at,
+      workflows,
+      preSnapshot: d.pre_snapshot ? this._transformSnapshot(d.pre_snapshot) : undefined,
+      postSnapshot: d.post_snapshot ? this._transformSnapshot(d.post_snapshot) : undefined,
+    };
+    return { data: deployment };
+  }
+
+  // Snapshot endpoints (new Git-backed snapshots)
+  async getSnapshots(params?: {
+    environmentId?: string;
+    type?: 'auto_backup' | 'pre_promotion' | 'post_promotion' | 'manual_backup';
+    from?: string;
+    to?: string;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{ data: Snapshot[] }> {
+    const queryParams: any = {};
+    if (params?.environmentId) queryParams.environment_id = params.environmentId;
+    if (params?.type) queryParams.type = params.type;
+    if (params?.from) queryParams.from = params.from;
+    if (params?.to) queryParams.to = params.to;
+    if (params?.page) queryParams.page = params.page;
+    if (params?.pageSize) queryParams.page_size = params.pageSize;
+    
+    const response = await this.client.get<Snapshot[]>('/snapshots', { params: queryParams });
+    // Transform snake_case to camelCase
+    const snapshots = (response.data || []).map((s: any) => this._transformSnapshot(s));
+    return { data: snapshots };
+  }
+
+  async getSnapshot(snapshotId: string): Promise<{ data: Snapshot }> {
+    const response = await this.client.get(`/snapshots/${snapshotId}`);
+    return { data: this._transformSnapshot(response.data) };
+  }
+
+  async restoreSnapshot(snapshotId: string): Promise<{ data: { success: boolean; message: string; restored: number; failed: number; errors: string[] } }> {
+    const response = await this.client.post(`/snapshots/${snapshotId}/restore`);
     return { data: response.data };
   }
 
+  // Helper method to transform snapshot data
+  private _transformSnapshot(s: any): Snapshot {
+    return {
+      id: s.id,
+      tenantId: s.tenant_id,
+      environmentId: s.environment_id,
+      gitCommitSha: s.git_commit_sha,
+      type: s.type,
+      createdAt: s.created_at,
+      createdByUserId: s.created_by_user_id,
+      relatedDeploymentId: s.related_deployment_id,
+      metadataJson: s.metadata_json,
+    };
+  }
+
+  // Legacy snapshot methods (deprecated - kept for backward compatibility)
+  async getWorkflowSnapshots(workflowId: string): Promise<{ data: Snapshot[] }> {
+    // This is deprecated - use getSnapshots with environmentId instead
+    return { data: [] };
+  }
+
   async rollbackWorkflow(snapshotId: string): Promise<{ data: { success: boolean; message: string } }> {
-    const response = await this.client.post(`/snapshots/${snapshotId}/rollback`);
-    return { data: response.data };
+    // This is deprecated - use restoreSnapshot instead
+    const result = await this.restoreSnapshot(snapshotId);
+    return {
+      data: {
+        success: result.data.success,
+        message: result.data.message,
+      },
+    };
   }
 
   // Restore endpoints
@@ -693,6 +920,299 @@ class ApiClient {
   async reactivateSubscription(): Promise<{ data: { success: boolean; message: string } }> {
     const response = await this.client.post('/billing/reactivate');
     return { data: response.data };
+  }
+
+  // Observability endpoints
+  async getObservabilityOverview(timeRange: TimeRange = '24h'): Promise<{ data: ObservabilityOverview }> {
+    const response = await this.client.get('/observability/overview', {
+      params: { time_range: timeRange },
+    });
+    // Transform snake_case to camelCase
+    const data = response.data;
+    return {
+      data: {
+        kpiMetrics: {
+          totalExecutions: data.kpi_metrics.total_executions,
+          successCount: data.kpi_metrics.success_count,
+          failureCount: data.kpi_metrics.failure_count,
+          successRate: data.kpi_metrics.success_rate,
+          avgDurationMs: data.kpi_metrics.avg_duration_ms,
+          p95DurationMs: data.kpi_metrics.p95_duration_ms,
+          deltaExecutions: data.kpi_metrics.delta_executions,
+          deltaSuccessRate: data.kpi_metrics.delta_success_rate,
+        },
+        workflowPerformance: (data.workflow_performance || []).map((w: any) => ({
+          workflowId: w.workflow_id,
+          workflowName: w.workflow_name,
+          executionCount: w.execution_count,
+          successCount: w.success_count,
+          failureCount: w.failure_count,
+          errorRate: w.error_rate,
+          avgDurationMs: w.avg_duration_ms,
+          p95DurationMs: w.p95_duration_ms,
+        })),
+        environmentHealth: (data.environment_health || []).map((e: any) => ({
+          environmentId: e.environment_id,
+          environmentName: e.environment_name,
+          environmentType: e.environment_type,
+          status: e.status,
+          latencyMs: e.latency_ms,
+          uptimePercent: e.uptime_percent,
+          activeWorkflows: e.active_workflows,
+          totalWorkflows: e.total_workflows,
+          lastDeploymentAt: e.last_deployment_at,
+          lastSnapshotAt: e.last_snapshot_at,
+          driftState: e.drift_state,
+          lastCheckedAt: e.last_checked_at,
+        })),
+        promotionSyncStats: data.promotion_sync_stats ? {
+          promotionsTotal: data.promotion_sync_stats.promotions_total,
+          promotionsSuccess: data.promotion_sync_stats.promotions_success,
+          promotionsFailed: data.promotion_sync_stats.promotions_failed,
+          promotionsBlocked: data.promotion_sync_stats.promotions_blocked,
+          snapshotsCreated: data.promotion_sync_stats.snapshots_created,
+          snapshotsRestored: data.promotion_sync_stats.snapshots_restored,
+          driftCount: data.promotion_sync_stats.drift_count,
+          recentDeployments: (data.promotion_sync_stats.recent_deployments || []).map((d: any) => ({
+            id: d.id,
+            pipelineName: d.pipeline_name,
+            sourceEnvironmentName: d.source_environment_name,
+            targetEnvironmentName: d.target_environment_name,
+            status: d.status,
+            startedAt: d.started_at,
+            finishedAt: d.finished_at,
+          })),
+        } : undefined,
+      },
+    };
+  }
+
+  async getWorkflowPerformance(
+    timeRange: TimeRange = '24h',
+    limit: number = 10,
+    sortBy: string = 'executions'
+  ): Promise<{ data: WorkflowPerformance[] }> {
+    const response = await this.client.get('/observability/workflow-performance', {
+      params: { time_range: timeRange, limit, sort_by: sortBy },
+    });
+    return {
+      data: (response.data || []).map((w: any) => ({
+        workflowId: w.workflow_id,
+        workflowName: w.workflow_name,
+        executionCount: w.execution_count,
+        successCount: w.success_count,
+        failureCount: w.failure_count,
+        errorRate: w.error_rate,
+        avgDurationMs: w.avg_duration_ms,
+        p95DurationMs: w.p95_duration_ms,
+      })),
+    };
+  }
+
+  async getEnvironmentHealthData(): Promise<{ data: EnvironmentHealthData[] }> {
+    const response = await this.client.get('/observability/environment-health');
+    return {
+      data: (response.data || []).map((e: any) => ({
+        environmentId: e.environment_id,
+        environmentName: e.environment_name,
+        environmentType: e.environment_type,
+        status: e.status,
+        latencyMs: e.latency_ms,
+        uptimePercent: e.uptime_percent,
+        activeWorkflows: e.active_workflows,
+        totalWorkflows: e.total_workflows,
+        lastDeploymentAt: e.last_deployment_at,
+        lastSnapshotAt: e.last_snapshot_at,
+        driftState: e.drift_state,
+        lastCheckedAt: e.last_checked_at,
+      })),
+    };
+  }
+
+  async triggerHealthCheck(environmentId: string): Promise<{ data: HealthCheckResponse }> {
+    const response = await this.client.post(`/observability/health-check/${environmentId}`);
+    return {
+      data: {
+        id: response.data.id,
+        tenantId: response.data.tenant_id,
+        environmentId: response.data.environment_id,
+        status: response.data.status,
+        latencyMs: response.data.latency_ms,
+        checkedAt: response.data.checked_at,
+        errorMessage: response.data.error_message,
+      },
+    };
+  }
+
+  // Notification endpoints
+  async getNotificationChannels(): Promise<{ data: NotificationChannel[] }> {
+    const response = await this.client.get('/notifications/channels');
+    return {
+      data: (response.data || []).map((c: any) => ({
+        id: c.id,
+        tenantId: c.tenant_id,
+        name: c.name,
+        type: c.type,
+        configJson: c.config_json,
+        isEnabled: c.is_enabled,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+      })),
+    };
+  }
+
+  async createNotificationChannel(data: {
+    name: string;
+    type: 'n8n_workflow';
+    configJson: { environmentId: string; workflowId: string; webhookPath: string };
+  }): Promise<{ data: NotificationChannel }> {
+    const response = await this.client.post('/notifications/channels', {
+      name: data.name,
+      type: data.type,
+      config_json: {
+        environment_id: data.configJson.environmentId,
+        workflow_id: data.configJson.workflowId,
+        webhook_path: data.configJson.webhookPath,
+      },
+    });
+    return {
+      data: {
+        id: response.data.id,
+        tenantId: response.data.tenant_id,
+        name: response.data.name,
+        type: response.data.type,
+        configJson: response.data.config_json,
+        isEnabled: response.data.is_enabled,
+        createdAt: response.data.created_at,
+        updatedAt: response.data.updated_at,
+      },
+    };
+  }
+
+  async updateNotificationChannel(
+    id: string,
+    data: { name?: string; configJson?: any; isEnabled?: boolean }
+  ): Promise<{ data: NotificationChannel }> {
+    const payload: any = {};
+    if (data.name !== undefined) payload.name = data.name;
+    if (data.configJson !== undefined) payload.config_json = data.configJson;
+    if (data.isEnabled !== undefined) payload.is_enabled = data.isEnabled;
+
+    const response = await this.client.put(`/notifications/channels/${id}`, payload);
+    return {
+      data: {
+        id: response.data.id,
+        tenantId: response.data.tenant_id,
+        name: response.data.name,
+        type: response.data.type,
+        configJson: response.data.config_json,
+        isEnabled: response.data.is_enabled,
+        createdAt: response.data.created_at,
+        updatedAt: response.data.updated_at,
+      },
+    };
+  }
+
+  async deleteNotificationChannel(id: string): Promise<void> {
+    await this.client.delete(`/notifications/channels/${id}`);
+  }
+
+  async testNotificationChannel(id: string): Promise<{ data: { success: boolean; message: string } }> {
+    const response = await this.client.post(`/notifications/channels/${id}/test`);
+    return { data: response.data };
+  }
+
+  async getNotificationRules(): Promise<{ data: NotificationRule[] }> {
+    const response = await this.client.get('/notifications/rules');
+    return {
+      data: (response.data || []).map((r: any) => ({
+        id: r.id,
+        tenantId: r.tenant_id,
+        eventType: r.event_type,
+        channelIds: r.channel_ids,
+        isEnabled: r.is_enabled,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      })),
+    };
+  }
+
+  async createNotificationRule(data: {
+    eventType: string;
+    channelIds: string[];
+  }): Promise<{ data: NotificationRule }> {
+    const response = await this.client.post('/notifications/rules', {
+      event_type: data.eventType,
+      channel_ids: data.channelIds,
+    });
+    return {
+      data: {
+        id: response.data.id,
+        tenantId: response.data.tenant_id,
+        eventType: response.data.event_type,
+        channelIds: response.data.channel_ids,
+        isEnabled: response.data.is_enabled,
+        createdAt: response.data.created_at,
+        updatedAt: response.data.updated_at,
+      },
+    };
+  }
+
+  async updateNotificationRule(
+    ruleId: string,
+    data: { channelIds?: string[]; isEnabled?: boolean }
+  ): Promise<{ data: NotificationRule }> {
+    const payload: any = {};
+    if (data.channelIds !== undefined) payload.channel_ids = data.channelIds;
+    if (data.isEnabled !== undefined) payload.is_enabled = data.isEnabled;
+
+    const response = await this.client.put(`/notifications/rules/${ruleId}`, payload);
+    return {
+      data: {
+        id: response.data.id,
+        tenantId: response.data.tenant_id,
+        eventType: response.data.event_type,
+        channelIds: response.data.channel_ids,
+        isEnabled: response.data.is_enabled,
+        createdAt: response.data.created_at,
+        updatedAt: response.data.updated_at,
+      },
+    };
+  }
+
+  async deleteNotificationRule(ruleId: string): Promise<void> {
+    await this.client.delete(`/notifications/rules/${ruleId}`);
+  }
+
+  async getAlertEvents(params?: {
+    limit?: number;
+    eventType?: string;
+  }): Promise<{ data: AlertEvent[] }> {
+    const response = await this.client.get('/notifications/events', { params });
+    return {
+      data: (response.data || []).map((e: any) => ({
+        id: e.id,
+        tenantId: e.tenant_id,
+        eventType: e.event_type,
+        environmentId: e.environment_id,
+        timestamp: e.timestamp,
+        metadataJson: e.metadata_json,
+        notificationStatus: e.notification_status,
+        channelsNotified: e.channels_notified,
+      })),
+    };
+  }
+
+  async getEventCatalog(): Promise<{ data: EventCatalogItem[] }> {
+    const response = await this.client.get('/notifications/event-catalog');
+    return {
+      data: (response.data || []).map((e: any) => ({
+        eventType: e.event_type,
+        displayName: e.display_name,
+        description: e.description,
+        category: e.category,
+      })),
+    };
   }
 }
 

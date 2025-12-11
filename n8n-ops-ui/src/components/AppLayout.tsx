@@ -101,7 +101,7 @@ const navigationSections: NavSection[] = [
     title: 'Observability',
     items: [
       { id: 'observability', name: 'Observability', href: '/observability', icon: Activity, requiredPlan: 'pro', feature: 'execution_metrics' },
-      { id: 'alerts', name: 'Alerts', href: '/admin/notifications', icon: Bell, requiredPlan: 'pro', feature: 'alerting' },
+      { id: 'alerts', name: 'Alerts', href: '/alerts', icon: Bell, requiredPlan: 'pro', feature: 'alerting' },
     ],
   },
   {

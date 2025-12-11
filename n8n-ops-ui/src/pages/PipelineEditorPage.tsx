@@ -47,9 +47,34 @@ export function PipelineEditorPage() {
         name: pipeline.name,
         description: pipeline.description || '',
         isActive: pipeline.isActive,
-        environmentIds: pipeline.environmentIds,
+        environmentIds: pipeline.environmentIds || [],
       });
-      setStages(pipeline.stages);
+      // Ensure all stages have required fields with defaults
+      const normalizedStages = (pipeline.stages || []).map((stage: PipelineStage) => ({
+        ...stage,
+        gates: {
+          requireCleanDrift: false,
+          runPreFlightValidation: false,
+          credentialsExistInTarget: false,
+          nodesSupportedInTarget: false,
+          webhooksAvailable: false,
+          targetEnvironmentHealthy: false,
+          maxAllowedRiskLevel: 'High' as RiskLevel,
+          ...stage.gates,
+        },
+        approvals: {
+          requireApproval: false,
+          ...stage.approvals,
+        },
+        schedule: stage.schedule || undefined,
+        policyFlags: {
+          allowPlaceholderCredentials: false,
+          allowOverwritingHotfixes: false,
+          allowForcePromotionOnConflicts: false,
+          ...stage.policyFlags,
+        },
+      }));
+      setStages(normalizedStages);
     }
   }, [existingPipeline]);
 
@@ -66,13 +91,15 @@ export function PipelineEditorPage() {
         environmentIds: formData.environmentIds,
         stages,
       }),
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast.success('Pipeline created successfully');
       queryClient.invalidateQueries({ queryKey: ['pipelines'] });
-      navigate(`/pipelines/${data.data.id}`);
+      navigate('/pipelines');
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to create pipeline');
+      console.error('Create pipeline error:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to create pipeline';
+      toast.error(errorMessage);
     },
   });
 
@@ -89,9 +116,12 @@ export function PipelineEditorPage() {
       toast.success('Pipeline updated successfully');
       queryClient.invalidateQueries({ queryKey: ['pipelines'] });
       queryClient.invalidateQueries({ queryKey: ['pipeline', id] });
+      navigate('/pipelines');
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to update pipeline');
+      console.error('Update pipeline error:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Failed to update pipeline';
+      toast.error(errorMessage);
     },
   });
 
@@ -159,6 +189,8 @@ export function PipelineEditorPage() {
   };
 
   const handleSave = () => {
+    console.log('Save clicked', { formData, stages, isNew });
+    
     if (!formData.name.trim()) {
       toast.error('Pipeline name is required');
       return;
@@ -189,10 +221,11 @@ export function PipelineEditorPage() {
     }
 
     if (stages.length !== formData.environmentIds.length - 1) {
-      toast.error('Stage configuration mismatch');
+      toast.error(`Stage configuration mismatch: ${stages.length} stages but ${formData.environmentIds.length - 1} expected`);
       return;
     }
 
+    console.log('Calling mutation', { isNew, formData, stagesCount: stages.length });
     if (isNew) {
       createMutation.mutate();
     } else {

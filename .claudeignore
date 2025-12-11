@@ -1,0 +1,97 @@
+# Dependencies
+node_modules/
+**/node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist/
+build/
+**/dist/
+**/build/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+**/venv/
+**/env/
+**/.venv/
+*.egg-info/
+.eggs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+logs/
+**/logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Git
+.git/
+.gitignore
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+**/.cache/
+
+# OS files
+Thumbs.db
+.DS_Store
+*.orig
+
+# Large data files
+*.db
+*.sqlite
+*.sqlite3
+
+# Compiled files
+*.class
+*.jar
+*.war
+*.ear
+
+# Documentation builds
+docs/_build/
+site/
+
+# Migration scripts (keep structure, but can exclude if too large)
+# migrations/
+

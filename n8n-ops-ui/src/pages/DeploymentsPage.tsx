@@ -13,65 +13,110 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { mockApi } from '@/lib/mock-api';
-import { api } from '@/lib/api';
-import { Rocket, ArrowRight, Sparkles, Crown, Lock, GitCompare, CheckCircle, AlertTriangle, Clock } from 'lucide-react';
-import { useFeatures } from '@/lib/features';
-import { UpgradePrompt } from '@/components/FeatureGate';
+import { apiClient } from '@/lib/api-client';
+import { Rocket, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2 } from 'lucide-react';
+import type { Deployment, DeploymentDetail } from '@/types';
+import { Link } from 'react-router-dom';
 
 export function DeploymentsPage() {
   const navigate = useNavigate();
-  const { canUseFeature, features } = useFeatures();
-  const hasPromotion = canUseFeature('environment_promotion');
-  const promotionType = features?.environment_promotion;
-  const isAutomated = promotionType === 'automated';
+  const [selectedDeployment, setSelectedDeployment] = useState<DeploymentDetail | null>(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
-  const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
-  const [sourceEnv, setSourceEnv] = useState<string>('');
-  const [targetEnv, setTargetEnv] = useState<string>('');
-  const [_selectedWorkflow, _setSelectedWorkflow] = useState<string>('');
-
-  const { data: deployments, isLoading } = useQuery({
+  const { data: deploymentsData, isLoading } = useQuery({
     queryKey: ['deployments'],
-    queryFn: () => mockApi.getDeployments(),
+    queryFn: () => apiClient.getDeployments(),
   });
 
   const { data: environments } = useQuery({
     queryKey: ['environments'],
-    queryFn: () => api.getEnvironments(),
+    queryFn: () => apiClient.getEnvironments(),
   });
+
+  const { data: pipelines } = useQuery({
+    queryKey: ['pipelines'],
+    queryFn: () => apiClient.getPipelines(),
+  });
+
+  // Fetch deployment detail when selected
+  const { data: deploymentDetail } = useQuery({
+    queryKey: ['deployment', selectedDeployment?.id],
+    queryFn: () => apiClient.getDeployment(selectedDeployment!.id),
+    enabled: !!selectedDeployment,
+  });
+
+  const deployments = deploymentsData?.data?.deployments || [];
+  const summary = deploymentsData?.data || {
+    thisWeekSuccessCount: 0,
+    pendingApprovalsCount: 0,
+  };
 
   const getStatusVariant = (status: string) => {
     switch (status) {
       case 'success':
-        return 'success';
+        return 'default';
       case 'failed':
         return 'destructive';
       case 'running':
-        return 'default';
-      case 'pending_approval':
         return 'secondary';
+      case 'pending':
+        return 'outline';
+      case 'canceled':
+        return 'outline';
       default:
         return 'outline';
     }
   };
 
-  const handleStartPromotion = () => {
-    setPromoteDialogOpen(true);
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'success':
+        return <CheckCircle className="h-4 w-4 text-green-500" />;
+      case 'failed':
+        return <XCircle className="h-4 w-4 text-red-500" />;
+      case 'running':
+        return <Loader2 className="h-4 w-4 animate-spin text-blue-500" />;
+      case 'pending':
+        return <Clock className="h-4 w-4 text-amber-500" />;
+      default:
+        return <AlertCircle className="h-4 w-4 text-gray-500" />;
+    }
+  };
+
+  const getEnvironmentName = (envId: string) => {
+    return environments?.data?.find((e) => e.id === envId)?.name || envId;
+  };
+
+  const getPipelineName = (pipelineId?: string) => {
+    if (!pipelineId) return '—';
+    return pipelines?.data?.find((p) => p.id === pipelineId)?.name || pipelineId;
+  };
+
+  const formatDuration = (startedAt: string, finishedAt?: string) => {
+    if (!finishedAt) return '—';
+    const start = new Date(startedAt).getTime();
+    const end = new Date(finishedAt).getTime();
+    const seconds = Math.round((end - start) / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
+  };
+
+  const handleRowClick = async (deployment: Deployment) => {
+    const detail = await apiClient.getDeployment(deployment.id);
+    setSelectedDeployment(detail.data);
+    setDetailDialogOpen(true);
+  };
+
+  const handlePromoteWorkflows = () => {
+    navigate('/promote');
   };
 
   return (
@@ -83,144 +128,84 @@ export function DeploymentsPage() {
             Track workflow deployments and promote across environments
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {hasPromotion ? (
-            <Button onClick={handleStartPromotion}>
-              <Rocket className="h-4 w-4 mr-2" />
-              Promote Workflow
-            </Button>
-          ) : (
-            <Button variant="outline" disabled>
-              <Lock className="h-4 w-4 mr-2" />
-              Promote Workflow
-              <Badge variant="outline" className="ml-2 gap-1">
-                <Sparkles className="h-3 w-3" />
-                Pro
-              </Badge>
-            </Button>
-          )}
-        </div>
+        <Button onClick={handlePromoteWorkflows}>
+          <Rocket className="h-4 w-4 mr-2" />
+          Promote Workflows
+        </Button>
       </div>
 
-      {/* Feature gate for promotions */}
-      {!hasPromotion && (
-        <UpgradePrompt feature="environment_promotion" requiredPlan="pro" />
-      )}
-
-      {/* Promotions Overview - only show for Pro+ */}
-      {hasPromotion && (
-        <div className="grid gap-6 md:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Promotion Type</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                {isAutomated ? (
-                  <>
-                    <Crown className="h-5 w-5 text-amber-500" />
-                    <span className="text-lg font-semibold">Automated</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-5 w-5 text-blue-500" />
-                    <span className="text-lg font-semibold">Manual</span>
-                  </>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {isAutomated
-                  ? 'CI/CD integration with approval workflows'
-                  : 'One-click promotion between environments'}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Pending Approvals</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-amber-500" />
-                <span className="text-2xl font-bold">0</span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {isAutomated
-                  ? 'Workflows awaiting approval'
-                  : 'Upgrade to Enterprise for approval workflows'}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">This Week</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-500" />
-                <span className="text-2xl font-bold">{deployments?.data?.length || 0}</span>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Successful promotions
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Credential Remapping - Enterprise only */}
-      {hasPromotion && !features?.credential_remapping && (
-        <Card className="border-dashed">
+      {/* Summary Cards */}
+      <div className="grid gap-6 md:grid-cols-3">
+        <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Lock className="h-4 w-4 text-muted-foreground" />
-              Credential Remapping
-              <Badge variant="outline" className="gap-1">
-                <Crown className="h-3 w-3 text-amber-500" />
-                Enterprise
-              </Badge>
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Promotion Mode</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Automatically remap credentials when promoting between environments.
-              <Button variant="link" className="p-0 h-auto ml-1" onClick={() => navigate('/billing')}>
-                Upgrade to Enterprise
-              </Button>
+            <div className="flex items-center gap-2">
+              <Rocket className="h-5 w-5 text-blue-500" />
+              <span className="text-lg font-semibold">Manual</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              One-click promotion between environments
             </p>
           </CardContent>
         </Card>
-      )}
 
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Pending Approvals</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-amber-500" />
+              <span className="text-2xl font-bold">{summary.pendingApprovalsCount}</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Workflows awaiting approval
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">This Week</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              <span className="text-2xl font-bold">{summary.thisWeekSuccessCount}</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Successful deployments
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Deployment History Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Rocket className="h-5 w-5" />
-            Deployment History
-          </CardTitle>
+          <CardTitle>Deployment History</CardTitle>
           <CardDescription>Recent workflow deployments and promotions</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="text-center py-8">Loading deployments...</div>
-          ) : deployments?.data?.length === 0 ? (
+          ) : deployments.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Rocket className="h-12 w-12 mx-auto mb-4 opacity-20" />
               <p>No deployments yet</p>
-              {hasPromotion && (
-                <Button variant="link" onClick={handleStartPromotion}>
-                  Create your first promotion
-                </Button>
-              )}
+              <Button variant="link" onClick={handlePromoteWorkflows} className="mt-2">
+                Create your first promotion
+              </Button>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Workflow</TableHead>
-                  <TableHead>Environments</TableHead>
+                  <TableHead>Workflow(s)</TableHead>
+                  <TableHead>Pipeline</TableHead>
+                  <TableHead>Stage</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Triggered By</TableHead>
                   <TableHead>Started</TableHead>
@@ -228,115 +213,205 @@ export function DeploymentsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {deployments?.data?.map((deployment) => (
-                  <TableRow key={deployment.id}>
-                    <TableCell className="font-medium">{deployment.workflowName}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">{deployment.sourceEnvironment}</Badge>
-                        <ArrowRight className="h-3 w-3" />
-                        <Badge variant="outline">{deployment.targetEnvironment}</Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={getStatusVariant(deployment.status)}>
-                        {deployment.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {deployment.triggeredBy}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {new Date(deployment.startedAt).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {deployment.completedAt
-                        ? `${Math.round(
-                            (new Date(deployment.completedAt).getTime() -
-                              new Date(deployment.startedAt).getTime()) /
-                              1000
-                          )}s`
-                        : '-'}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {deployments.map((deployment) => {
+                  const workflowCount = deployment.summaryJson?.total || 0;
+                  const workflowName = deployment.summaryJson?.total === 1 
+                    ? 'Single workflow' // Would need to fetch workflow name
+                    : `${workflowCount} workflows`;
+
+                  return (
+                    <TableRow
+                      key={deployment.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleRowClick(deployment)}
+                    >
+                      <TableCell className="font-medium">
+                        {workflowCount === 1 ? (
+                          workflowName
+                        ) : (
+                          <Link
+                            to="#"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRowClick(deployment);
+                            }}
+                            className="text-primary hover:underline"
+                          >
+                            {workflowName}
+                          </Link>
+                        )}
+                      </TableCell>
+                      <TableCell>{getPipelineName(deployment.pipelineId)}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">
+                            {getEnvironmentName(deployment.sourceEnvironmentId)}
+                          </Badge>
+                          <ArrowRight className="h-3 w-3" />
+                          <Badge variant="outline">
+                            {getEnvironmentName(deployment.targetEnvironmentId)}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {getStatusIcon(deployment.status)}
+                          <Badge variant={getStatusVariant(deployment.status)}>
+                            {deployment.status}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {deployment.triggeredByUserId}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {new Date(deployment.startedAt).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatDuration(deployment.startedAt, deployment.finishedAt)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
         </CardContent>
       </Card>
 
-      {/* Promote Workflow Dialog */}
-      <Dialog open={promoteDialogOpen} onOpenChange={setPromoteDialogOpen}>
-        <DialogContent className="max-w-md">
+      {/* Deployment Detail Dialog */}
+      <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Rocket className="h-5 w-5" />
-              Promote Workflow
-            </DialogTitle>
+            <DialogTitle>Deployment Details</DialogTitle>
             <DialogDescription>
-              Select source and target environments for promotion
+              View detailed information about this deployment
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Source Environment</label>
-              <Select value={sourceEnv} onValueChange={setSourceEnv}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select source environment" />
-                </SelectTrigger>
-                <SelectContent>
-                  {environments?.data?.map((env) => (
-                    <SelectItem key={env.id} value={env.id}>
-                      {env.name} ({env.type})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          {deploymentDetail?.data && (
+            <div className="space-y-6">
+              {/* Top Section */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Pipeline</p>
+                  <p className="text-base">{getPipelineName(deploymentDetail.data.pipelineId)}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Stage</p>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">
+                      {getEnvironmentName(deploymentDetail.data.sourceEnvironmentId)}
+                    </Badge>
+                    <ArrowRight className="h-3 w-3" />
+                    <Badge variant="outline">
+                      {getEnvironmentName(deploymentDetail.data.targetEnvironmentId)}
+                    </Badge>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Status</p>
+                  <div className="flex items-center gap-2">
+                    {getStatusIcon(deploymentDetail.data.status)}
+                    <Badge variant={getStatusVariant(deploymentDetail.data.status)}>
+                      {deploymentDetail.data.status}
+                    </Badge>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Triggered By</p>
+                  <p className="text-base">{deploymentDetail.data.triggeredByUserId}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Started</p>
+                  <p className="text-base">
+                    {new Date(deploymentDetail.data.startedAt).toLocaleString()}
+                  </p>
+                </div>
+                {deploymentDetail.data.finishedAt && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Finished</p>
+                    <p className="text-base">
+                      {new Date(deploymentDetail.data.finishedAt).toLocaleString()}
+                    </p>
+                  </div>
+                )}
+              </div>
 
-            <div className="flex justify-center">
-              <ArrowRight className="h-6 w-6 text-muted-foreground" />
-            </div>
+              {/* Middle Section - Snapshots */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">Pre Snapshot</p>
+                  {deploymentDetail.data.preSnapshotId ? (
+                    <Link
+                      to={`/snapshots?snapshot=${deploymentDetail.data.preSnapshotId}`}
+                      className="text-primary hover:underline"
+                    >
+                      {deploymentDetail.data.preSnapshotId.substring(0, 8)}...
+                    </Link>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">—</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">Post Snapshot</p>
+                  {deploymentDetail.data.postSnapshotId ? (
+                    <Link
+                      to={`/snapshots?snapshot=${deploymentDetail.data.postSnapshotId}`}
+                      className="text-primary hover:underline"
+                    >
+                      {deploymentDetail.data.postSnapshotId.substring(0, 8)}...
+                    </Link>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">—</p>
+                  )}
+                </div>
+              </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Target Environment</label>
-              <Select value={targetEnv} onValueChange={setTargetEnv}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select target environment" />
-                </SelectTrigger>
-                <SelectContent>
-                  {environments?.data
-                    ?.filter((env) => env.id !== sourceEnv)
-                    .map((env) => (
-                      <SelectItem key={env.id} value={env.id}>
-                        {env.name} ({env.type})
-                      </SelectItem>
+              {/* Workflows Table */}
+              <div>
+                <p className="text-sm font-medium text-muted-foreground mb-2">Workflows</p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Workflow Name</TableHead>
+                      <TableHead>Change Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Error</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {deploymentDetail.data.workflows.map((workflow) => (
+                      <TableRow key={workflow.id}>
+                        <TableCell className="font-medium">
+                          {workflow.workflowNameAtTime}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{workflow.changeType}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              workflow.status === 'success'
+                                ? 'default'
+                                : workflow.status === 'failed'
+                                ? 'destructive'
+                                : 'outline'
+                            }
+                          >
+                            {workflow.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {workflow.errorMessage || '—'}
+                        </TableCell>
+                      </TableRow>
                     ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="bg-muted p-3 rounded-md">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5" />
-                <p className="text-xs text-muted-foreground">
-                  This is a placeholder for the promotion feature. Full implementation coming soon.
-                </p>
+                  </TableBody>
+                </Table>
               </div>
             </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPromoteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button disabled>
-              <GitCompare className="h-4 w-4 mr-2" />
-              Validate & Promote
-            </Button>
-          </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
     </div>

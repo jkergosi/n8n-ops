@@ -203,6 +203,125 @@ async def complete_onboarding(
     }
 
 
+# =============================================================================
+# DEV MODE ENDPOINTS - Bypass Auth0 for local development
+# =============================================================================
+
+@router.get("/dev/users")
+async def get_dev_users():
+    """Get all users for dev mode - allows switching between users."""
+    try:
+        response = db_service.client.table("users").select("id, email, name, tenant_id, role").execute()
+        return {"users": response.data or []}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch users: {str(e)}"
+        )
+
+
+@router.post("/dev/login-as/{user_id}")
+async def dev_login_as(user_id: str):
+    """Login as a specific user in dev mode - bypasses Auth0."""
+    try:
+        # Get user
+        user_response = db_service.client.table("users").select("*").eq("id", user_id).single().execute()
+        if not user_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        user = user_response.data
+
+        # Get tenant
+        tenant_response = db_service.client.table("tenants").select("*").eq("id", user["tenant_id"]).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tenant not found"
+            )
+        tenant = tenant_response.data
+
+        return {
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "name": user["name"],
+                "role": user.get("role", "admin"),
+            },
+            "tenant": {
+                "id": tenant["id"],
+                "name": tenant["name"],
+                "subscription_tier": tenant.get("subscription_tier", "free"),
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to login as user: {str(e)}"
+        )
+
+
+@router.post("/dev/create-user")
+async def dev_create_user(organization_name: Optional[str] = None):
+    """Create a new user and tenant in dev mode for initial setup."""
+    import uuid
+    from datetime import datetime
+
+    try:
+        # Create tenant
+        tenant_id = str(uuid.uuid4())
+        tenant_data = {
+            "id": tenant_id,
+            "name": organization_name or "Dev Organization",
+            "subscription_tier": "free",
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        tenant_response = db_service.client.table("tenants").insert(tenant_data).execute()
+        tenant = tenant_response.data[0]
+
+        # Create user
+        user_id = str(uuid.uuid4())
+        user_data = {
+            "id": user_id,
+            "tenant_id": tenant_id,
+            "email": "dev@example.com",
+            "name": "Dev User",
+            "role": "admin",
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        user_response = db_service.client.table("users").insert(user_data).execute()
+        user = user_response.data[0]
+
+        return {
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "name": user["name"],
+                "role": user["role"],
+            },
+            "tenant": {
+                "id": tenant["id"],
+                "name": tenant["name"],
+                "subscription_tier": tenant.get("subscription_tier", "free"),
+            }
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create user: {str(e)}"
+        )
+
+
+# =============================================================================
+# END DEV MODE ENDPOINTS
+# =============================================================================
+
+
 @router.patch("/me")
 async def update_current_user(
     updates: UserUpdateRequest,

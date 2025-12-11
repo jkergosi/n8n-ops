@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -12,6 +12,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,120 +30,126 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Camera, History, RotateCcw, Search, Loader2 } from 'lucide-react';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Camera, History, RotateCcw, Loader2, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
-
-interface Snapshot {
-  id: string;
-  workflow_id: string;
-  workflow_name: string;
-  version: number;
-  trigger: string;
-  created_at: string;
-}
+import { useAppStore } from '@/store/use-app-store';
+import type { Snapshot } from '@/types';
 
 export function SnapshotsPage() {
   const queryClient = useQueryClient();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
-  const [rollbackSnapshot, setRollbackSnapshot] = useState<Snapshot | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedEnvironment = useAppStore((state) => state.selectedEnvironment);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<Snapshot | null>(null);
+  const [restoreSnapshot, setRestoreSnapshot] = useState<Snapshot | null>(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
-  // Fetch environments to get workflow list
+  // Get snapshot ID from URL if present
+  const snapshotIdFromUrl = searchParams.get('snapshot');
+
+  // Fetch environments
   const { data: environments } = useQuery({
     queryKey: ['environments'],
     queryFn: () => apiClient.getEnvironments(),
   });
 
-  // Fetch workflows from first environment to get workflow IDs
-  const { data: workflows } = useQuery({
-    queryKey: ['workflows-list'],
-    queryFn: async () => {
-      if (!environments?.data?.[0]) return { data: [] };
-      const env = environments.data[0];
-      return apiClient.getWorkflows(env.type, false);
-    },
-    enabled: !!environments?.data?.[0],
+  // Get current environment ID (use selectedEnvironment or first available)
+  const currentEnvironmentId = selectedEnvironment || environments?.data?.[0]?.id;
+
+  // Fetch snapshots for current environment
+  const { data: snapshots, isLoading } = useQuery({
+    queryKey: ['snapshots', currentEnvironmentId],
+    queryFn: () =>
+      apiClient.getSnapshots({
+        environmentId: currentEnvironmentId,
+      }),
+    enabled: !!currentEnvironmentId,
   });
 
-  // Fetch snapshots for selected workflow
-  const {
-    data: snapshots,
-    isLoading: loadingSnapshots,
-  } = useQuery({
-    queryKey: ['snapshots', selectedWorkflowId],
-    queryFn: () => apiClient.getWorkflowSnapshots(selectedWorkflowId),
-    enabled: !!selectedWorkflowId,
+  // Fetch specific snapshot if ID in URL
+  const { data: snapshotDetail } = useQuery({
+    queryKey: ['snapshot', snapshotIdFromUrl],
+    queryFn: () => apiClient.getSnapshot(snapshotIdFromUrl!),
+    enabled: !!snapshotIdFromUrl,
   });
 
-  // Rollback mutation
-  const rollbackMutation = useMutation({
-    mutationFn: (snapshotId: string) => apiClient.rollbackWorkflow(snapshotId),
+  // Open detail dialog if snapshot ID in URL
+  useEffect(() => {
+    if (snapshotDetail?.data) {
+      setSelectedSnapshot(snapshotDetail.data);
+      setDetailDialogOpen(true);
+    }
+  }, [snapshotDetail]);
+
+  // Restore mutation
+  const restoreMutation = useMutation({
+    mutationFn: (snapshotId: string) => apiClient.restoreSnapshot(snapshotId),
     onSuccess: (response) => {
-      toast.success(response.data.message);
-      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      toast.success(response.data.message || 'Snapshot restored successfully');
       queryClient.invalidateQueries({ queryKey: ['snapshots'] });
-      setRollbackSnapshot(null);
+      queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      setRestoreSnapshot(null);
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to rollback workflow');
+      toast.error(error.response?.data?.detail || 'Failed to restore snapshot');
     },
   });
 
-  const handleRollback = (snapshot: Snapshot) => {
-    setRollbackSnapshot(snapshot);
+  const handleViewDetails = (snapshot: Snapshot) => {
+    setSelectedSnapshot(snapshot);
+    setDetailDialogOpen(true);
   };
 
-  const confirmRollback = () => {
-    if (rollbackSnapshot) {
-      rollbackMutation.mutate(rollbackSnapshot.id);
+  const handleRestore = (snapshot: Snapshot) => {
+    setRestoreSnapshot(snapshot);
+  };
+
+  const confirmRestore = () => {
+    if (restoreSnapshot) {
+      restoreMutation.mutate(restoreSnapshot.id);
     }
   };
 
-  const getTriggerBadgeVariant = (trigger: string) => {
-    switch (trigger) {
-      case 'auto-before-restore':
-        return 'secondary';
-      case 'auto-before-rollback':
-        return 'outline';
-      case 'manual':
+  const formatSnapshotType = (type: string) => {
+    switch (type) {
+      case 'auto_backup':
+        return 'Auto backup';
+      case 'pre_promotion':
+        return 'Pre-promotion';
+      case 'post_promotion':
+        return 'Post-promotion';
+      case 'manual_backup':
+        return 'Manual backup';
+      default:
+        return type;
+    }
+  };
+
+  const getTypeBadgeVariant = (type: string) => {
+    switch (type) {
+      case 'pre_promotion':
+      case 'post_promotion':
         return 'default';
+      case 'auto_backup':
+        return 'secondary';
+      case 'manual_backup':
+        return 'outline';
       default:
         return 'outline';
     }
   };
 
-  const formatTrigger = (trigger: string) => {
-    switch (trigger) {
-      case 'auto-before-restore':
-        return 'Before Restore';
-      case 'auto-before-rollback':
-        return 'Before Rollback';
-      case 'auto-before-deploy':
-        return 'Before Deploy';
-      case 'manual':
-        return 'Manual';
-      default:
-        return trigger;
-    }
+  const getEnvironmentName = (envId: string) => {
+    return environments?.data?.find((e) => e.id === envId)?.name || envId;
   };
 
-  // Filter workflows by search
-  const filteredWorkflows = workflows?.data?.filter((wf) =>
-    wf.name.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
-
-  // Get unique workflow IDs from available workflows
-  const workflowOptions = filteredWorkflows.map((wf) => ({
-    id: wf.id,
-    name: wf.name,
-  }));
+  const snapshotsList = snapshots?.data || [];
 
   return (
     <div className="space-y-6">
@@ -149,47 +162,35 @@ export function SnapshotsPage() {
         </div>
       </div>
 
-      {/* Workflow Selector */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Camera className="h-5 w-5" />
-            Select Workflow
-          </CardTitle>
-          <CardDescription>
-            Choose a workflow to view its snapshot history
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search workflows..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-            <Select value={selectedWorkflowId} onValueChange={setSelectedWorkflowId}>
+      {/* Environment Selector */}
+      {environments?.data && environments.data.length > 1 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Environment</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Select
+              value={currentEnvironmentId || ''}
+              onValueChange={(value) => {
+                useAppStore.getState().setSelectedEnvironment(value);
+              }}
+            >
               <SelectTrigger className="w-[300px]">
-                <SelectValue placeholder="Select a workflow" />
+                <SelectValue placeholder="Select environment" />
               </SelectTrigger>
               <SelectContent>
-                {workflowOptions.map((wf) => (
-                  <SelectItem key={wf.id} value={wf.id}>
-                    {wf.name}
+                {environments.data.map((env) => (
+                  <SelectItem key={env.id} value={env.id}>
+                    {env.name} {env.type ? `(${env.type})` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Snapshot History */}
+      {/* Snapshot History Table */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -197,104 +198,191 @@ export function SnapshotsPage() {
             Snapshot History
           </CardTitle>
           <CardDescription>
-            {selectedWorkflowId
-              ? 'View and restore previous versions'
-              : 'Select a workflow to view its snapshot history'}
+            {currentEnvironmentId
+              ? `Snapshots for ${getEnvironmentName(currentEnvironmentId)}`
+              : 'Select an environment to view snapshots'}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!selectedWorkflowId ? (
+          {!currentEnvironmentId ? (
             <p className="text-muted-foreground text-center py-8">
-              Select a workflow above to view its snapshot history
+              Select an environment above to view its snapshot history
             </p>
-          ) : loadingSnapshots ? (
+          ) : isLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
               <span className="ml-2">Loading snapshots...</span>
             </div>
-          ) : snapshots?.data && snapshots.data.length > 0 ? (
+          ) : snapshotsList.length === 0 ? (
+            <p className="text-muted-foreground text-center py-8">
+              No snapshots found for this environment. Snapshots are created automatically
+              during promotions and manual backups.
+            </p>
+          ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Version</TableHead>
-                  <TableHead>Workflow</TableHead>
-                  <TableHead>Trigger</TableHead>
-                  <TableHead>Created</TableHead>
+                  <TableHead>Created At</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Triggered By</TableHead>
+                  <TableHead>Deployment</TableHead>
+                  <TableHead>Notes</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {snapshots.data.map((snapshot) => (
+                {snapshotsList.map((snapshot) => (
                   <TableRow key={snapshot.id}>
-                    <TableCell>
-                      <Badge variant="outline">v{snapshot.version}</Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {snapshot.workflow_name}
+                    <TableCell className="text-muted-foreground">
+                      {new Date(snapshot.createdAt).toLocaleString()}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={getTriggerBadgeVariant(snapshot.trigger)}>
-                        {formatTrigger(snapshot.trigger)}
+                      <Badge variant={getTypeBadgeVariant(snapshot.type)}>
+                        {formatSnapshotType(snapshot.type)}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {new Date(snapshot.created_at).toLocaleString()}
+                    <TableCell className="text-sm text-muted-foreground">
+                      {snapshot.createdByUserId || 'System'}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleRollback(snapshot)}
-                      >
-                        <RotateCcw className="h-3 w-3 mr-1" />
-                        Rollback
-                      </Button>
+                      {snapshot.relatedDeploymentId ? (
+                        <Link
+                          to={`/deployments?deployment=${snapshot.relatedDeploymentId}`}
+                          className="text-primary hover:underline"
+                        >
+                          #{snapshot.relatedDeploymentId.substring(0, 8)}...
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {snapshot.metadataJson?.reason || '—'}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleViewDetails(snapshot)}
+                        >
+                          <Eye className="h-3 w-3 mr-1" />
+                          View
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleRestore(snapshot)}
+                        >
+                          <RotateCcw className="h-3 w-3 mr-1" />
+                          Restore
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          ) : (
-            <p className="text-muted-foreground text-center py-8">
-              No snapshots found for this workflow. Snapshots are created automatically
-              when restoring from GitHub.
-            </p>
           )}
         </CardContent>
       </Card>
 
-      {/* Rollback Confirmation Dialog */}
+      {/* Snapshot Detail Dialog */}
+      <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Snapshot Details</DialogTitle>
+            <DialogDescription>View detailed information about this snapshot</DialogDescription>
+          </DialogHeader>
+
+          {selectedSnapshot && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Environment</p>
+                  <p className="text-base">{getEnvironmentName(selectedSnapshot.environmentId)}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Type</p>
+                  <Badge variant={getTypeBadgeVariant(selectedSnapshot.type)}>
+                    {formatSnapshotType(selectedSnapshot.type)}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Created At</p>
+                  <p className="text-base">
+                    {new Date(selectedSnapshot.createdAt).toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Triggered By</p>
+                  <p className="text-base">{selectedSnapshot.createdByUserId || 'System'}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Git Commit SHA</p>
+                  <p className="text-base font-mono text-sm">
+                    {selectedSnapshot.gitCommitSha || '—'}
+                  </p>
+                </div>
+                {selectedSnapshot.relatedDeploymentId && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Deployment</p>
+                    <Link
+                      to={`/deployments?deployment=${selectedSnapshot.relatedDeploymentId}`}
+                      className="text-primary hover:underline"
+                    >
+                      #{selectedSnapshot.relatedDeploymentId.substring(0, 8)}...
+                    </Link>
+                  </div>
+                )}
+              </div>
+
+              {selectedSnapshot.metadataJson && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">Metadata</p>
+                  <div className="bg-muted p-3 rounded-md">
+                    <pre className="text-xs overflow-auto">
+                      {JSON.stringify(selectedSnapshot.metadataJson, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Restore Confirmation Dialog */}
       <AlertDialog
-        open={!!rollbackSnapshot}
-        onOpenChange={(open) => !open && setRollbackSnapshot(null)}
+        open={!!restoreSnapshot}
+        onOpenChange={(open) => !open && setRestoreSnapshot(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Rollback</AlertDialogTitle>
+            <AlertDialogTitle>Confirm Restore</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to rollback "{rollbackSnapshot?.workflow_name}" to
-              version {rollbackSnapshot?.version}?
+              Are you sure you want to restore the environment to this snapshot?
               <br />
               <br />
-              This will replace the current workflow in N8N with the snapshot version.
-              A new snapshot will be created automatically before the rollback.
+              This will replace all workflows in the environment with the versions from this
+              snapshot. A new backup snapshot will be created automatically before the restore.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={confirmRollback}
-              disabled={rollbackMutation.isPending}
+              onClick={confirmRestore}
+              disabled={restoreMutation.isPending}
             >
-              {rollbackMutation.isPending ? (
+              {restoreMutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Rolling back...
+                  Restoring...
                 </>
               ) : (
                 <>
                   <RotateCcw className="h-4 w-4 mr-2" />
-                  Rollback
+                  Restore
                 </>
               )}
             </AlertDialogAction>

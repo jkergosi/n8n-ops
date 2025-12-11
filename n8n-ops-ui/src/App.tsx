@@ -16,6 +16,7 @@ import { ExecutionsPage } from '@/pages/ExecutionsPage';
 import { SnapshotsPage } from '@/pages/SnapshotsPage';
 import { DeploymentsPage } from '@/pages/DeploymentsPage';
 import { ObservabilityPage } from '@/pages/ObservabilityPage';
+import { AlertsPage } from '@/pages/AlertsPage';
 import { TeamPage } from '@/pages/TeamPage';
 import { BillingPage } from '@/pages/BillingPage';
 import { N8NUsersPage } from '@/pages/N8NUsersPage';
@@ -162,6 +163,7 @@ function App() {
                 <Route path="/pipelines/:id" element={<RoleProtectedRoute><PipelineEditorPage /></RoleProtectedRoute>} />
                 <Route path="/promote" element={<RoleProtectedRoute><PromotionPage /></RoleProtectedRoute>} />
                 <Route path="/observability" element={<RoleProtectedRoute><ObservabilityPage /></RoleProtectedRoute>} />
+                <Route path="/alerts" element={<RoleProtectedRoute><AlertsPage /></RoleProtectedRoute>} />
                 <Route path="/n8n-users" element={<RoleProtectedRoute><N8NUsersPage /></RoleProtectedRoute>} />
                 <Route path="/credentials" element={<RoleProtectedRoute><CredentialsPage /></RoleProtectedRoute>} />
                 <Route path="/team" element={<RoleProtectedRoute><TeamPage /></RoleProtectedRoute>} />

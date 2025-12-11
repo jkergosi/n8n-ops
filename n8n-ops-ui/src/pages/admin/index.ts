@@ -1,4 +1,7 @@
 export { TenantsPage } from './TenantsPage';
+export { TenantDetailPage } from './TenantDetailPage';
+export { PlansPage } from './PlansPage';
+export { UsagePage } from './UsagePage';
 export { SystemBillingPage } from './SystemBillingPage';
 export { PerformancePage } from './PerformancePage';
 export { AuditLogsPage } from './AuditLogsPage';

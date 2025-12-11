@@ -8,7 +8,7 @@ import re
 from datetime import datetime
 
 from app.schemas.workflow import WorkflowResponse, WorkflowUpload, WorkflowTagsUpdate
-from app.services.n8n_client import N8NClient
+from app.services.provider_registry import ProviderRegistry
 from app.services.database import db_service
 from app.services.github_service import GitHubService
 from app.services.diff_service import compare_workflows
@@ -106,14 +106,11 @@ async def get_workflows(
                 return transformed_workflows
 
         # If no cache or force_refresh, fetch from N8N
-        # Create N8N client with environment-specific credentials
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        # Create provider adapter for environment
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        # Fetch workflows from N8N
-        workflows = await n8n_client.get_workflows()
+        # Fetch workflows from provider
+        workflows = await adapter.get_workflows()
 
         # Compute analysis for each workflow
         from app.services.workflow_analysis_service import analyze_workflow
@@ -275,14 +272,11 @@ async def download_workflows(environment_id: str):
                 detail="Environment does not have an API key configured"
             )
 
-        # Create N8N client with environment-specific credentials
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        # Create provider adapter for environment
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        # Fetch all workflows from N8N
-        workflows = await n8n_client.get_workflows()
+        # Fetch all workflows from provider
+        workflows = await adapter.get_workflows()
 
         if not workflows:
             raise HTTPException(
@@ -301,7 +295,7 @@ async def download_workflows(environment_id: str):
                 try:
                     # Get full workflow details
                     workflow_id = workflow.get("id")
-                    full_workflow = await n8n_client.get_workflow(workflow_id)
+                    full_workflow = await adapter.get_workflow(workflow_id)
 
                     # Create filename from workflow name
                     workflow_name = full_workflow.get("name", f"workflow_{workflow_id}")
@@ -391,20 +385,17 @@ async def sync_workflows_from_github(
         # Get workflows from GitHub
         github_workflows = await github_service.get_all_workflows_from_github()
 
-        # Create N8N client
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        # Create provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        # Upload workflows to N8N
+        # Upload workflows to provider
         synced_workflows = []
         errors = []
 
         for workflow_data in github_workflows:
             result = await _upload_single_workflow(
                 workflow_data,
-                n8n_client,
+                adapter,
                 None,  # Don't sync back to GitHub
                 MOCK_TENANT_ID,
                 env_config.get("id")
@@ -415,8 +406,8 @@ async def sync_workflows_from_github(
                 errors.append(result["error"])
 
         # After syncing from GitHub, recompute sync status for all workflows
-        # Get all workflows from N8N
-        n8n_workflows = await n8n_client.get_workflows()
+        # Get all workflows from provider
+        n8n_workflows = await adapter.get_workflows()
         github_workflow_map = {wf.get("id"): wf for wf in github_workflows}
         
         # Compute sync status for all workflows
@@ -502,14 +493,11 @@ async def sync_workflows_to_github(
                 detail="GitHub is not properly configured"
             )
 
-        # Create N8N client
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        # Create provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        # Get all workflows from N8N
-        workflows = await n8n_client.get_workflows()
+        # Get all workflows from provider
+        workflows = await adapter.get_workflows()
 
         if not workflows:
             raise HTTPException(
@@ -553,7 +541,7 @@ async def sync_workflows_to_github(
             try:
                 # Get full workflow details
                 workflow_id = workflow.get("id")
-                full_workflow = await n8n_client.get_workflow(workflow_id)
+                full_workflow = await adapter.get_workflow(workflow_id)
 
                 # Sync to GitHub
                 await github_service.sync_workflow_to_github(
@@ -576,8 +564,8 @@ async def sync_workflows_to_github(
         for workflow in workflows:
             workflow_id = workflow.get("id")
             try:
-                # Get full workflow from N8N
-                full_workflow = await n8n_client.get_workflow(workflow_id)
+                # Get full workflow from provider
+                full_workflow = await adapter.get_workflow(workflow_id)
                 
                 # Get GitHub version
                 github_workflow = github_workflow_map.get(workflow_id)
@@ -666,11 +654,8 @@ async def get_all_workflows_drift(
                 }
             }
 
-        # Create N8N client (use n8n_ prefixed column names from database)
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        # Create provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
         # Create GitHub service
         repo_url = env_config.get("git_repo_url", "").rstrip('/').replace('.git', '')
@@ -695,8 +680,8 @@ async def get_all_workflows_drift(
                 }
             }
 
-        # Fetch all workflows from N8N
-        runtime_workflows = await n8n_client.get_workflows()
+        # Fetch all workflows from provider
+        runtime_workflows = await adapter.get_workflows()
 
         # Fetch all workflows from GitHub
         git_workflows = await github_service.get_all_workflows_from_github()
@@ -818,15 +803,12 @@ async def get_workflow(
 
         # Try to get workflow from database first (to get analysis)
         cached_workflow = await db_service.get_workflow(MOCK_TENANT_ID, env_id, workflow_id)
-        
-        # Create N8N client
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
 
-        # Fetch workflow from N8N
-        workflow = await n8n_client.get_workflow(workflow_id)
+        # Create provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
+
+        # Fetch workflow from provider
+        workflow = await adapter.get_workflow(workflow_id)
         
         # Merge analysis from database if available
         if cached_workflow and cached_workflow.get("analysis"):
@@ -856,11 +838,8 @@ async def upload_workflows(
     try:
         env_config = await resolve_environment_config(None, environment)
 
-        # Create N8N client
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        # Create provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
         # Get GitHub service from environment configuration
         github_service = None
@@ -892,7 +871,7 @@ async def upload_workflows(
                                     workflow_data = json.loads(f.read())
                                     result = await _upload_single_workflow(
                                         workflow_data,
-                                        n8n_client,
+                                        adapter,
                                         github_service,
                                         MOCK_TENANT_ID,
                                         env_config.get("id")
@@ -907,7 +886,7 @@ async def upload_workflows(
                     workflow_data = json.loads(content)
                     result = await _upload_single_workflow(
                         workflow_data,
-                        n8n_client,
+                        adapter,
                         github_service,
                         MOCK_TENANT_ID,
                         env_config.get("id")
@@ -939,15 +918,15 @@ async def upload_workflows(
 
 async def _upload_single_workflow(
     workflow_data: Dict[str, Any],
-    n8n_client: N8NClient,
+    adapter,  # ProviderAdapter
     github_service: GitHubService,
     tenant_id: str,
     environment_id: str = None
 ) -> Dict[str, Any]:
     """Helper function to upload a single workflow"""
     try:
-        # Create workflow in N8N
-        created_workflow = await n8n_client.create_workflow(workflow_data)
+        # Create workflow in provider
+        created_workflow = await adapter.create_workflow(workflow_data)
 
         # Create snapshot in database
         snapshot_data = {
@@ -975,8 +954,8 @@ async def _upload_single_workflow(
         # Update workflow count if environment_id provided
         if environment_id:
             try:
-                # Get current count from N8N
-                all_workflows = await n8n_client.get_workflows()
+                # Get current count from provider
+                all_workflows = await adapter.get_workflows()
                 await db_service.update_environment_workflow_count(
                     environment_id=environment_id,
                     tenant_id=tenant_id,
@@ -1008,12 +987,9 @@ async def activate_workflow(
     try:
         env_config = await resolve_environment_config(environment_id, environment)
 
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        workflow = await n8n_client.activate_workflow(workflow_id)
+        workflow = await adapter.activate_workflow(workflow_id)
 
         # Update cache with activated workflow
         try:
@@ -1048,12 +1024,9 @@ async def deactivate_workflow(
     try:
         env_config = await resolve_environment_config(environment_id, environment)
 
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        workflow = await n8n_client.deactivate_workflow(workflow_id)
+        workflow = await adapter.deactivate_workflow(workflow_id)
 
         # Update cache with deactivated workflow
         try:
@@ -1089,12 +1062,9 @@ async def update_workflow_tags(
     try:
         env_config = await resolve_environment_config(environment_id, environment)
 
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        all_workflows = await n8n_client.get_workflows()
+        all_workflows = await adapter.get_workflows()
         tag_id_map = {}
 
         for workflow in all_workflows:
@@ -1116,12 +1086,12 @@ async def update_workflow_tags(
                     detail=f"Tag '{tag_name}' not found. Tags must exist before assigning to workflows."
                 )
 
-        result = await n8n_client.update_workflow_tags(workflow_id, tag_ids)
+        result = await adapter.update_workflow_tags(workflow_id, tag_ids)
 
         # Update cache with the new tags
         try:
-            # Fetch the updated workflow from N8N to get the complete data
-            updated_workflow = await n8n_client.get_workflow(workflow_id)
+            # Fetch the updated workflow from provider to get the complete data
+            updated_workflow = await adapter.get_workflow(workflow_id)
             await db_service.update_workflow_in_cache(
                 MOCK_TENANT_ID,
                 env_config.get("id"),
@@ -1160,17 +1130,14 @@ async def update_workflow(
                 detail=f"Environment '{environment}' not configured"
             )
 
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
         # Debug: log what we received
         import json
         print(f"DEBUG ENDPOINT: Received workflow_data keys: {list(workflow_data.keys())}")
 
-        # Update workflow in N8N - n8n_client will clean the data
-        updated_workflow = await n8n_client.update_workflow(workflow_id, workflow_data)
+        # Update workflow in provider - adapter will clean the data
+        updated_workflow = await adapter.update_workflow(workflow_id, workflow_data)
 
         # Update cache with modified workflow
         try:
@@ -1222,16 +1189,13 @@ async def delete_workflow(
     environment: Optional[str] = None,  # Deprecated: use environment_id instead
     _: dict = Depends(require_entitlement("workflow_push"))
 ):
-    """Delete a workflow from N8N"""
+    """Delete a workflow from provider"""
     try:
         env_config = await resolve_environment_config(environment_id, environment)
 
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        await n8n_client.delete_workflow(workflow_id)
+        await adapter.delete_workflow(workflow_id)
 
         # Soft delete from cache
         try:
@@ -1245,7 +1209,7 @@ async def delete_workflow(
 
         # Update workflow count after deletion
         try:
-            all_workflows = await n8n_client.get_workflows()
+            all_workflows = await adapter.get_workflows()
             await db_service.update_environment_workflow_count(
                 environment_id=env_config.get("id"),
                 tenant_id=MOCK_TENANT_ID,
@@ -1284,15 +1248,12 @@ async def get_workflow_drift(
     try:
         env_config = await resolve_environment_config(environment_id, environment)
 
-        # Create N8N client
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        # Create provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        # Fetch workflow from N8N (runtime version)
+        # Fetch workflow from provider (runtime version)
         try:
-            runtime_workflow = await n8n_client.get_workflow(workflow_id)
+            runtime_workflow = await adapter.get_workflow(workflow_id)
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

@@ -29,6 +29,9 @@ import { PipelineEditorPage } from '@/pages/PipelineEditorPage';
 import { PromotionPage } from '@/pages/PromotionPage';
 import {
   TenantsPage,
+  TenantDetailPage,
+  PlansPage,
+  UsagePage,
   SystemBillingPage,
   PerformancePage,
   AuditLogsPage,
@@ -175,7 +178,10 @@ function App() {
                 <Route path="/billing" element={<RoleProtectedRoute><BillingPage /></RoleProtectedRoute>} />
                 <Route path="/profile" element={<RoleProtectedRoute><ProfilePage /></RoleProtectedRoute>} />
                 {/* Admin Routes */}
+                <Route path="/admin/usage" element={<RoleProtectedRoute><UsagePage /></RoleProtectedRoute>} />
                 <Route path="/admin/tenants" element={<RoleProtectedRoute><TenantsPage /></RoleProtectedRoute>} />
+                <Route path="/admin/tenants/:tenantId" element={<RoleProtectedRoute><TenantDetailPage /></RoleProtectedRoute>} />
+                <Route path="/admin/plans" element={<RoleProtectedRoute><PlansPage /></RoleProtectedRoute>} />
                 <Route path="/admin/billing" element={<RoleProtectedRoute><SystemBillingPage /></RoleProtectedRoute>} />
                 <Route path="/admin/performance" element={<RoleProtectedRoute><PerformancePage /></RoleProtectedRoute>} />
                 <Route path="/admin/audit-logs" element={<RoleProtectedRoute><AuditLogsPage /></RoleProtectedRoute>} />

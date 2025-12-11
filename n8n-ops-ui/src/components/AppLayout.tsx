@@ -128,7 +128,9 @@ const navigationSections: NavSection[] = [
     title: 'Admin',
     items: [
       { id: 'tenants', name: 'Tenants', href: '/admin/tenants', icon: Building2, requiredPlan: 'enterprise' },
-      { id: 'billing', name: 'Billing', href: '/admin/billing', icon: CreditCard, requiredPlan: 'enterprise' },
+      { id: 'plans', name: 'Plans', href: '/admin/plans', icon: CreditCard, requiredPlan: 'enterprise' },
+      { id: 'usage', name: 'Usage & Limits', href: '/admin/usage', icon: BarChart3, requiredPlan: 'enterprise' },
+      { id: 'billing', name: 'System Billing', href: '/admin/billing', icon: CreditCard, requiredPlan: 'enterprise' },
       { id: 'featureMatrix', name: 'Feature Matrix', href: '/admin/entitlements/matrix', icon: LayoutGrid, requiredPlan: 'enterprise' },
       { id: 'tenantOverrides', name: 'Tenant Overrides', href: '/admin/entitlements/overrides', icon: Shield, requiredPlan: 'enterprise' },
       { id: 'entitlementsAudit', name: 'Entitlements Audit', href: '/admin/entitlements/audit', icon: History, requiredPlan: 'enterprise' },

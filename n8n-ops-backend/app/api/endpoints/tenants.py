@@ -1,11 +1,17 @@
 from fastapi import APIRouter, HTTPException, status, Query
 from typing import List, Optional
+from datetime import datetime, timedelta
 
 from app.schemas.tenant import (
     TenantCreate,
     TenantUpdate,
     TenantResponse,
-    TenantStats
+    TenantStats,
+    TenantListResponse,
+    TenantNoteCreate,
+    TenantNoteResponse,
+    TenantNoteListResponse,
+    ScheduleDeletionRequest,
 )
 from app.schemas.entitlements import (
     TenantFeatureOverrideCreate,
@@ -25,13 +31,40 @@ from app.services.entitlements_service import entitlements_service
 router = APIRouter()
 
 
-@router.get("/", response_model=List[TenantResponse])
-async def get_tenants():
-    """Get all tenants (admin only)"""
+@router.get("/", response_model=TenantListResponse)
+async def get_tenants(
+    search: Optional[str] = Query(None, description="Search by name or email"),
+    plan: Optional[str] = Query(None, description="Filter by plan"),
+    tenant_status: Optional[str] = Query(None, alias="status", description="Filter by status"),
+    created_from: Optional[datetime] = Query(None, description="Filter by created date from"),
+    created_to: Optional[datetime] = Query(None, description="Filter by created date to"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+):
+    """Get all tenants with pagination and filters (admin only)"""
     try:
-        # Get all tenants
-        response = db_service.client.table("tenants").select("*").order("created_at", desc=True).execute()
+        # Build query
+        query = db_service.client.table("tenants").select("*", count="exact")
+
+        # Apply filters
+        if search:
+            query = query.or_(f"name.ilike.%{search}%,email.ilike.%{search}%")
+        if plan:
+            query = query.eq("subscription_tier", plan)
+        if tenant_status:
+            query = query.eq("status", tenant_status)
+        if created_from:
+            query = query.gte("created_at", created_from.isoformat())
+        if created_to:
+            query = query.lte("created_at", created_to.isoformat())
+
+        # Apply pagination
+        offset = (page - 1) * page_size
+        query = query.order("created_at", desc=True).range(offset, offset + page_size - 1)
+
+        response = query.execute()
         tenants = response.data or []
+        total = response.count or 0
 
         # Enrich with counts
         enriched_tenants = []
@@ -66,7 +99,12 @@ async def get_tenants():
                 "status": tenant.get("status", "active"),
             })
 
-        return enriched_tenants
+        return TenantListResponse(
+            tenants=enriched_tenants,
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
 
     except Exception as e:
         raise HTTPException(
@@ -677,4 +715,411 @@ async def get_tenant_access_logs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch access logs: {str(e)}"
+        )
+
+
+# =============================================================================
+# Phase 1: Tenant Actions
+# =============================================================================
+
+@router.post("/{tenant_id}/suspend", response_model=TenantResponse)
+async def suspend_tenant(tenant_id: str, reason: Optional[str] = None):
+    """Suspend a tenant (soft lock access, preserve data)"""
+    try:
+        # Get current tenant
+        existing = db_service.client.table("tenants").select("*").eq(
+            "id", tenant_id
+        ).single().execute()
+
+        if not existing.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        tenant = existing.data
+        old_status = tenant.get("status", "active")
+
+        if old_status == "suspended":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tenant is already suspended")
+
+        # Update status
+        db_service.client.table("tenants").update({
+            "status": "suspended"
+        }).eq("id", tenant_id).execute()
+
+        # Create audit log
+        try:
+            from app.api.endpoints.admin_audit import create_audit_log
+            await create_audit_log(
+                action_type="TENANT_SUSPENDED",
+                action=f"Suspended tenant",
+                tenant_id=tenant_id,
+                tenant_name=tenant.get("name"),
+                resource_type="tenant",
+                resource_id=tenant_id,
+                old_value={"status": old_status},
+                new_value={"status": "suspended"},
+                reason=reason,
+            )
+        except Exception:
+            pass  # Don't fail if audit logging fails
+
+        return await get_tenant(tenant_id)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to suspend tenant: {str(e)}"
+        )
+
+
+@router.post("/{tenant_id}/reactivate", response_model=TenantResponse)
+async def reactivate_tenant(tenant_id: str, reason: Optional[str] = None):
+    """Reactivate a suspended tenant"""
+    try:
+        # Get current tenant
+        existing = db_service.client.table("tenants").select("*").eq(
+            "id", tenant_id
+        ).single().execute()
+
+        if not existing.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        tenant = existing.data
+        old_status = tenant.get("status", "active")
+
+        if old_status != "suspended":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tenant is not suspended")
+
+        # Update status
+        db_service.client.table("tenants").update({
+            "status": "active"
+        }).eq("id", tenant_id).execute()
+
+        # Create audit log
+        try:
+            from app.api.endpoints.admin_audit import create_audit_log
+            await create_audit_log(
+                action_type="TENANT_REACTIVATED",
+                action=f"Reactivated tenant",
+                tenant_id=tenant_id,
+                tenant_name=tenant.get("name"),
+                resource_type="tenant",
+                resource_id=tenant_id,
+                old_value={"status": old_status},
+                new_value={"status": "active"},
+                reason=reason,
+            )
+        except Exception:
+            pass
+
+        return await get_tenant(tenant_id)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reactivate tenant: {str(e)}"
+        )
+
+
+@router.post("/{tenant_id}/schedule-deletion")
+async def schedule_tenant_deletion(
+    tenant_id: str,
+    request: ScheduleDeletionRequest,
+    reason: Optional[str] = None,
+):
+    """Schedule tenant for deletion after retention period"""
+    try:
+        # Get current tenant
+        existing = db_service.client.table("tenants").select("*").eq(
+            "id", tenant_id
+        ).single().execute()
+
+        if not existing.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        tenant = existing.data
+
+        # Calculate deletion date
+        deletion_date = datetime.utcnow() + timedelta(days=request.retention_days)
+
+        # Update tenant
+        db_service.client.table("tenants").update({
+            "status": "archived",
+            "scheduled_deletion_at": deletion_date.isoformat()
+        }).eq("id", tenant_id).execute()
+
+        # Create audit log
+        try:
+            from app.api.endpoints.admin_audit import create_audit_log
+            await create_audit_log(
+                action_type="TENANT_DELETION_SCHEDULED",
+                action=f"Scheduled deletion in {request.retention_days} days",
+                tenant_id=tenant_id,
+                tenant_name=tenant.get("name"),
+                resource_type="tenant",
+                resource_id=tenant_id,
+                new_value={
+                    "status": "archived",
+                    "scheduled_deletion_at": deletion_date.isoformat(),
+                    "retention_days": request.retention_days
+                },
+                reason=reason,
+            )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "scheduled_deletion_at": deletion_date.isoformat(),
+            "retention_days": request.retention_days
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to schedule deletion: {str(e)}"
+        )
+
+
+@router.delete("/{tenant_id}/cancel-deletion")
+async def cancel_tenant_deletion(tenant_id: str):
+    """Cancel scheduled tenant deletion"""
+    try:
+        # Get current tenant
+        existing = db_service.client.table("tenants").select("*").eq(
+            "id", tenant_id
+        ).single().execute()
+
+        if not existing.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        tenant = existing.data
+
+        if not tenant.get("scheduled_deletion_at"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No deletion scheduled")
+
+        # Update tenant
+        db_service.client.table("tenants").update({
+            "status": "active",
+            "scheduled_deletion_at": None
+        }).eq("id", tenant_id).execute()
+
+        return {"success": True, "message": "Deletion cancelled"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel deletion: {str(e)}"
+        )
+
+
+# =============================================================================
+# Tenant Notes
+# =============================================================================
+
+@router.get("/{tenant_id}/notes", response_model=TenantNoteListResponse)
+async def get_tenant_notes(tenant_id: str):
+    """Get all notes for a tenant (admin only)"""
+    try:
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id").eq(
+            "id", tenant_id
+        ).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Get notes
+        response = db_service.client.table("tenant_notes").select("*").eq(
+            "tenant_id", tenant_id
+        ).order("created_at", desc=True).execute()
+
+        notes = [TenantNoteResponse(**note) for note in (response.data or [])]
+
+        return TenantNoteListResponse(
+            notes=notes,
+            total=len(notes)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch tenant notes: {str(e)}"
+        )
+
+
+@router.post("/{tenant_id}/notes", response_model=TenantNoteResponse, status_code=status.HTTP_201_CREATED)
+async def create_tenant_note(tenant_id: str, note: TenantNoteCreate):
+    """Create a note for a tenant (admin only)"""
+    try:
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id").eq(
+            "id", tenant_id
+        ).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Create note
+        note_data = {
+            "tenant_id": tenant_id,
+            "content": note.content,
+            # In production, get these from auth context
+            # "author_id": current_user.id,
+            # "author_email": current_user.email,
+            # "author_name": current_user.name,
+        }
+
+        response = db_service.client.table("tenant_notes").insert(note_data).execute()
+
+        if not response.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create note"
+            )
+
+        return TenantNoteResponse(**response.data[0])
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create note: {str(e)}"
+        )
+
+
+@router.delete("/{tenant_id}/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_tenant_note(tenant_id: str, note_id: str):
+    """Delete a tenant note (admin only)"""
+    try:
+        # Verify note exists and belongs to tenant
+        existing = db_service.client.table("tenant_notes").select("id").eq(
+            "id", note_id
+        ).eq("tenant_id", tenant_id).single().execute()
+
+        if not existing.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+
+        # Delete note
+        db_service.client.table("tenant_notes").delete().eq("id", note_id).execute()
+
+        return None
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete note: {str(e)}"
+        )
+
+
+# =============================================================================
+# Tenant Usage
+# =============================================================================
+
+@router.get("/{tenant_id}/usage")
+async def get_tenant_usage(tenant_id: str):
+    """Get usage metrics for a tenant (admin only)"""
+    try:
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select(
+            "id, name, subscription_tier"
+        ).eq("id", tenant_id).single().execute()
+
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        tenant = tenant_response.data
+        plan = tenant.get("subscription_tier", "free")
+
+        # Get counts
+        workflow_response = db_service.client.table("workflows").select(
+            "id", count="exact"
+        ).eq("tenant_id", tenant_id).eq("is_deleted", False).execute()
+        workflow_count = workflow_response.count or 0
+
+        env_response = db_service.client.table("environments").select(
+            "id", count="exact"
+        ).eq("tenant_id", tenant_id).execute()
+        environment_count = env_response.count or 0
+
+        user_response = db_service.client.table("users").select(
+            "id", count="exact"
+        ).eq("tenant_id", tenant_id).execute()
+        user_count = user_response.count or 0
+
+        # Get execution count for current month
+        first_of_month = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        exec_response = db_service.client.table("executions").select(
+            "id", count="exact"
+        ).eq("tenant_id", tenant_id).gte("started_at", first_of_month.isoformat()).execute()
+        execution_count = exec_response.count or 0
+
+        # Get plan limits from entitlements
+        try:
+            limits = await entitlements_service.get_tenant_entitlements(tenant_id)
+            features = limits.get("features", {})
+        except Exception:
+            features = {}
+
+        # Define default limits by plan
+        default_limits = {
+            "free": {"workflows": 10, "environments": 2, "users": 3, "executions": 1000},
+            "pro": {"workflows": 200, "environments": 10, "users": 25, "executions": 50000},
+            "agency": {"workflows": 500, "environments": 25, "users": 100, "executions": 200000},
+            "enterprise": {"workflows": -1, "environments": -1, "users": -1, "executions": -1},
+        }
+
+        plan_limits = default_limits.get(plan, default_limits["free"])
+
+        def calculate_percentage(current, limit):
+            if limit == -1:
+                return 0  # Unlimited
+            if limit == 0:
+                return 100 if current > 0 else 0
+            return min(round((current / limit) * 100, 1), 100)
+
+        return {
+            "tenant_id": tenant_id,
+            "plan": plan,
+            "metrics": {
+                "workflows": {
+                    "current": workflow_count,
+                    "limit": plan_limits.get("workflows", -1),
+                    "percentage": calculate_percentage(workflow_count, plan_limits.get("workflows", -1)),
+                },
+                "environments": {
+                    "current": environment_count,
+                    "limit": plan_limits.get("environments", -1),
+                    "percentage": calculate_percentage(environment_count, plan_limits.get("environments", -1)),
+                },
+                "users": {
+                    "current": user_count,
+                    "limit": plan_limits.get("users", -1),
+                    "percentage": calculate_percentage(user_count, plan_limits.get("users", -1)),
+                },
+                "executions": {
+                    "current": execution_count,
+                    "limit": plan_limits.get("executions", -1),
+                    "percentage": calculate_percentage(execution_count, plan_limits.get("executions", -1)),
+                    "period": "current_month",
+                },
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch tenant usage: {str(e)}"
         )

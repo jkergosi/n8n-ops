@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from datetime import datetime
 
-from app.services.n8n_client import N8NClient
+from app.services.provider_registry import ProviderRegistry
 from app.services.database import db_service
 from app.services.github_service import GitHubService
 
@@ -136,12 +136,9 @@ async def get_restore_preview(environment_id: str):
         # Get workflows from GitHub
         github_workflows = await github_service.get_all_workflows_from_github()
 
-        # Get existing workflows from N8N
-        n8n_client = N8NClient(
-            base_url=env_config.get("base_url"),
-            api_key=env_config.get("api_key")
-        )
-        n8n_workflows = await n8n_client.get_workflows()
+        # Get existing workflows from provider
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
+        n8n_workflows = await adapter.get_workflows()
 
         # Create a map of existing workflow IDs
         existing_workflow_ids = {wf.get("id") for wf in n8n_workflows}
@@ -241,16 +238,13 @@ async def execute_restore(environment_id: str, options: RestoreOptions):
             branch=git_branch
         )
 
-        n8n_client = N8NClient(
-            base_url=env_config.get("base_url"),
-            api_key=env_config.get("api_key")
-        )
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
         # Get workflows from GitHub
         github_workflows = await github_service.get_all_workflows_from_github()
 
-        # Get existing workflows from N8N
-        n8n_workflows = await n8n_client.get_workflows()
+        # Get existing workflows from provider
+        n8n_workflows = await adapter.get_workflows()
         existing_workflows_map = {wf.get("id"): wf for wf in n8n_workflows}
 
         # Track results
@@ -303,7 +297,7 @@ async def execute_restore(environment_id: str, options: RestoreOptions):
                             errors.append(f"Failed to create snapshot for {workflow_name}: {str(snap_err)}")
 
                     # Update the workflow
-                    await n8n_client.update_workflow(original_id, workflow_data)
+                    await adapter.update_workflow(original_id, workflow_data)
                     workflows_updated += 1
 
                     results.append(RestoreResultItem(
@@ -314,7 +308,7 @@ async def execute_restore(environment_id: str, options: RestoreOptions):
                     ))
                 else:
                     # Create new workflow
-                    new_workflow = await n8n_client.create_workflow(workflow_data)
+                    new_workflow = await adapter.create_workflow(workflow_data)
                     new_id = new_workflow.get("id")
                     workflows_created += 1
 
@@ -338,7 +332,7 @@ async def execute_restore(environment_id: str, options: RestoreOptions):
 
         # Sync workflows to database cache
         try:
-            updated_workflows = await n8n_client.get_workflows()
+            updated_workflows = await adapter.get_workflows()
             await db_service.sync_workflows_from_n8n(MOCK_TENANT_ID, environment_id, updated_workflows)
 
             # Update workflow count
@@ -426,25 +420,22 @@ async def rollback_workflow(request: RollbackRequest):
         # We need to find which environment has this workflow
         environments = await db_service.get_environments(MOCK_TENANT_ID)
 
-        n8n_client = None
+        adapter = None
         env_id = None
 
         for env in environments:
             try:
-                client = N8NClient(
-                    base_url=env.get("base_url"),
-                    api_key=env.get("api_key")
-                )
+                env_adapter = ProviderRegistry.get_adapter_for_environment(env)
                 # Try to get the workflow from this environment
-                existing = await client.get_workflow(workflow_id)
+                existing = await env_adapter.get_workflow(workflow_id)
                 if existing:
-                    n8n_client = client
+                    adapter = env_adapter
                     env_id = env.get("id")
                     break
             except Exception:
                 continue
 
-        if not n8n_client:
+        if not adapter:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Could not find workflow in any environment"
@@ -452,7 +443,7 @@ async def rollback_workflow(request: RollbackRequest):
 
         # Create a snapshot of current state before rollback
         try:
-            current_workflow = await n8n_client.get_workflow(workflow_id)
+            current_workflow = await adapter.get_workflow(workflow_id)
             existing_snapshots = await db_service.get_workflow_snapshots(
                 MOCK_TENANT_ID, workflow_id
             )
@@ -472,11 +463,11 @@ async def rollback_workflow(request: RollbackRequest):
             print(f"Warning: Failed to create pre-rollback snapshot: {snap_err}")
 
         # Perform the rollback
-        await n8n_client.update_workflow(workflow_id, workflow_data)
+        await adapter.update_workflow(workflow_id, workflow_data)
 
         # Update database cache
         if env_id:
-            updated_workflows = await n8n_client.get_workflows()
+            updated_workflows = await adapter.get_workflows()
             await db_service.sync_workflows_from_n8n(MOCK_TENANT_ID, env_id, updated_workflows)
 
         return {

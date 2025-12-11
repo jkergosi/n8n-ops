@@ -4,7 +4,7 @@ import time
 import logging
 
 from app.services.database import db_service
-from app.services.n8n_client import N8NClient
+from app.services.provider_registry import ProviderRegistry
 from app.services.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
@@ -247,16 +247,13 @@ class ObservabilityService:
         if not env:
             raise ValueError(f"Environment {environment_id} not found")
 
-        # Create N8N client
-        n8n_client = N8NClient(
-            base_url=env.get("n8n_base_url"),
-            api_key=env.get("n8n_api_key")
-        )
+        # Create provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(env)
 
         # Measure latency and test connection
         start_time = time.time()
         try:
-            is_connected = await n8n_client.test_connection()
+            is_connected = await adapter.test_connection()
             latency_ms = int((time.time() - start_time) * 1000)
 
             if is_connected:

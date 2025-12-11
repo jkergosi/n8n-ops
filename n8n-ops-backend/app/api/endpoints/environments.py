@@ -10,7 +10,8 @@ from app.schemas.environment import (
     GitTestConnection
 )
 from app.services.database import db_service
-from app.services.n8n_client import N8NClient
+from app.services.provider_registry import ProviderRegistry
+from app.services.n8n_client import N8NClient  # Keep for direct connection testing
 from app.services.github_service import GitHubService
 from app.services.feature_service import feature_service
 from app.core.feature_gate import require_environment_limit
@@ -302,12 +303,9 @@ async def update_connection_status(environment_id: str):
                 detail="Environment not found"
             )
 
-        # Test connection
-        test_client = N8NClient(
-            base_url=environment.get("n8n_base_url"),
-            api_key=environment.get("n8n_api_key")
-        )
-        is_connected = await test_client.test_connection()
+        # Test connection using provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(environment)
+        is_connected = await adapter.test_connection()
 
         if is_connected:
             # Update last_connected timestamp
@@ -352,18 +350,15 @@ async def sync_environment(
                 detail="Environment not found"
             )
 
-        # Create N8N client for this environment
-        n8n_client = N8NClient(
-            base_url=environment.get("n8n_base_url"),
-            api_key=environment.get("n8n_api_key")
-        )
+        # Create provider adapter for this environment
+        adapter = ProviderRegistry.get_adapter_for_environment(environment)
 
         # Test connection first
-        is_connected = await n8n_client.test_connection()
+        is_connected = await adapter.test_connection()
         if not is_connected:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Cannot connect to N8N instance. Please check environment configuration."
+                detail="Cannot connect to provider instance. Please check environment configuration."
             )
 
         sync_results = {
@@ -376,7 +371,7 @@ async def sync_environment(
 
         # Sync workflows
         try:
-            workflows = await n8n_client.get_workflows()
+            workflows = await adapter.get_workflows()
             
             # Compute analysis for each workflow
             from app.services.workflow_analysis_service import analyze_workflow
@@ -410,7 +405,7 @@ async def sync_environment(
 
         # Sync executions
         try:
-            executions = await n8n_client.get_executions(limit=100)
+            executions = await adapter.get_executions(limit=100)
             synced_executions = await db_service.sync_executions_from_n8n(
                 MOCK_TENANT_ID,
                 environment_id,
@@ -422,7 +417,7 @@ async def sync_environment(
 
         # Sync credentials
         try:
-            credentials = await n8n_client.get_credentials()
+            credentials = await adapter.get_credentials()
             synced_credentials = await db_service.sync_credentials_from_n8n(
                 MOCK_TENANT_ID,
                 environment_id,
@@ -434,7 +429,7 @@ async def sync_environment(
 
         # Sync users
         try:
-            users = await n8n_client.get_users()
+            users = await adapter.get_users()
             synced_users = await db_service.sync_n8n_users_from_n8n(
                 MOCK_TENANT_ID,
                 environment_id,
@@ -446,7 +441,7 @@ async def sync_environment(
 
         # Sync tags
         try:
-            tags = await n8n_client.get_tags()
+            tags = await adapter.get_tags()
             synced_tags = await db_service.sync_tags_from_n8n(
                 MOCK_TENANT_ID,
                 environment_id,
@@ -538,23 +533,20 @@ async def sync_users_only(environment_id: str):
                 detail="Environment not found"
             )
 
-        # Create N8N client for this environment
-        n8n_client = N8NClient(
-            base_url=environment.get("n8n_base_url"),
-            api_key=environment.get("n8n_api_key")
-        )
+        # Create provider adapter for this environment
+        adapter = ProviderRegistry.get_adapter_for_environment(environment)
 
         # Test connection first
-        is_connected = await n8n_client.test_connection()
+        is_connected = await adapter.test_connection()
         if not is_connected:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Cannot connect to N8N instance. Please check environment configuration."
+                detail="Cannot connect to provider instance. Please check environment configuration."
             )
 
         # Sync users only
         try:
-            users = await n8n_client.get_users()
+            users = await adapter.get_users()
             synced_users = await db_service.sync_n8n_users_from_n8n(
                 MOCK_TENANT_ID,
                 environment_id,
@@ -596,23 +588,20 @@ async def sync_executions_only(environment_id: str):
                 detail="Environment not found"
             )
 
-        # Create N8N client for this environment
-        n8n_client = N8NClient(
-            base_url=environment.get("n8n_base_url"),
-            api_key=environment.get("n8n_api_key")
-        )
+        # Create provider adapter for this environment
+        adapter = ProviderRegistry.get_adapter_for_environment(environment)
 
         # Test connection first
-        is_connected = await n8n_client.test_connection()
+        is_connected = await adapter.test_connection()
         if not is_connected:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Cannot connect to N8N instance. Please check environment configuration."
+                detail="Cannot connect to provider instance. Please check environment configuration."
             )
 
         # Sync executions only
         try:
-            executions = await n8n_client.get_executions(limit=100)
+            executions = await adapter.get_executions(limit=100)
             synced_executions = await db_service.sync_executions_from_n8n(
                 MOCK_TENANT_ID,
                 environment_id,
@@ -654,23 +643,20 @@ async def sync_tags_only(environment_id: str):
                 detail="Environment not found"
             )
 
-        # Create N8N client for this environment
-        n8n_client = N8NClient(
-            base_url=environment.get("n8n_base_url"),
-            api_key=environment.get("n8n_api_key")
-        )
+        # Create provider adapter for this environment
+        adapter = ProviderRegistry.get_adapter_for_environment(environment)
 
         # Test connection first
-        is_connected = await n8n_client.test_connection()
+        is_connected = await adapter.test_connection()
         if not is_connected:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Cannot connect to N8N instance. Please check environment configuration."
+                detail="Cannot connect to provider instance. Please check environment configuration."
             )
 
         # Sync tags only
         try:
-            tags = await n8n_client.get_tags()
+            tags = await adapter.get_tags()
             synced_tags = await db_service.sync_tags_from_n8n(
                 MOCK_TENANT_ID,
                 environment_id,

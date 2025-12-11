@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +23,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Building2,
   Plus,
   Search,
@@ -32,46 +40,62 @@ import {
   Server,
   MoreHorizontal,
   RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Filter,
+  X,
+  Pause,
+  Play,
+  Calendar,
+  Download,
 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
-
-interface Tenant {
-  id: string;
-  name: string;
-  email: string;
-  subscriptionPlan: 'free' | 'pro' | 'enterprise';
-  status: 'active' | 'suspended' | 'pending';
-  workflowCount: number;
-  environmentCount: number;
-  userCount: number;
-  createdAt: string;
-}
+import { exportToCSV } from '@/lib/export-utils';
+import type { Tenant } from '@/types';
 
 export function TenantsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  // Filters state
   const [searchTerm, setSearchTerm] = useState('');
+  const [planFilter, setPlanFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(10);
+
+  // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
 
   const [tenantForm, setTenantForm] = useState({
     name: '',
     email: '',
-    subscriptionPlan: 'free' as 'free' | 'pro' | 'enterprise',
+    subscriptionPlan: 'free' as 'free' | 'pro' | 'agency' | 'enterprise',
   });
 
-  // Fetch tenants
+  // Fetch tenants with filters
   const { data: tenantsData, isLoading, refetch } = useQuery({
-    queryKey: ['tenants'],
-    queryFn: () => api.getTenants(),
+    queryKey: ['tenants', page, pageSize, searchTerm, planFilter, statusFilter],
+    queryFn: () => api.getTenants({
+      page,
+      page_size: pageSize,
+      search: searchTerm || undefined,
+      plan: planFilter !== 'all' ? planFilter : undefined,
+      status: statusFilter !== 'all' ? statusFilter : undefined,
+    }),
   });
 
   // Fetch stats
@@ -80,7 +104,9 @@ export function TenantsPage() {
     queryFn: () => api.getTenantStats(),
   });
 
-  const tenants = tenantsData?.data || [];
+  const tenants = tenantsData?.data?.tenants || tenantsData?.data || [];
+  const totalCount = tenantsData?.data?.total || tenants.length;
+  const totalPages = tenantsData?.data?.total_pages || Math.ceil(totalCount / pageSize);
   const stats = statsData?.data || { total: 0, active: 0, suspended: 0, pending: 0, by_plan: { free: 0, pro: 0, enterprise: 0 } };
 
   // Create mutation
@@ -133,19 +159,55 @@ export function TenantsPage() {
     },
   });
 
+  // Suspend mutation
+  const suspendMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      api.suspendTenant(id, reason),
+    onSuccess: () => {
+      toast.success('Tenant suspended');
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      queryClient.invalidateQueries({ queryKey: ['tenant-stats'] });
+      setSuspendDialogOpen(false);
+      setSelectedTenant(null);
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.detail || 'Failed to suspend tenant';
+      toast.error(message);
+    },
+  });
+
+  // Reactivate mutation
+  const reactivateMutation = useMutation({
+    mutationFn: (id: string) => api.reactivateTenant(id),
+    onSuccess: () => {
+      toast.success('Tenant reactivated');
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      queryClient.invalidateQueries({ queryKey: ['tenant-stats'] });
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.detail || 'Failed to reactivate tenant';
+      toast.error(message);
+    },
+  });
+
   const resetForm = () => {
     setTenantForm({ name: '', email: '', subscriptionPlan: 'free' });
   };
 
-  const filteredTenants = tenants.filter(
-    (tenant: Tenant) =>
-      tenant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tenant.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const clearFilters = () => {
+    setSearchTerm('');
+    setPlanFilter('all');
+    setStatusFilter('all');
+    setPage(1);
+  };
+
+  const hasActiveFilters = searchTerm || planFilter !== 'all' || statusFilter !== 'all';
 
   const getPlanBadgeVariant = (plan: string) => {
     switch (plan) {
       case 'enterprise':
+        return 'default';
+      case 'agency':
         return 'default';
       case 'pro':
         return 'secondary';
@@ -160,6 +222,10 @@ export function TenantsPage() {
         return 'success';
       case 'suspended':
         return 'destructive';
+      case 'trial':
+        return 'secondary';
+      case 'cancelled':
+        return 'outline';
       default:
         return 'outline';
     }
@@ -177,8 +243,8 @@ export function TenantsPage() {
     setSelectedTenant(tenant);
     setTenantForm({
       name: tenant.name,
-      email: tenant.email,
-      subscriptionPlan: tenant.subscriptionPlan,
+      email: tenant.email || '',
+      subscriptionPlan: (tenant.subscriptionPlan || 'free') as any,
     });
     setEditDialogOpen(true);
   };
@@ -205,6 +271,52 @@ export function TenantsPage() {
     deleteMutation.mutate(selectedTenant.id);
   };
 
+  const handleSuspend = (tenant: Tenant) => {
+    setSelectedTenant(tenant);
+    setSuspendDialogOpen(true);
+  };
+
+  const handleSuspendConfirm = () => {
+    if (!selectedTenant) return;
+    suspendMutation.mutate({ id: selectedTenant.id, reason: 'Admin action' });
+  };
+
+  const handleReactivate = (tenant: Tenant) => {
+    reactivateMutation.mutate(tenant.id);
+  };
+
+  const handleRowClick = (tenant: Tenant) => {
+    navigate(`/admin/tenants/${tenant.id}`);
+  };
+
+  const handleExport = () => {
+    if (tenants.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    const columns = [
+      { key: 'id' as const, header: 'Tenant ID' },
+      { key: 'name' as const, header: 'Tenant Name' },
+      { key: 'email' as const, header: 'Owner Email' },
+      { key: 'subscriptionPlan' as const, header: 'Plan' },
+      { key: 'status' as const, header: 'Status' },
+      { key: 'workflowCount' as const, header: 'Workflows' },
+      { key: 'environmentCount' as const, header: 'Environments' },
+      { key: 'userCount' as const, header: 'Users' },
+      { key: 'createdAt' as const, header: 'Created At' },
+    ];
+
+    // Build filename with filter info
+    let filename = 'tenants';
+    if (planFilter !== 'all') filename += `_${planFilter}`;
+    if (statusFilter !== 'all') filename += `_${statusFilter}`;
+    if (searchTerm) filename += '_filtered';
+
+    exportToCSV(tenants, columns, filename);
+    toast.success(`Exported ${tenants.length} tenants to CSV`);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -213,6 +325,10 @@ export function TenantsPage() {
           <p className="text-muted-foreground">Manage all tenants in the system</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExport} disabled={tenants.length === 0}>
+            <Download className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
           <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
@@ -274,6 +390,64 @@ export function TenantsPage() {
         </Card>
       </div>
 
+      {/* Filters */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              Filters
+            </CardTitle>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-4">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name or email..."
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setPage(1);
+                }}
+                className="pl-9"
+              />
+            </div>
+            <Select value={planFilter} onValueChange={(v) => { setPlanFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Plan" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Plans</SelectItem>
+                <SelectItem value="free">Free</SelectItem>
+                <SelectItem value="pro">Pro</SelectItem>
+                <SelectItem value="agency">Agency</SelectItem>
+                <SelectItem value="enterprise">Enterprise</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="trial">Trial</SelectItem>
+                <SelectItem value="suspended">Suspended</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Tenants Table */}
       <Card>
         <CardHeader>
@@ -283,100 +457,148 @@ export function TenantsPage() {
                 <Building2 className="h-5 w-5" />
                 All Tenants
               </CardTitle>
-              <CardDescription>View and manage tenant accounts</CardDescription>
-            </div>
-            <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search tenants..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
+              <CardDescription>
+                Showing {tenants.length} of {totalCount} tenants
+              </CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="text-center py-8">Loading tenants...</div>
-          ) : filteredTenants.length === 0 ? (
+          ) : tenants.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {searchTerm ? 'No tenants match your search' : 'No tenants found. Create your first tenant to get started.'}
+              {hasActiveFilters ? 'No tenants match your filters' : 'No tenants found. Create your first tenant to get started.'}
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tenant</TableHead>
-                  <TableHead>Plan</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-center">
-                    <Workflow className="h-4 w-4 inline mr-1" />
-                    Workflows
-                  </TableHead>
-                  <TableHead className="text-center">
-                    <Server className="h-4 w-4 inline mr-1" />
-                    Environments
-                  </TableHead>
-                  <TableHead className="text-center">
-                    <Users className="h-4 w-4 inline mr-1" />
-                    Users
-                  </TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTenants.map((tenant: Tenant) => (
-                  <TableRow key={tenant.id}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{tenant.name}</p>
-                        <p className="text-sm text-muted-foreground">{tenant.email}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={getPlanBadgeVariant(tenant.subscriptionPlan)} className="capitalize">
-                        {tenant.subscriptionPlan}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={getStatusBadgeVariant(tenant.status)} className="capitalize">
-                        {tenant.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-center">{tenant.workflowCount}</TableCell>
-                    <TableCell className="text-center">{tenant.environmentCount}</TableCell>
-                    <TableCell className="text-center">{tenant.userCount}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {new Date(tenant.createdAt).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleEdit(tenant)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDelete(tenant)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tenant</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-center">
+                      <Workflow className="h-4 w-4 inline mr-1" />
+                      Workflows
+                    </TableHead>
+                    <TableHead className="text-center">
+                      <Server className="h-4 w-4 inline mr-1" />
+                      Environments
+                    </TableHead>
+                    <TableHead className="text-center">
+                      <Users className="h-4 w-4 inline mr-1" />
+                      Users
+                    </TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead></TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {tenants.map((tenant: Tenant) => (
+                    <TableRow
+                      key={tenant.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleRowClick(tenant)}
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <p className="font-medium">{tenant.name}</p>
+                            <p className="text-sm text-muted-foreground">{tenant.email}</p>
+                          </div>
+                          <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                        </div>
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Badge variant={getPlanBadgeVariant(tenant.subscriptionPlan || 'free')} className="capitalize">
+                          {tenant.subscriptionPlan || 'free'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Badge variant={getStatusBadgeVariant(tenant.status || 'active')} className="capitalize">
+                          {tenant.status || 'active'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-center">{tenant.workflowCount || 0}</TableCell>
+                      <TableCell className="text-center">{tenant.environmentCount || 0}</TableCell>
+                      <TableCell className="text-center">{tenant.userCount || 0}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {tenant.createdAt ? new Date(tenant.createdAt).toLocaleDateString() : '-'}
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => navigate(`/admin/tenants/${tenant.id}`)}>
+                              <ExternalLink className="h-4 w-4 mr-2" />
+                              View Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleEdit(tenant)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {tenant.status === 'suspended' ? (
+                              <DropdownMenuItem onClick={() => handleReactivate(tenant)}>
+                                <Play className="h-4 w-4 mr-2" />
+                                Reactivate
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem onClick={() => handleSuspend(tenant)}>
+                                <Pause className="h-4 w-4 mr-2" />
+                                Suspend
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => handleDelete(tenant)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Page {page} of {totalPages}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
@@ -410,18 +632,20 @@ export function TenantsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="plan">Subscription Plan</Label>
-              <select
-                id="plan"
+              <Select
                 value={tenantForm.subscriptionPlan}
-                onChange={(e) =>
-                  setTenantForm({ ...tenantForm, subscriptionPlan: e.target.value as any })
-                }
-                className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                onValueChange={(v) => setTenantForm({ ...tenantForm, subscriptionPlan: v as any })}
               >
-                <option value="free">Free</option>
-                <option value="pro">Pro</option>
-                <option value="enterprise">Enterprise</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="free">Free</SelectItem>
+                  <SelectItem value="pro">Pro</SelectItem>
+                  <SelectItem value="agency">Agency</SelectItem>
+                  <SelectItem value="enterprise">Enterprise</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
@@ -462,18 +686,20 @@ export function TenantsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-plan">Subscription Plan</Label>
-              <select
-                id="edit-plan"
+              <Select
                 value={tenantForm.subscriptionPlan}
-                onChange={(e) =>
-                  setTenantForm({ ...tenantForm, subscriptionPlan: e.target.value as any })
-                }
-                className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                onValueChange={(v) => setTenantForm({ ...tenantForm, subscriptionPlan: v as any })}
               >
-                <option value="free">Free</option>
-                <option value="pro">Pro</option>
-                <option value="enterprise">Enterprise</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="free">Free</SelectItem>
+                  <SelectItem value="pro">Pro</SelectItem>
+                  <SelectItem value="agency">Agency</SelectItem>
+                  <SelectItem value="enterprise">Enterprise</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
@@ -482,6 +708,26 @@ export function TenantsPage() {
             </Button>
             <Button onClick={handleUpdate} disabled={updateMutation.isPending}>
               {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Suspend Dialog */}
+      <Dialog open={suspendDialogOpen} onOpenChange={setSuspendDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Suspend Tenant</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to suspend {selectedTenant?.name}? This will disable their access to the platform.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSuspendDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleSuspendConfirm} disabled={suspendMutation.isPending}>
+              {suspendMutation.isPending ? 'Suspending...' : 'Suspend Tenant'}
             </Button>
           </DialogFooter>
         </DialogContent>

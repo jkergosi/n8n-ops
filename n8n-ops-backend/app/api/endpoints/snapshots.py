@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 from app.services.database import db_service
 from app.services.github_service import GitHubService
-from app.services.n8n_client import N8NClient
+from app.services.provider_registry import ProviderRegistry
 from app.services.notification_service import notification_service
 from app.services.auth_service import get_current_user
 from app.core.entitlements_gate import require_entitlement
@@ -160,11 +160,8 @@ async def restore_snapshot(
             branch=env_config.get("git_branch", "main")
         )
 
-        # Create N8N client
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        # Create provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
         # Get all workflows from GitHub at the commit SHA
         # Note: This requires GitHub API to get tree/blob at specific commit
@@ -180,14 +177,14 @@ async def restore_snapshot(
                 detail=f"No workflows found in GitHub for commit {commit_sha}",
             )
 
-        # Restore workflows to N8N
+        # Restore workflows to provider
         restored_count = 0
         errors = []
 
         for workflow_id, workflow_data in workflows.items():
             try:
-                # Update or create workflow in N8N
-                await n8n_client.update_workflow(workflow_id, workflow_data)
+                # Update or create workflow in provider
+                await adapter.update_workflow(workflow_id, workflow_data)
                 restored_count += 1
             except Exception as e:
                 errors.append(f"Failed to restore workflow {workflow_id}: {str(e)}")

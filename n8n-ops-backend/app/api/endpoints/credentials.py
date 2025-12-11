@@ -3,7 +3,7 @@ from typing import List, Optional
 import json
 
 from app.services.database import db_service
-from app.services.n8n_client import N8NClient
+from app.services.provider_registry import ProviderRegistry
 from app.schemas.credential import (
     CredentialCreate,
     CredentialUpdate,
@@ -149,14 +149,11 @@ async def create_credential(credential: CredentialCreate):
                 detail="Environment not found"
             )
 
-        # Create N8N client for this environment
-        n8n_client = N8NClient(
-            base_url=env.get("n8n_base_url"),
-            api_key=env.get("n8n_api_key")
-        )
+        # Create provider adapter for this environment
+        adapter = ProviderRegistry.get_adapter_for_environment(env)
 
-        # Create credential in N8N
-        n8n_credential = await n8n_client.create_credential({
+        # Create credential in provider
+        n8n_credential = await adapter.create_credential({
             "name": credential.name,
             "type": credential.type,
             "data": credential.data
@@ -226,11 +223,8 @@ async def update_credential(credential_id: str, credential: CredentialUpdate):
                 detail="Environment not found"
             )
 
-        # Create N8N client for this environment
-        n8n_client = N8NClient(
-            base_url=env.get("n8n_base_url"),
-            api_key=env.get("n8n_api_key")
-        )
+        # Create provider adapter for this environment
+        adapter = ProviderRegistry.get_adapter_for_environment(env)
 
         # Build update payload (only include non-None fields)
         update_data = {}
@@ -245,8 +239,8 @@ async def update_credential(credential_id: str, credential: CredentialUpdate):
                 detail="No fields to update"
             )
 
-        # Update credential in N8N
-        n8n_updated = await n8n_client.update_credential(n8n_credential_id, update_data)
+        # Update credential in provider
+        n8n_updated = await adapter.update_credential(n8n_credential_id, update_data)
 
         # Update our cached metadata
         cache_update = {
@@ -320,17 +314,14 @@ async def delete_credential(credential_id: str, delete_from_n8n: bool = True):
                 detail=f"Cannot delete credential: it is used by {len(used_by)} workflow(s): {', '.join(workflow_names)}"
             )
 
-        # Delete from N8N if requested
+        # Delete from provider if requested
         if delete_from_n8n and n8n_credential_id and ":" not in n8n_credential_id:
-            # Only attempt N8N deletion if we have a valid N8N ID (not a generated key)
+            # Only attempt provider deletion if we have a valid ID (not a generated key)
             env = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
             if env:
-                n8n_client = N8NClient(
-                    base_url=env.get("n8n_base_url"),
-                    api_key=env.get("n8n_api_key")
-                )
+                adapter = ProviderRegistry.get_adapter_for_environment(env)
                 try:
-                    await n8n_client.delete_credential(n8n_credential_id)
+                    await adapter.delete_credential(n8n_credential_id)
                 except Exception as n8n_error:
                     # If N8N deletion fails, still allow local cache deletion
                     # but warn the user
@@ -368,14 +359,11 @@ async def get_credential_types(environment_id: str):
                 detail="Environment not found"
             )
 
-        # Create N8N client for this environment
-        n8n_client = N8NClient(
-            base_url=env.get("n8n_base_url"),
-            api_key=env.get("n8n_api_key")
-        )
+        # Create provider adapter for this environment
+        adapter = ProviderRegistry.get_adapter_for_environment(env)
 
-        # Get credential types from N8N
-        types = await n8n_client.get_credential_types()
+        # Get credential types from provider
+        types = await adapter.get_credential_types()
 
         return types
 
@@ -404,14 +392,11 @@ async def sync_credentials(environment_id: str):
                 detail="Environment not found"
             )
 
-        # Create N8N client for this environment
-        n8n_client = N8NClient(
-            base_url=env.get("n8n_base_url"),
-            api_key=env.get("n8n_api_key")
-        )
+        # Create provider adapter for this environment
+        adapter = ProviderRegistry.get_adapter_for_environment(env)
 
-        # Fetch credentials from N8N
-        n8n_credentials = await n8n_client.get_credentials()
+        # Fetch credentials from provider
+        n8n_credentials = await adapter.get_credentials()
 
         # Sync to database
         results = await db_service.sync_credentials_from_n8n(

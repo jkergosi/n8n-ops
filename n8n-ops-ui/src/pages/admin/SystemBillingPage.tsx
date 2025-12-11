@@ -1,5 +1,10 @@
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -9,6 +14,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   CreditCard,
   DollarSign,
   TrendingUp,
@@ -16,302 +28,637 @@ import {
   ArrowUpRight,
   Calendar,
   Building2,
+  RefreshCw,
+  AlertTriangle,
+  ExternalLink,
+  Download,
+  Filter,
 } from 'lucide-react';
-
-interface RevenueMetric {
-  label: string;
-  value: string;
-  change: number;
-  trend: 'up' | 'down';
-}
-
-interface Transaction {
-  id: string;
-  tenant: string;
-  type: 'subscription' | 'upgrade' | 'refund';
-  amount: number;
-  status: 'completed' | 'pending' | 'failed';
-  date: string;
-}
-
-const revenueMetrics: RevenueMetric[] = [
-  { label: 'Monthly Recurring Revenue', value: '$12,450', change: 12.5, trend: 'up' },
-  { label: 'Annual Recurring Revenue', value: '$149,400', change: 8.2, trend: 'up' },
-  { label: 'Average Revenue Per User', value: '$89', change: 3.1, trend: 'up' },
-  { label: 'Churn Rate', value: '2.4%', change: 0.3, trend: 'down' },
-];
-
-const recentTransactions: Transaction[] = [
-  {
-    id: '1',
-    tenant: 'Acme Corp',
-    type: 'subscription',
-    amount: 299,
-    status: 'completed',
-    date: '2024-03-15',
-  },
-  {
-    id: '2',
-    tenant: 'TechStart Inc',
-    type: 'upgrade',
-    amount: 150,
-    status: 'completed',
-    date: '2024-03-14',
-  },
-  {
-    id: '3',
-    tenant: 'DevShop',
-    type: 'subscription',
-    amount: 49,
-    status: 'pending',
-    date: '2024-03-14',
-  },
-  {
-    id: '4',
-    tenant: 'CloudNine',
-    type: 'refund',
-    amount: -99,
-    status: 'completed',
-    date: '2024-03-13',
-  },
-  {
-    id: '5',
-    tenant: 'DataFlow Inc',
-    type: 'subscription',
-    amount: 299,
-    status: 'completed',
-    date: '2024-03-12',
-  },
-];
-
-const planDistribution = {
-  free: { count: 45, percentage: 45 },
-  pro: { count: 38, percentage: 38 },
-  enterprise: { count: 17, percentage: 17 },
-};
+import { api } from '@/lib/api';
+import { Link } from 'react-router-dom';
+import { exportToCSV } from '@/lib/export-utils';
+import { toast } from 'sonner';
+import type { BillingMetrics, PlanDistributionItem, RecentCharge, FailedPayment, DunningTenant } from '@/types';
 
 export function SystemBillingPage() {
+  // Filter state
+  const [showOnlyDunning, setShowOnlyDunning] = useState(false);
+  const [transactionTypeFilter, setTransactionTypeFilter] = useState<string>('all');
+
+  // Fetch billing metrics
+  const { data: metricsData, isLoading: metricsLoading, refetch: refetchMetrics } = useQuery({
+    queryKey: ['billing-metrics'],
+    queryFn: () => api.getBillingMetrics(),
+  });
+
+  // Fetch plan distribution
+  const { data: distributionData, isLoading: distributionLoading } = useQuery({
+    queryKey: ['plan-distribution'],
+    queryFn: () => api.getPlanDistribution(),
+  });
+
+  // Fetch recent charges
+  const { data: chargesData, isLoading: chargesLoading } = useQuery({
+    queryKey: ['recent-charges'],
+    queryFn: () => api.getRecentCharges(10),
+  });
+
+  // Fetch failed payments
+  const { data: failedData } = useQuery({
+    queryKey: ['failed-payments'],
+    queryFn: () => api.getFailedPayments(),
+  });
+
+  // Fetch dunning tenants
+  const { data: dunningData } = useQuery({
+    queryKey: ['dunning-tenants'],
+    queryFn: () => api.getDunningTenants(),
+  });
+
+  const metrics: BillingMetrics = metricsData?.data || {
+    mrr: 0,
+    arr: 0,
+    total_subscriptions: 0,
+    active_subscriptions: 0,
+    trial_subscriptions: 0,
+    churn_rate: 0,
+    avg_revenue_per_user: 0,
+    mrr_growth: 0,
+  };
+
+  const distribution: PlanDistributionItem[] = distributionData?.data || [];
+  const recentCharges: RecentCharge[] = chargesData?.data || [];
+  const failedPayments: FailedPayment[] = failedData?.data || [];
+  const dunningTenants: DunningTenant[] = dunningData?.data || [];
+
+  const isLoading = metricsLoading || distributionLoading || chargesLoading;
+
+  // Filter transactions by type
+  const filteredCharges = recentCharges.filter(charge => {
+    if (transactionTypeFilter === 'all') return true;
+    return charge.type === transactionTypeFilter;
+  });
+
+  // Export functions
+  const handleExportTransactions = () => {
+    if (filteredCharges.length === 0) {
+      toast.error('No transactions to export');
+      return;
+    }
+
+    const columns = [
+      { key: 'id' as const, header: 'Transaction ID' },
+      { key: 'tenant_id' as const, header: 'Tenant ID' },
+      { key: 'tenant_name' as const, header: 'Tenant Name' },
+      { key: 'type' as const, header: 'Type' },
+      { key: 'amount' as const, header: 'Amount' },
+      { key: 'status' as const, header: 'Status' },
+      { key: 'created_at' as const, header: 'Date' },
+    ];
+
+    let filename = 'billing-transactions';
+    if (transactionTypeFilter !== 'all') filename += `_${transactionTypeFilter}`;
+
+    exportToCSV(filteredCharges, columns, filename);
+    toast.success(`Exported ${filteredCharges.length} transactions to CSV`);
+  };
+
+  const handleExportDunning = () => {
+    if (dunningTenants.length === 0) {
+      toast.error('No dunning tenants to export');
+      return;
+    }
+
+    const columns = [
+      { key: 'tenant_id' as const, header: 'Tenant ID' },
+      { key: 'tenant_name' as const, header: 'Tenant Name' },
+      { key: 'amount_due' as const, header: 'Amount Due' },
+      { key: 'due_date' as const, header: 'Due Date' },
+      { key: 'retry_count' as const, header: 'Retry Count' },
+      { key: 'status' as const, header: 'Status' },
+    ];
+
+    exportToCSV(dunningTenants, columns, 'dunning-tenants');
+    toast.success(`Exported ${dunningTenants.length} dunning tenants to CSV`);
+  };
+
+  const handleExportFailedPayments = () => {
+    if (failedPayments.length === 0) {
+      toast.error('No failed payments to export');
+      return;
+    }
+
+    const columns = [
+      { key: 'id' as const, header: 'Payment ID' },
+      { key: 'tenant_id' as const, header: 'Tenant ID' },
+      { key: 'tenant_name' as const, header: 'Tenant Name' },
+      { key: 'amount' as const, header: 'Amount' },
+      { key: 'error_message' as const, header: 'Error Message' },
+      { key: 'failed_at' as const, header: 'Failed At' },
+    ];
+
+    exportToCSV(failedPayments, columns, 'failed-payments');
+    toast.success(`Exported ${failedPayments.length} failed payments to CSV`);
+  };
+
   const getTypeBadgeVariant = (type: string) => {
     switch (type) {
       case 'upgrade':
         return 'default';
       case 'refund':
         return 'destructive';
-      default:
+      case 'subscription':
         return 'secondary';
-    }
-  };
-
-  const getStatusBadgeVariant = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'success';
-      case 'failed':
-        return 'destructive';
       default:
         return 'outline';
     }
   };
 
+  const getStatusBadgeVariant = (status: string) => {
+    switch (status) {
+      case 'succeeded':
+      case 'completed':
+        return 'success';
+      case 'failed':
+        return 'destructive';
+      case 'pending':
+        return 'outline';
+      default:
+        return 'outline';
+    }
+  };
+
+  // Calculate plan distribution percentages
+  const totalTenants = distribution.reduce((sum, d) => sum + (d.count || 0), 0);
+  const getPlanPercentage = (count: number) => totalTenants > 0 ? Math.round((count / totalTenants) * 100) : 0;
+
+  // Calculate estimated revenue by plan
+  const planPrices: Record<string, number> = { free: 0, pro: 49, agency: 199, enterprise: 499 };
+  const getEstimatedRevenue = (plan: string, count: number) => (planPrices[plan] || 0) * count;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">System Billing</h1>
-        <p className="text-muted-foreground">Monitor revenue and billing across all tenants</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">System Billing</h1>
+          <p className="text-muted-foreground">Monitor revenue and billing across all tenants</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refetchMetrics()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <Button variant="outline" onClick={handleExportTransactions} disabled={filteredCharges.length === 0}>
+            <Download className="h-4 w-4 mr-2" />
+            Export Transactions
+          </Button>
+        </div>
       </div>
 
-      {/* Revenue Metrics */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {revenueMetrics.map((metric) => (
-          <Card key={metric.label}>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{metric.label}</p>
-                  <p className="text-2xl font-bold mt-1">{metric.value}</p>
-                </div>
-                <div
-                  className={`flex items-center gap-1 text-sm ${
-                    metric.trend === 'up' ? 'text-green-600' : 'text-red-600'
-                  }`}
-                >
-                  {metric.trend === 'up' ? (
-                    <TrendingUp className="h-4 w-4" />
-                  ) : (
-                    <TrendingDown className="h-4 w-4" />
-                  )}
-                  {metric.change}%
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Plan Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Building2 className="h-5 w-5" />
-              Plan Distribution
-            </CardTitle>
-            <CardDescription>Breakdown of tenants by subscription plan</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">Free</Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {planDistribution.free.count} tenants
-                  </span>
-                </div>
-                <span className="font-medium">{planDistribution.free.percentage}%</span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gray-400 rounded-full"
-                  style={{ width: `${planDistribution.free.percentage}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">Pro</Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {planDistribution.pro.count} tenants
-                  </span>
-                </div>
-                <span className="font-medium">{planDistribution.pro.percentage}%</span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-500 rounded-full"
-                  style={{ width: `${planDistribution.pro.percentage}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Badge variant="default">Enterprise</Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {planDistribution.enterprise.count} tenants
-                  </span>
-                </div>
-                <span className="font-medium">{planDistribution.enterprise.percentage}%</span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary rounded-full"
-                  style={{ width: `${planDistribution.enterprise.percentage}%` }}
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Revenue Summary */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5" />
-              Revenue Summary
-            </CardTitle>
-            <CardDescription>Monthly revenue breakdown by plan</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="p-4 rounded-lg bg-muted/50">
-                  <p className="text-sm text-muted-foreground">Free Tier</p>
-                  <p className="text-xl font-bold">$0</p>
-                  <p className="text-xs text-muted-foreground mt-1">45 tenants</p>
-                </div>
-                <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950">
-                  <p className="text-sm text-muted-foreground">Pro Tier</p>
-                  <p className="text-xl font-bold">$3,762</p>
-                  <p className="text-xs text-muted-foreground mt-1">38 tenants × $99/mo</p>
-                </div>
-                <div className="p-4 rounded-lg bg-primary/10">
-                  <p className="text-sm text-muted-foreground">Enterprise</p>
-                  <p className="text-xl font-bold">$8,483</p>
-                  <p className="text-xs text-muted-foreground mt-1">17 tenants × $499/mo avg</p>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t">
+      {isLoading ? (
+        <div className="text-center py-8">Loading billing data...</div>
+      ) : (
+        <>
+          {/* Revenue Metrics */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">Total Monthly Revenue</p>
-                    <p className="text-3xl font-bold">$12,245</p>
+                    <p className="text-sm text-muted-foreground">Monthly Recurring Revenue</p>
+                    <p className="text-2xl font-bold mt-1">${metrics.mrr?.toLocaleString() || 0}</p>
                   </div>
-                  <div className="flex items-center gap-1 text-green-600">
-                    <ArrowUpRight className="h-5 w-5" />
-                    <span className="font-medium">+12.5% vs last month</span>
+                  <div className={`flex items-center gap-1 text-sm ${(metrics.mrr_growth || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(metrics.mrr_growth || 0) >= 0 ? (
+                      <TrendingUp className="h-4 w-4" />
+                    ) : (
+                      <TrendingDown className="h-4 w-4" />
+                    )}
+                    {Math.abs(metrics.mrr_growth || 0).toFixed(1)}%
                   </div>
                 </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Annual Recurring Revenue</p>
+                    <p className="text-2xl font-bold mt-1">${metrics.arr?.toLocaleString() || 0}</p>
+                  </div>
+                  <DollarSign className="h-8 w-8 text-muted-foreground" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Average Revenue Per User</p>
+                    <p className="text-2xl font-bold mt-1">${metrics.avg_revenue_per_user?.toFixed(0) || 0}</p>
+                  </div>
+                  <TrendingUp className="h-8 w-8 text-green-500" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Churn Rate</p>
+                    <p className="text-2xl font-bold mt-1">{metrics.churn_rate?.toFixed(1) || 0}%</p>
+                  </div>
+                  <div className={`flex items-center gap-1 text-sm ${(metrics.churn_rate || 0) <= 5 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(metrics.churn_rate || 0) <= 5 ? (
+                      <TrendingDown className="h-4 w-4" />
+                    ) : (
+                      <TrendingUp className="h-4 w-4" />
+                    )}
+                    {(metrics.churn_rate || 0) <= 5 ? 'Good' : 'High'}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-      {/* Recent Transactions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Recent Transactions
-          </CardTitle>
-          <CardDescription>Latest billing activity across all tenants</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tenant</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Date</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recentTransactions.map((tx) => (
-                <TableRow key={tx.id}>
-                  <TableCell className="font-medium">{tx.tenant}</TableCell>
-                  <TableCell>
-                    <Badge variant={getTypeBadgeVariant(tx.type)} className="capitalize">
-                      {tx.type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell
-                    className={tx.amount < 0 ? 'text-red-600' : 'text-green-600'}
-                  >
-                    {tx.amount < 0 ? '-' : '+'}${Math.abs(tx.amount).toFixed(2)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={getStatusBadgeVariant(tx.status)} className="capitalize">
-                      {tx.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {new Date(tx.date).toLocaleDateString()}
+          {/* Alerts Section */}
+          {(failedPayments.length > 0 || dunningTenants.length > 0) && (
+            <Card className="border-amber-500">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-amber-600">
+                      <AlertTriangle className="h-5 w-5" />
+                      Payment Alerts
+                    </CardTitle>
+                    <CardDescription>Action required on these billing issues</CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    {failedPayments.length > 0 && (
+                      <Button variant="outline" size="sm" onClick={handleExportFailedPayments}>
+                        <Download className="h-4 w-4 mr-1" />
+                        Export Failed
+                      </Button>
+                    )}
+                    {dunningTenants.length > 0 && (
+                      <Button variant="outline" size="sm" onClick={handleExportDunning}>
+                        <Download className="h-4 w-4 mr-1" />
+                        Export Dunning
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {failedPayments.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-2">Failed Payments ({failedPayments.length})</p>
+                    <div className="space-y-2">
+                      {failedPayments.slice(0, 3).map((payment) => (
+                        <div key={payment.id} className="flex items-center justify-between p-2 bg-red-50 dark:bg-red-950/50 rounded">
+                          <div>
+                            <p className="font-medium">{payment.tenant_name}</p>
+                            <p className="text-sm text-muted-foreground">{payment.error_message}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium text-red-600">${payment.amount}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(payment.failed_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                  </div>
+                )}
+                {dunningTenants.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-2">Dunning ({dunningTenants.length})</p>
+                    <div className="space-y-2">
+                      {dunningTenants.slice(0, 3).map((tenant) => (
+                        <div key={tenant.tenant_id} className="flex items-center justify-between p-2 bg-amber-50 dark:bg-amber-950/50 rounded">
+                          <div>
+                            <Link
+                              to={`/admin/tenants/${tenant.tenant_id}`}
+                              className="font-medium hover:underline flex items-center gap-1"
+                            >
+                              {tenant.tenant_name}
+                              <ExternalLink className="h-3 w-3" />
+                            </Link>
+                            <p className="text-sm text-muted-foreground">
+                              {tenant.retry_count} retry attempts
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium text-amber-600">${tenant.amount_due}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Due {new Date(tenant.due_date).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            {/* Plan Distribution */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5" />
+                  Plan Distribution
+                </CardTitle>
+                <CardDescription>Breakdown of tenants by subscription plan</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {['free', 'pro', 'agency', 'enterprise'].map((plan) => {
+                  const planData = distribution.find((d) => d.plan === plan);
+                  const count = planData?.count || 0;
+                  const percentage = getPlanPercentage(count);
+                  const colorClass = {
+                    free: 'bg-gray-400',
+                    pro: 'bg-blue-500',
+                    agency: 'bg-purple-500',
+                    enterprise: 'bg-amber-500',
+                  }[plan];
+
+                  return (
+                    <div key={plan} className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={plan === 'free' ? 'outline' : plan === 'pro' ? 'secondary' : 'default'} className="capitalize">
+                            {plan}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {count} tenants
+                          </span>
+                        </div>
+                        <span className="font-medium">{percentage}%</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${colorClass} rounded-full transition-all duration-500`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+
+            {/* Revenue Summary */}
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  Revenue Summary
+                </CardTitle>
+                <CardDescription>Monthly revenue breakdown by plan</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    {['free', 'pro', 'agency', 'enterprise'].map((plan) => {
+                      const planData = distribution.find((d) => d.plan === plan);
+                      const count = planData?.count || 0;
+                      const revenue = getEstimatedRevenue(plan, count);
+                      const bgClass = {
+                        free: 'bg-muted/50',
+                        pro: 'bg-blue-50 dark:bg-blue-950',
+                        agency: 'bg-purple-50 dark:bg-purple-950',
+                        enterprise: 'bg-amber-50 dark:bg-amber-950',
+                      }[plan];
+
+                      return (
+                        <div key={plan} className={`p-4 rounded-lg ${bgClass}`}>
+                          <p className="text-sm text-muted-foreground capitalize">{plan} Tier</p>
+                          <p className="text-xl font-bold">${revenue.toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {count} tenants × ${planPrices[plan]}/mo
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="pt-4 border-t">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Monthly Revenue</p>
+                        <p className="text-3xl font-bold">${metrics.mrr?.toLocaleString() || 0}</p>
+                      </div>
+                      <div className="flex items-center gap-1 text-green-600">
+                        <ArrowUpRight className="h-5 w-5" />
+                        <span className="font-medium">+{metrics.mrr_growth?.toFixed(1) || 0}% vs last month</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Recent Transactions */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <CreditCard className="h-5 w-5" />
+                    Recent Transactions
+                  </CardTitle>
+                  <CardDescription>Latest billing activity across all tenants</CardDescription>
+                </div>
+                <div className="flex items-center gap-4">
+                  {/* Dunning Filter Toggle */}
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="dunning-filter"
+                      checked={showOnlyDunning}
+                      onCheckedChange={setShowOnlyDunning}
+                    />
+                    <Label htmlFor="dunning-filter" className="text-sm cursor-pointer">
+                      Show Dunning Only
+                    </Label>
+                  </div>
+                  {/* Transaction Type Filter */}
+                  <Select value={transactionTypeFilter} onValueChange={setTransactionTypeFilter}>
+                    <SelectTrigger className="w-[150px]">
+                      <Filter className="h-4 w-4 mr-2" />
+                      <SelectValue placeholder="Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Types</SelectItem>
+                      <SelectItem value="subscription">Subscription</SelectItem>
+                      <SelectItem value="upgrade">Upgrade</SelectItem>
+                      <SelectItem value="refund">Refund</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to="/admin/plans">
+                      View Plans
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {filteredCharges.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  {transactionTypeFilter !== 'all' ? 'No transactions match the selected filter' : 'No recent transactions'}
+                </div>
+              ) : showOnlyDunning ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing {dunningTenants.length} tenants in dunning status
+                  </p>
+                  {dunningTenants.length === 0 ? (
+                    <div className="text-center py-4 text-muted-foreground">No tenants in dunning</div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Tenant</TableHead>
+                          <TableHead>Amount Due</TableHead>
+                          <TableHead>Due Date</TableHead>
+                          <TableHead>Retry Count</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {dunningTenants.map((tenant) => (
+                          <TableRow key={tenant.tenant_id}>
+                            <TableCell>
+                              <Link
+                                to={`/admin/tenants/${tenant.tenant_id}`}
+                                className="font-medium hover:underline flex items-center gap-1"
+                              >
+                                {tenant.tenant_name}
+                                <ExternalLink className="h-3 w-3" />
+                              </Link>
+                            </TableCell>
+                            <TableCell className="text-amber-600 font-medium">
+                              ${tenant.amount_due?.toFixed(2) || '0.00'}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {tenant.due_date ? new Date(tenant.due_date).toLocaleDateString() : '-'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={tenant.retry_count >= 3 ? 'destructive' : 'secondary'}>
+                                {tenant.retry_count} retries
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-amber-600 border-amber-500">
+                                {tenant.status || 'Dunning'}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Tenant</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Date</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {recentCharges.map((tx) => (
+                      <TableRow key={tx.id}>
+                        <TableCell>
+                          <Link
+                            to={`/admin/tenants/${tx.tenant_id}`}
+                            className="font-medium hover:underline"
+                          >
+                            {tx.tenant_name}
+                          </Link>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={getTypeBadgeVariant(tx.type)} className="capitalize">
+                            {tx.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell
+                          className={tx.amount < 0 ? 'text-red-600' : 'text-green-600'}
+                        >
+                          {tx.amount < 0 ? '-' : '+'}${Math.abs(tx.amount).toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={getStatusBadgeVariant(tx.status)} className="capitalize">
+                            {tx.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          <div className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {new Date(tx.created_at).toLocaleDateString()}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Subscription Stats */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
+                    <CreditCard className="h-5 w-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{metrics.active_subscriptions || 0}</p>
+                    <p className="text-sm text-muted-foreground">Active Subscriptions</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <Calendar className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{metrics.trial_subscriptions || 0}</p>
+                    <p className="text-sm text-muted-foreground">Trial Subscriptions</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
+                    <Building2 className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{metrics.total_subscriptions || 0}</p>
+                    <p className="text-sm text-muted-foreground">Total Subscriptions</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }

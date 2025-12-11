@@ -2,9 +2,13 @@
 // Kept for backward compatibility but can be any string or undefined
 export type EnvironmentType = string | undefined;
 
+// Provider type for multi-provider support (n8n, Make.com, etc.)
+export type Provider = "n8n" | "make";
+
 export interface Environment {
   id: string;
   tenantId: string;
+  provider: Provider;  // Provider type (n8n, make)
   name: string;
   type?: string;  // Optional metadata for display/sorting only (e.g., 'dev', 'staging', 'production', 'qa', etc.)
   baseUrl: string;
@@ -40,6 +44,7 @@ export type SyncStatus = 'in_sync' | 'local_changes' | 'update_available' | 'con
 
 export interface Workflow {
   id: string;
+  provider: Provider;  // Provider type (n8n, make)
   name: string;
   description?: string;
   active: boolean;
@@ -62,6 +67,7 @@ export type SnapshotType = 'auto_backup' | 'pre_promotion' | 'post_promotion' | 
 export interface Snapshot {
   id: string;
   tenantId: string;
+  provider: Provider;  // Provider type (n8n, make)
   environmentId: string;
   gitCommitSha: string;
   type: SnapshotType;
@@ -94,6 +100,7 @@ export interface DeploymentWorkflow {
 export interface Deployment {
   id: string;
   tenantId: string;
+  provider: Provider;  // Provider type (n8n, make)
   pipelineId?: string;
   sourceEnvironmentId: string;
   targetEnvironmentId: string;
@@ -128,6 +135,7 @@ export interface DeploymentDetail extends Deployment {
 // Execution types
 export interface Execution {
   id: string;
+  provider: Provider;  // Provider type (n8n, make)
   workflowId: string;
   workflowName: string;
   environmentId: string;
@@ -264,9 +272,143 @@ export interface Tenant {
   id: string;
   name: string;
   email: string;
-  subscriptionTier: 'free' | 'pro' | 'enterprise';
+  subscriptionPlan: 'free' | 'pro' | 'agency' | 'enterprise';
+  status: 'active' | 'trial' | 'suspended' | 'cancelled' | 'archived' | 'pending';
+  workflowCount: number;
+  environmentCount: number;
+  userCount: number;
+  primaryContactName?: string;
+  lastActiveAt?: string;
+  scheduledDeletionAt?: string;
+  stripeCustomerId?: string;
   createdAt: string;
-  permissions: string[];
+  updatedAt: string;
+  // Legacy field for backward compatibility
+  subscriptionTier?: 'free' | 'pro' | 'enterprise';
+  permissions?: string[];
+}
+
+export interface TenantNote {
+  id: string;
+  tenantId: string;
+  authorId?: string;
+  authorEmail?: string;
+  authorName?: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TenantUsageMetric {
+  current: number;
+  limit: number;
+  percentage: number;
+  period?: string;
+}
+
+export interface TenantUsage {
+  tenantId: string;
+  plan: string;
+  metrics: {
+    workflows: TenantUsageMetric;
+    environments: TenantUsageMetric;
+    users: TenantUsageMetric;
+    executions: TenantUsageMetric;
+  };
+}
+
+export interface AuditLog {
+  id: string;
+  timestamp: string;
+  actorId?: string;
+  actorEmail?: string;
+  actorName?: string;
+  tenantId?: string;
+  tenantName?: string;
+  action: string;
+  actionType: string;
+  resourceType?: string;
+  resourceId?: string;
+  resourceName?: string;
+  oldValue?: Record<string, any>;
+  newValue?: Record<string, any>;
+  reason?: string;
+  ipAddress?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface BillingMetrics {
+  mrr: number;
+  arr: number;
+  activeSubscriptions: number;
+  activeTrials: number;
+  newSubscriptions30d: number;
+  churnedSubscriptions30d: number;
+  payingTenants: number;
+  freeTenants: number;
+}
+
+export interface PlanDistributionItem {
+  planName: string;
+  count: number;
+  percentage: number;
+  revenue: number;
+}
+
+export interface RecentCharge {
+  id: string;
+  tenantId?: string;
+  tenantName?: string;
+  amount: number;
+  currency: string;
+  status: string;
+  planName?: string;
+  createdAt: string;
+}
+
+export interface FailedPayment {
+  id: string;
+  tenantId?: string;
+  tenantName?: string;
+  amount: number;
+  currency: string;
+  failureReason?: string;
+  retryDate?: string;
+  createdAt: string;
+}
+
+export interface DunningTenant {
+  tenantId: string;
+  tenantName: string;
+  planName: string;
+  status: string;
+  lastPaymentAttempt?: string;
+  amountDue: number;
+  failedAttempts: number;
+}
+
+export interface TenantSubscription {
+  tenantId: string;
+  tenantName: string;
+  planName: string;
+  status: string;
+  billingCycle: string;
+  currentPeriodStart?: string;
+  currentPeriodEnd?: string;
+  trialEnd?: string;
+  cancelAtPeriodEnd: boolean;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+}
+
+export interface TenantInvoice {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  createdAt: string;
+  invoicePdf?: string;
+  hostedInvoiceUrl?: string;
 }
 
 export interface User {
@@ -365,6 +507,7 @@ export interface PipelineStage {
 export interface Pipeline {
   id: string;
   tenantId: string;
+  provider: Provider;  // Provider type (n8n, make)
   name: string;
   description?: string;
   isActive: boolean;
@@ -407,6 +550,7 @@ export interface GateResult {
 export interface Promotion {
   id: string;
   tenantId: string;
+  provider: Provider;  // Provider type (n8n, make)
   pipelineId: string;
   pipelineName: string;
   sourceEnvironmentId: string;
@@ -699,6 +843,7 @@ export interface CredentialEnvironment {
 
 export interface Credential {
   id: string;
+  provider: Provider;  // Provider type (n8n, make)
   name: string;
   type: string;
   n8n_credential_id?: string;
@@ -740,9 +885,10 @@ export interface CredentialTypeSchema {
   documentationUrl?: string;
 }
 
-// N8N User types
-export interface N8NUser {
+// Provider User types (previously N8NUser)
+export interface ProviderUser {
   id: string;
+  provider: Provider;  // Provider type (n8n, make)
   email: string;
   firstName?: string;
   lastName?: string;
@@ -751,11 +897,16 @@ export interface N8NUser {
   environment?: CredentialEnvironment;
 }
 
+// Backward compatibility alias
+export type N8NUser = ProviderUser;
+
 // Tag types
 export interface Tag {
   id: string;
+  provider: Provider;  // Provider type (n8n, make)
   name: string;
-  n8n_tag_id?: string;
+  n8n_tag_id?: string;  // Legacy field, now provider_tag_id
+  provider_tag_id?: string;
   environment_id?: string;
 }
 
@@ -795,4 +946,62 @@ export interface Subscription {
   currentPeriodStart: string;
   currentPeriodEnd: string;
   cancelAtPeriodEnd: boolean;
+}
+
+// Global Usage types (Phase 2)
+export interface GlobalUsageMetric {
+  name: string;
+  current: number;
+  limit: number;
+  percentage: number;
+  status: 'ok' | 'warning' | 'critical' | 'over_limit';
+}
+
+export interface GlobalUsageStats {
+  total_tenants: number;
+  total_workflows: number;
+  total_environments: number;
+  total_users: number;
+  total_executions_today: number;
+  total_executions_month: number;
+  tenants_at_limit: number;
+  tenants_over_limit: number;
+  tenants_near_limit: number;
+}
+
+export interface GlobalUsageResponse {
+  stats: GlobalUsageStats;
+  usage_by_plan: Record<string, number>;
+  recent_growth: Record<string, number>;
+}
+
+export interface TopTenant {
+  rank: number;
+  tenant_id: string;
+  tenant_name: string;
+  plan: string;
+  value: number;
+  limit?: number;
+  percentage?: number;
+  trend?: string;
+}
+
+export interface TopTenantsResponse {
+  metric: string;
+  period: string;
+  tenants: TopTenant[];
+}
+
+export interface TenantAtLimit {
+  tenant_id: string;
+  tenant_name: string;
+  plan: string;
+  status: string;
+  metrics: GlobalUsageMetric[];
+  total_usage_percentage: number;
+}
+
+export interface TenantsAtLimitResponse {
+  total: number;
+  tenants: TenantAtLimit[];
 }

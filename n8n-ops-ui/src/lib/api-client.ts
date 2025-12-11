@@ -28,6 +28,16 @@ import type {
   Tag,
   Tenant,
   TenantStats,
+  TenantNote,
+  TenantUsage,
+  AuditLog,
+  BillingMetrics,
+  PlanDistributionItem,
+  RecentCharge,
+  FailedPayment,
+  DunningTenant,
+  TenantSubscription,
+  TenantInvoice,
   UserResponse,
   Subscription,
   SubscriptionPlan,
@@ -251,6 +261,7 @@ class ApiClient {
       ...env,
       id: env.id,
       tenantId: env.tenant_id,
+      provider: env.provider || 'n8n',  // Default to n8n for backward compatibility
       name: env.n8n_name,
       type: env.n8n_type,
       baseUrl: env.n8n_base_url,
@@ -409,8 +420,13 @@ class ApiClient {
   // Workflow endpoints
   async getWorkflows(environment: EnvironmentType, forceRefresh: boolean = false): Promise<{ data: Workflow[] }> {
     const params = { ...buildEnvironmentParams(environment), force_refresh: forceRefresh };
-    const response = await this.client.get<Workflow[]>('/workflows', { params });
-    return { data: response.data };
+    const response = await this.client.get<any[]>('/workflows', { params });
+    // Add provider field with default for backward compatibility
+    const data = response.data.map((wf: any) => ({
+      ...wf,
+      provider: wf.provider || 'n8n',
+    }));
+    return { data };
   }
 
   async getWorkflow(id: string, environment: EnvironmentType): Promise<{ data: Workflow }> {
@@ -743,6 +759,7 @@ class ApiClient {
     const deployments = (response.data.deployments || []).map((d: any) => ({
       id: d.id,
       tenantId: d.tenant_id,
+      provider: d.provider || 'n8n',  // Default to n8n for backward compatibility
       pipelineId: d.pipeline_id,
       sourceEnvironmentId: d.source_environment_id,
       targetEnvironmentId: d.target_environment_id,
@@ -844,6 +861,7 @@ class ApiClient {
     return {
       id: s.id,
       tenantId: s.tenant_id,
+      provider: s.provider || 'n8n',  // Default to n8n for backward compatibility
       environmentId: s.environment_id,
       gitCommitSha: s.git_commit_sha,
       type: s.type,
@@ -940,8 +958,13 @@ class ApiClient {
   // Credential endpoints
   async getCredentials(environmentType?: string): Promise<{ data: Credential[] }> {
     const params = environmentType ? { environment_type: environmentType } : {};
-    const response = await this.client.get<Credential[]>('/credentials/', { params });
-    return { data: response.data };
+    const response = await this.client.get<any[]>('/credentials/', { params });
+    // Add provider field with default for backward compatibility
+    const data = response.data.map((cred: any) => ({
+      ...cred,
+      provider: cred.provider || 'n8n',
+    }));
+    return { data };
   }
 
   async getCredential(credentialId: string): Promise<{ data: Credential }> {
@@ -986,7 +1009,7 @@ class ApiClient {
     return { data: response.data };
   }
 
-  // N8N User endpoints
+  // Provider User endpoints (previously N8N Users)
   async getN8NUsers(environmentType?: string): Promise<{ data: N8NUser[] }> {
     const params = environmentType ? { environment_type: environmentType } : {};
     const response = await this.client.get<N8NUser[]>('/n8n-users/', { params });
@@ -1000,36 +1023,199 @@ class ApiClient {
   }
 
   // Tenant endpoints (admin)
-  async getTenants(): Promise<{ data: Tenant[] }> {
-    const response = await this.client.get<Tenant[]>('/admin/tenants');
+  async getTenants(params?: {
+    search?: string;
+    plan?: string;
+    status?: string;
+    created_from?: string;
+    created_to?: string;
+    page?: number;
+    page_size?: number;
+  }): Promise<{ data: { tenants: Tenant[]; total: number; page: number; page_size: number } }> {
+    const response = await this.client.get('/tenants', { params });
+    return { data: response.data };
+  }
+
+  async getTenantById(id: string): Promise<{ data: Tenant }> {
+    const response = await this.client.get<Tenant>(`/tenants/${id}`);
     return { data: response.data };
   }
 
   async getTenantStats(): Promise<{ data: TenantStats }> {
-    const response = await this.client.get<TenantStats>('/admin/tenants/stats');
+    const response = await this.client.get<TenantStats>('/tenants/stats');
     return { data: response.data };
   }
 
   async createTenant(tenant: {
     name: string;
     email: string;
-    subscriptionTier: string;
+    subscription_plan: string;
   }): Promise<{ data: Tenant }> {
-    const response = await this.client.post<Tenant>('/admin/tenants', tenant);
+    const response = await this.client.post<Tenant>('/tenants', tenant);
     return { data: response.data };
   }
 
   async updateTenant(id: string, updates: {
     name?: string;
     email?: string;
-    subscriptionTier?: string;
+    subscription_plan?: string;
+    status?: string;
+    primary_contact_name?: string;
   }): Promise<{ data: Tenant }> {
-    const response = await this.client.patch<Tenant>(`/admin/tenants/${id}`, updates);
+    const response = await this.client.patch<Tenant>(`/tenants/${id}`, updates);
     return { data: response.data };
   }
 
   async deleteTenant(id: string): Promise<void> {
-    await this.client.delete(`/admin/tenants/${id}`);
+    await this.client.delete(`/tenants/${id}`);
+  }
+
+  // Tenant Actions
+  async suspendTenant(id: string, reason?: string): Promise<{ data: Tenant }> {
+    const response = await this.client.post<Tenant>(`/tenants/${id}/suspend`, null, {
+      params: reason ? { reason } : {},
+    });
+    return { data: response.data };
+  }
+
+  async reactivateTenant(id: string, reason?: string): Promise<{ data: Tenant }> {
+    const response = await this.client.post<Tenant>(`/tenants/${id}/reactivate`, null, {
+      params: reason ? { reason } : {},
+    });
+    return { data: response.data };
+  }
+
+  async scheduleTenantDeletion(id: string, retentionDays: number, reason?: string): Promise<{ data: { success: boolean; scheduled_deletion_at: string; retention_days: number } }> {
+    const response = await this.client.post(`/tenants/${id}/schedule-deletion`, { retention_days: retentionDays }, {
+      params: reason ? { reason } : {},
+    });
+    return { data: response.data };
+  }
+
+  async cancelTenantDeletion(id: string): Promise<{ data: { success: boolean; message: string } }> {
+    const response = await this.client.delete(`/tenants/${id}/cancel-deletion`);
+    return { data: response.data };
+  }
+
+  async exportTenantData(id: string): Promise<{ data: { jobId: string; message: string } }> {
+    const response = await this.client.post(`/tenants/${id}/export`);
+    return { data: response.data };
+  }
+
+  // Tenant Notes
+  async getTenantNotes(tenantId: string): Promise<{ data: { notes: TenantNote[]; total: number } }> {
+    const response = await this.client.get(`/tenants/${tenantId}/notes`);
+    return { data: response.data };
+  }
+
+  async createTenantNote(tenantId: string, content: string): Promise<{ data: TenantNote }> {
+    const response = await this.client.post(`/tenants/${tenantId}/notes`, { content });
+    return { data: response.data };
+  }
+
+  async deleteTenantNote(tenantId: string, noteId: string): Promise<void> {
+    await this.client.delete(`/tenants/${tenantId}/notes/${noteId}`);
+  }
+
+  // Tenant Usage
+  async getTenantUsage(tenantId: string): Promise<{ data: TenantUsage }> {
+    const response = await this.client.get(`/tenants/${tenantId}/usage`);
+    return { data: response.data };
+  }
+
+  // Admin Audit Logs
+  async getAuditLogs(params?: {
+    start_date?: string;
+    end_date?: string;
+    actor_id?: string;
+    action_type?: string;
+    tenant_id?: string;
+    resource_type?: string;
+    search?: string;
+    page?: number;
+    page_size?: number;
+  }): Promise<{ data: { logs: AuditLog[]; total: number; page: number; page_size: number } }> {
+    const response = await this.client.get('/admin/audit-logs', { params });
+    return { data: response.data };
+  }
+
+  async getAuditLogActionTypes(): Promise<{ data: { action_types: string[] } }> {
+    const response = await this.client.get('/admin/audit-logs/action-types');
+    return { data: response.data };
+  }
+
+  async getAuditLogStats(): Promise<{ data: { total: number; last_30_days: number; by_action_type: Record<string, number> } }> {
+    const response = await this.client.get('/admin/audit-logs/stats');
+    return { data: response.data };
+  }
+
+  async exportAuditLogs(params?: {
+    action_type?: string;
+    format?: 'csv' | 'json';
+  }): Promise<{ data: string }> {
+    const response = await this.client.get('/admin/audit-logs/export', {
+      params,
+      responseType: 'text',
+    });
+    return { data: response.data };
+  }
+
+  // Admin Billing
+  async getBillingMetrics(): Promise<{ data: BillingMetrics }> {
+    const response = await this.client.get('/admin/billing/metrics');
+    return { data: response.data };
+  }
+
+  async getPlanDistribution(): Promise<{ data: PlanDistributionItem[] }> {
+    const response = await this.client.get('/admin/billing/plan-distribution');
+    return { data: response.data };
+  }
+
+  async getRecentCharges(limit?: number): Promise<{ data: RecentCharge[] }> {
+    const response = await this.client.get('/admin/billing/recent-charges', { params: { limit } });
+    return { data: response.data };
+  }
+
+  async getFailedPayments(limit?: number): Promise<{ data: FailedPayment[] }> {
+    const response = await this.client.get('/admin/billing/failed-payments', { params: { limit } });
+    return { data: response.data };
+  }
+
+  async getDunningTenants(): Promise<{ data: DunningTenant[] }> {
+    const response = await this.client.get('/admin/billing/dunning');
+    return { data: response.data };
+  }
+
+  // Admin Tenant Billing
+  async getAdminTenantSubscription(tenantId: string): Promise<{ data: TenantSubscription }> {
+    const response = await this.client.get(`/admin/billing/tenants/${tenantId}/subscription`);
+    return { data: response.data };
+  }
+
+  async getAdminTenantInvoices(tenantId: string, limit?: number): Promise<{ data: TenantInvoice[] }> {
+    const response = await this.client.get(`/admin/billing/tenants/${tenantId}/invoices`, { params: { limit } });
+    return { data: response.data };
+  }
+
+  async changeAdminTenantPlan(tenantId: string, newPlan: string, reason?: string): Promise<{ data: { success: boolean; old_plan: string; new_plan: string } }> {
+    const response = await this.client.post(`/admin/billing/tenants/${tenantId}/change-plan`, null, {
+      params: { new_plan: newPlan, reason },
+    });
+    return { data: response.data };
+  }
+
+  async extendAdminTenantTrial(tenantId: string, days: number, reason?: string): Promise<{ data: { success: boolean; new_trial_end: string } }> {
+    const response = await this.client.post(`/admin/billing/tenants/${tenantId}/extend-trial`, null, {
+      params: { days, reason },
+    });
+    return { data: response.data };
+  }
+
+  async cancelAdminTenantSubscription(tenantId: string, atPeriodEnd: boolean, reason?: string): Promise<{ data: { success: boolean; at_period_end: boolean } }> {
+    const response = await this.client.post(`/admin/billing/tenants/${tenantId}/cancel-subscription`, null, {
+      params: { at_period_end: atPeriodEnd, reason },
+    });
+    return { data: response.data };
   }
 
   // Billing endpoints
@@ -1689,6 +1875,28 @@ class ApiClient {
         pageSize: response.data.page_size,
       },
     };
+  }
+
+  // Admin Usage endpoints (Phase 2)
+  async getGlobalUsage(): Promise<{ data: any }> {
+    const response = await this.client.get('/admin/usage');
+    return { data: response.data };
+  }
+
+  async getTopTenants(params?: {
+    metric?: string;
+    period?: string;
+    limit?: number;
+  }): Promise<{ data: any }> {
+    const response = await this.client.get('/admin/usage/top-tenants', { params });
+    return { data: response.data };
+  }
+
+  async getTenantsAtLimit(threshold?: number): Promise<{ data: any }> {
+    const response = await this.client.get('/admin/usage/tenants-at-limit', {
+      params: threshold ? { threshold } : {},
+    });
+    return { data: response.data };
   }
 }
 

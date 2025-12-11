@@ -7,7 +7,7 @@ import json
 import logging
 from uuid import uuid4
 
-from app.services.n8n_client import N8NClient
+from app.services.provider_registry import ProviderRegistry
 from app.services.github_service import GitHubService
 from app.services.database import db_service
 from app.services.notification_service import notification_service
@@ -47,14 +47,11 @@ class PromotionService:
         if not env_config:
             raise ValueError(f"Environment {environment_id} not found")
 
-        # Create N8N client
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        # Create provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        # Get all workflows from N8N
-        workflows = await n8n_client.get_workflows()
+        # Get all workflows from provider
+        workflows = await adapter.get_workflows()
         if not workflows:
             raise ValueError(f"No workflows found in environment {environment_id}")
 
@@ -82,7 +79,7 @@ class PromotionService:
         for workflow in workflows:
             try:
                 workflow_id = workflow.get("id")
-                full_workflow = await n8n_client.get_workflow(workflow_id)
+                full_workflow = await adapter.get_workflow(workflow_id)
                 
                 # Sync to GitHub with environment-specific path
                 await github_service.sync_workflow_to_github(
@@ -172,14 +169,11 @@ class PromotionService:
         if not env_config:
             return PromotionDriftCheck(has_drift=True, can_proceed=False, requires_sync=True)
 
-        # Create N8N client
-        n8n_client = N8NClient(
-            base_url=env_config.get("n8n_base_url"),
-            api_key=env_config.get("n8n_api_key")
-        )
+        # Create provider adapter
+        adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        # Get workflows from N8N runtime
-        runtime_workflows = await n8n_client.get_workflows()
+        # Get workflows from provider runtime
+        runtime_workflows = await adapter.get_workflows()
         runtime_workflow_map = {wf.get("id"): wf for wf in runtime_workflows}
 
         # Get workflows from GitHub snapshot
@@ -483,20 +477,14 @@ class PromotionService:
         
         if not source_env or not target_env:
             return credential_issues
-        
-        # Create N8N clients
-        source_n8n = N8NClient(
-            base_url=source_env.get("n8n_base_url"),
-            api_key=source_env.get("n8n_api_key")
-        )
-        target_n8n = N8NClient(
-            base_url=target_env.get("n8n_base_url"),
-            api_key=target_env.get("n8n_api_key")
-        )
-        
+
+        # Create provider adapters
+        source_adapter = ProviderRegistry.get_adapter_for_environment(source_env)
+        target_adapter = ProviderRegistry.get_adapter_for_environment(target_env)
+
         # Get credentials from both environments
-        source_credentials = await source_n8n.get_credentials()
-        target_credentials = await target_n8n.get_credentials()
+        source_credentials = await source_adapter.get_credentials()
+        target_credentials = await target_adapter.get_credentials()
         
         # Build credential maps
         source_cred_map = {(c.get("type"), c.get("name")): c for c in source_credentials}
@@ -533,7 +521,7 @@ class PromotionService:
                         if allow_placeholders:
                             # Create placeholder credential
                             placeholder_created = await self._create_placeholder_credential(
-                                target_n8n, cred_type, cred_name, tenant_id, target_env_id
+                                target_adapter, cred_type, cred_name, tenant_id, target_env_id
                             )
                             credential_issues.append({
                                 "workflow_id": selection.workflow_id,
@@ -571,7 +559,7 @@ class PromotionService:
 
     async def _create_placeholder_credential(
         self,
-        n8n_client: N8NClient,
+        adapter,  # ProviderAdapter
         cred_type: str,
         cred_name: str,
         tenant_id: Optional[str] = None,
@@ -833,15 +821,9 @@ class PromotionService:
                 errors=["Source or target environment not found"]
             )
 
-        # Create clients
-        source_n8n = N8NClient(
-            base_url=source_env.get("n8n_base_url"),
-            api_key=source_env.get("n8n_api_key")
-        )
-        target_n8n = N8NClient(
-            base_url=target_env.get("n8n_base_url"),
-            api_key=target_env.get("n8n_api_key")
-        )
+        # Create provider adapters
+        source_adapter = ProviderRegistry.get_adapter_for_environment(source_env)
+        target_adapter = ProviderRegistry.get_adapter_for_environment(target_env)
 
         # Get GitHub service for source to load workflows
         source_github = self._get_github_service(source_env)
@@ -886,9 +868,9 @@ class PromotionService:
                 else:
                     workflow_data["active"] = selection.enabled_in_source
 
-                # Write to target N8N
+                # Write to target provider
                 workflow_id = workflow_data.get("id")
-                await target_n8n.update_workflow(workflow_id, workflow_data)
+                await target_adapter.update_workflow(workflow_id, workflow_data)
                 
                 workflows_promoted += 1
             except Exception as e:

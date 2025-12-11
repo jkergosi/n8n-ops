@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +13,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   FileText,
   Search,
   Download,
@@ -21,175 +29,166 @@ import {
   Shield,
   Settings,
   Workflow,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  X,
+  ExternalLink,
+  Building2,
+  CreditCard,
+  AlertTriangle,
 } from 'lucide-react';
+import { api } from '@/lib/api';
+import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
+import { exportToCSV } from '@/lib/export-utils';
+import type { AuditLog } from '@/types';
 
-interface AuditLog {
-  id: string;
-  timestamp: string;
-  user: string;
-  userEmail: string;
-  tenant: string;
-  action: string;
-  resource: string;
-  resourceId: string;
-  details: string;
-  ipAddress: string;
-  category: 'auth' | 'workflow' | 'settings' | 'billing' | 'admin';
-}
-
-const mockAuditLogs: AuditLog[] = [
-  {
-    id: '1',
-    timestamp: '2024-03-15T14:32:00Z',
-    user: 'John Doe',
-    userEmail: 'john@acme.com',
-    tenant: 'Acme Corp',
-    action: 'workflow.create',
-    resource: 'Workflow',
-    resourceId: 'wf_abc123',
-    details: 'Created workflow "Order Processing"',
-    ipAddress: '192.168.1.100',
-    category: 'workflow',
-  },
-  {
-    id: '2',
-    timestamp: '2024-03-15T14:28:00Z',
-    user: 'Jane Smith',
-    userEmail: 'jane@techstart.io',
-    tenant: 'TechStart Inc',
-    action: 'auth.login',
-    resource: 'Session',
-    resourceId: 'sess_xyz789',
-    details: 'User logged in successfully',
-    ipAddress: '10.0.0.45',
-    category: 'auth',
-  },
-  {
-    id: '3',
-    timestamp: '2024-03-15T14:15:00Z',
-    user: 'Admin',
-    userEmail: 'admin@system.local',
-    tenant: 'System',
-    action: 'tenant.update',
-    resource: 'Tenant',
-    resourceId: 'tenant_acme',
-    details: 'Updated subscription plan to Enterprise',
-    ipAddress: '192.168.1.1',
-    category: 'admin',
-  },
-  {
-    id: '4',
-    timestamp: '2024-03-15T13:55:00Z',
-    user: 'Mike Johnson',
-    userEmail: 'mike@devshop.dev',
-    tenant: 'DevShop',
-    action: 'settings.update',
-    resource: 'Environment',
-    resourceId: 'env_prod',
-    details: 'Modified production environment settings',
-    ipAddress: '172.16.0.22',
-    category: 'settings',
-  },
-  {
-    id: '5',
-    timestamp: '2024-03-15T13:42:00Z',
-    user: 'Sarah Brown',
-    userEmail: 'sarah@cloudnine.io',
-    tenant: 'CloudNine',
-    action: 'billing.upgrade',
-    resource: 'Subscription',
-    resourceId: 'sub_def456',
-    details: 'Upgraded from Pro to Enterprise plan',
-    ipAddress: '192.168.2.88',
-    category: 'billing',
-  },
-  {
-    id: '6',
-    timestamp: '2024-03-15T13:30:00Z',
-    user: 'John Doe',
-    userEmail: 'john@acme.com',
-    tenant: 'Acme Corp',
-    action: 'workflow.delete',
-    resource: 'Workflow',
-    resourceId: 'wf_old123',
-    details: 'Deleted workflow "Legacy Import"',
-    ipAddress: '192.168.1.100',
-    category: 'workflow',
-  },
-  {
-    id: '7',
-    timestamp: '2024-03-15T12:15:00Z',
-    user: 'Admin',
-    userEmail: 'admin@system.local',
-    tenant: 'System',
-    action: 'user.create',
-    resource: 'User',
-    resourceId: 'user_new789',
-    details: 'Created new admin user',
-    ipAddress: '192.168.1.1',
-    category: 'admin',
-  },
-  {
-    id: '8',
-    timestamp: '2024-03-15T11:45:00Z',
-    user: 'Jane Smith',
-    userEmail: 'jane@techstart.io',
-    tenant: 'TechStart Inc',
-    action: 'auth.logout',
-    resource: 'Session',
-    resourceId: 'sess_abc456',
-    details: 'User logged out',
-    ipAddress: '10.0.0.45',
-    category: 'auth',
-  },
+// Action type presets for quick filtering
+const ACTION_PRESETS = [
+  { id: 'all', label: 'All', filter: 'all' },
+  { id: 'tenant', label: 'Tenant', filter: 'tenant', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
+  { id: 'user', label: 'Users', filter: 'user', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' },
+  { id: 'feature', label: 'Features', filter: 'feature', color: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' },
+  { id: 'billing', label: 'Billing', filter: 'plan', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
+  { id: 'system', label: 'System', filter: 'system', color: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' },
 ];
 
 export function AuditLogsPage() {
+  // Filter state
   const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [actionTypeFilter, setActionTypeFilter] = useState<string>('all');
+  const [presetFilter, setPresetFilter] = useState<string>('all');
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
 
-  const filteredLogs = mockAuditLogs.filter((log) => {
-    const matchesSearch =
-      log.user.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.details.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.tenant.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesCategory = categoryFilter === 'all' || log.category === categoryFilter;
-
-    return matchesSearch && matchesCategory;
+  // Fetch audit logs with filters
+  const { data: logsData, isLoading, refetch } = useQuery({
+    queryKey: ['audit-logs', page, pageSize, actionTypeFilter, searchTerm],
+    queryFn: () => api.getAuditLogs({
+      page,
+      page_size: pageSize,
+      action_type: actionTypeFilter !== 'all' ? actionTypeFilter : undefined,
+      search: searchTerm || undefined,
+    }),
   });
 
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case 'auth':
-        return <Shield className="h-4 w-4" />;
-      case 'workflow':
-        return <Workflow className="h-4 w-4" />;
-      case 'settings':
-        return <Settings className="h-4 w-4" />;
-      case 'billing':
-        return <Activity className="h-4 w-4" />;
-      case 'admin':
-        return <User className="h-4 w-4" />;
-      default:
-        return <FileText className="h-4 w-4" />;
+  const logs: AuditLog[] = logsData?.data?.logs || logsData?.data || [];
+  const totalCount = logsData?.data?.total || logs.length;
+  const totalPages = logsData?.data?.total_pages || Math.ceil(totalCount / pageSize);
+
+  // Local export function (client-side CSV generation)
+  const handleLocalExport = () => {
+    if (logs.length === 0) {
+      toast.error('No data to export');
+      return;
     }
+
+    const columns = [
+      { key: 'id' as const, header: 'Log ID' },
+      { key: 'timestamp' as const, header: 'Timestamp' },
+      { key: 'actor_email' as const, header: 'Actor Email' },
+      { key: 'tenant_id' as const, header: 'Tenant ID' },
+      { key: 'action_type' as const, header: 'Action Type' },
+      { key: 'resource_type' as const, header: 'Resource Type' },
+      { key: 'resource_id' as const, header: 'Resource ID' },
+      { key: 'ip_address' as const, header: 'IP Address' },
+      {
+        key: ((log: AuditLog) => log.old_value ? JSON.stringify(log.old_value) : '') as unknown as keyof AuditLog,
+        header: 'Old Value'
+      },
+      {
+        key: ((log: AuditLog) => log.new_value ? JSON.stringify(log.new_value) : '') as unknown as keyof AuditLog,
+        header: 'New Value'
+      },
+    ];
+
+    let filename = 'audit-logs';
+    if (presetFilter !== 'all') filename += `_${presetFilter}`;
+    if (actionTypeFilter !== 'all') filename += `_${actionTypeFilter}`;
+    if (searchTerm) filename += '_filtered';
+
+    exportToCSV(logs as any, columns as any, filename);
+    toast.success(`Exported ${logs.length} audit log entries to CSV`);
   };
 
-  const getCategoryBadgeVariant = (category: string) => {
-    switch (category) {
-      case 'auth':
-        return 'default';
-      case 'workflow':
-        return 'secondary';
-      case 'billing':
-        return 'outline';
-      case 'admin':
-        return 'destructive';
-      default:
-        return 'outline';
+  // Export mutation (server-side - fallback)
+  const exportMutation = useMutation({
+    mutationFn: () => api.exportAuditLogs({
+      action_type: actionTypeFilter !== 'all' ? actionTypeFilter : undefined,
+      format: 'csv',
+    }),
+    onSuccess: (response) => {
+      // Create download link
+      const blob = new Blob([response.data], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success('Audit logs exported');
+    },
+    onError: () => {
+      // Fall back to local export
+      handleLocalExport();
+    },
+  });
+
+  // Handle preset filter selection
+  const handlePresetClick = (preset: typeof ACTION_PRESETS[0]) => {
+    setPresetFilter(preset.id);
+    if (preset.filter === 'all') {
+      setActionTypeFilter('all');
+    } else {
+      // Set the action type filter to filter by prefix (e.g., "tenant" matches "tenant_suspended")
+      setActionTypeFilter(preset.filter);
     }
+    setPage(1);
+  };
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setActionTypeFilter('all');
+    setPresetFilter('all');
+    setPage(1);
+  };
+
+  const hasActiveFilters = searchTerm || actionTypeFilter !== 'all' || presetFilter !== 'all';
+
+  const getActionIcon = (actionType: string) => {
+    if (actionType.startsWith('tenant')) return <Building2 className="h-4 w-4" />;
+    if (actionType.startsWith('user')) return <User className="h-4 w-4" />;
+    if (actionType.startsWith('plan')) return <CreditCard className="h-4 w-4" />;
+    if (actionType.startsWith('workflow')) return <Workflow className="h-4 w-4" />;
+    if (actionType.startsWith('auth')) return <Shield className="h-4 w-4" />;
+    if (actionType.startsWith('setting')) return <Settings className="h-4 w-4" />;
+    if (actionType.startsWith('feature')) return <Activity className="h-4 w-4" />;
+    if (actionType.startsWith('system')) return <AlertTriangle className="h-4 w-4" />;
+    return <FileText className="h-4 w-4" />;
+  };
+
+  const getActionBadgeVariant = (actionType: string) => {
+    if (actionType.includes('suspended') || actionType.includes('deleted') || actionType.includes('error')) {
+      return 'destructive';
+    }
+    if (actionType.includes('created') || actionType.includes('reactivated')) {
+      return 'success';
+    }
+    if (actionType.includes('changed') || actionType.includes('updated')) {
+      return 'secondary';
+    }
+    return 'outline';
+  };
+
+  const formatActionType = (actionType: string) => {
+    return actionType
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
   };
 
   const formatTimestamp = (timestamp: string) => {
@@ -200,13 +199,25 @@ export function AuditLogsPage() {
     };
   };
 
-  const categories = [
-    { value: 'all', label: 'All Categories' },
-    { value: 'auth', label: 'Authentication' },
-    { value: 'workflow', label: 'Workflows' },
-    { value: 'settings', label: 'Settings' },
-    { value: 'billing', label: 'Billing' },
-    { value: 'admin', label: 'Admin' },
+  // Calculate stats from logs
+  const actionTypes = logs.reduce((acc, log) => {
+    const type = log.action_type?.split('_')[0] || 'other';
+    acc[type] = (acc[type] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const actionTypeOptions = [
+    { value: 'all', label: 'All Actions' },
+    { value: 'tenant_suspended', label: 'Tenant Suspended' },
+    { value: 'tenant_reactivated', label: 'Tenant Reactivated' },
+    { value: 'tenant_plan_changed', label: 'Plan Changed' },
+    { value: 'tenant_created', label: 'Tenant Created' },
+    { value: 'tenant_deleted', label: 'Tenant Deleted' },
+    { value: 'feature_override_created', label: 'Feature Override Created' },
+    { value: 'feature_override_updated', label: 'Feature Override Updated' },
+    { value: 'feature_override_deleted', label: 'Feature Override Deleted' },
+    { value: 'user_role_changed', label: 'User Role Changed' },
+    { value: 'system_error', label: 'System Error' },
   ];
 
   return (
@@ -214,12 +225,22 @@ export function AuditLogsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Audit Logs</h1>
-          <p className="text-muted-foreground">Track all system activity and user actions</p>
+          <p className="text-muted-foreground">Track all system activity and admin actions</p>
         </div>
-        <Button variant="outline">
-          <Download className="h-4 w-4 mr-2" />
-          Export Logs
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => exportMutation.mutate()}
+            disabled={exportMutation.isPending}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            {exportMutation.isPending ? 'Exporting...' : 'Export Logs'}
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -229,7 +250,7 @@ export function AuditLogsPage() {
             <div className="flex items-center gap-3">
               <FileText className="h-8 w-8 text-muted-foreground" />
               <div>
-                <p className="text-2xl font-bold">{mockAuditLogs.length}</p>
+                <p className="text-2xl font-bold">{totalCount}</p>
                 <p className="text-sm text-muted-foreground">Total Events</p>
               </div>
             </div>
@@ -238,12 +259,10 @@ export function AuditLogsPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
-              <Shield className="h-8 w-8 text-blue-500" />
+              <Building2 className="h-8 w-8 text-blue-500" />
               <div>
-                <p className="text-2xl font-bold">
-                  {mockAuditLogs.filter((l) => l.category === 'auth').length}
-                </p>
-                <p className="text-sm text-muted-foreground">Auth Events</p>
+                <p className="text-2xl font-bold">{actionTypes['tenant'] || 0}</p>
+                <p className="text-sm text-muted-foreground">Tenant Events</p>
               </div>
             </div>
           </CardContent>
@@ -251,12 +270,10 @@ export function AuditLogsPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
-              <Workflow className="h-8 w-8 text-green-500" />
+              <Activity className="h-8 w-8 text-green-500" />
               <div>
-                <p className="text-2xl font-bold">
-                  {mockAuditLogs.filter((l) => l.category === 'workflow').length}
-                </p>
-                <p className="text-sm text-muted-foreground">Workflow Events</p>
+                <p className="text-2xl font-bold">{actionTypes['feature'] || 0}</p>
+                <p className="text-sm text-muted-foreground">Feature Events</p>
               </div>
             </div>
           </CardContent>
@@ -264,17 +281,78 @@ export function AuditLogsPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
-              <User className="h-8 w-8 text-red-500" />
+              <AlertTriangle className="h-8 w-8 text-red-500" />
               <div>
-                <p className="text-2xl font-bold">
-                  {mockAuditLogs.filter((l) => l.category === 'admin').length}
-                </p>
-                <p className="text-sm text-muted-foreground">Admin Events</p>
+                <p className="text-2xl font-bold">{actionTypes['system'] || 0}</p>
+                <p className="text-sm text-muted-foreground">System Events</p>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Filters */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              Filters
+            </CardTitle>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Quick Filter Presets */}
+          <div className="flex flex-wrap gap-2">
+            <span className="text-sm text-muted-foreground mr-2 self-center">Quick filters:</span>
+            {ACTION_PRESETS.map((preset) => (
+              <Button
+                key={preset.id}
+                variant={presetFilter === preset.id ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handlePresetClick(preset)}
+                className={presetFilter === preset.id ? '' : preset.color}
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
+
+          {/* Search and Advanced Filters */}
+          <div className="flex flex-wrap gap-4">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by actor, tenant, or details..."
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setPage(1);
+                }}
+                className="pl-9"
+              />
+            </div>
+            <Select value={actionTypeFilter} onValueChange={(v) => { setActionTypeFilter(v); setPresetFilter('all'); setPage(1); }}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Action Type" />
+              </SelectTrigger>
+              <SelectContent>
+                {actionTypeOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Logs Table */}
       <Card>
@@ -285,87 +363,132 @@ export function AuditLogsPage() {
                 <FileText className="h-5 w-5" />
                 Activity Log
               </CardTitle>
-              <CardDescription>Detailed log of all system events</CardDescription>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search logs..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="flex h-9 rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {categories.map((cat) => (
-                  <option key={cat.value} value={cat.value}>
-                    {cat.label}
-                  </option>
-                ))}
-              </select>
+              <CardDescription>
+                Showing {logs.length} of {totalCount} events
+              </CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Timestamp</TableHead>
-                <TableHead>User</TableHead>
-                <TableHead>Tenant</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>Details</TableHead>
-                <TableHead>IP Address</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredLogs.map((log) => {
-                const { date, time } = formatTimestamp(log.timestamp);
-                return (
-                  <TableRow key={log.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm">
-                        <Clock className="h-3 w-3 text-muted-foreground" />
-                        <div>
-                          <p>{date}</p>
-                          <p className="text-xs text-muted-foreground">{time}</p>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{log.user}</p>
-                        <p className="text-xs text-muted-foreground">{log.userEmail}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm">{log.tenant}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={getCategoryBadgeVariant(log.category)}
-                        className="capitalize flex items-center gap-1 w-fit"
-                      >
-                        {getCategoryIcon(log.category)}
-                        {log.category}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <code className="text-xs bg-muted px-2 py-1 rounded">{log.action}</code>
-                    </TableCell>
-                    <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
-                      {log.details}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">{log.ipAddress}</TableCell>
+          {isLoading ? (
+            <div className="text-center py-8">Loading audit logs...</div>
+          ) : logs.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              {hasActiveFilters ? 'No logs match your filters' : 'No audit logs found'}
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Timestamp</TableHead>
+                    <TableHead>Actor</TableHead>
+                    <TableHead>Tenant</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Details</TableHead>
+                    <TableHead>IP Address</TableHead>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                </TableHeader>
+                <TableBody>
+                  {logs.map((log) => {
+                    const { date, time } = formatTimestamp(log.timestamp);
+                    return (
+                      <TableRow key={log.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-sm">
+                            <Clock className="h-3 w-3 text-muted-foreground" />
+                            <div>
+                              <p>{date}</p>
+                              <p className="text-xs text-muted-foreground">{time}</p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{log.actor_email || 'System'}</p>
+                            {log.actor_id && (
+                              <p className="text-xs text-muted-foreground font-mono">
+                                {log.actor_id.substring(0, 8)}...
+                              </p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {log.tenant_id ? (
+                            <Link
+                              to={`/admin/tenants/${log.tenant_id}`}
+                              className="text-sm hover:underline flex items-center gap-1"
+                            >
+                              {log.tenant_id.substring(0, 8)}...
+                              <ExternalLink className="h-3 w-3" />
+                            </Link>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">System</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={getActionBadgeVariant(log.action_type)}
+                            className="flex items-center gap-1 w-fit"
+                          >
+                            {getActionIcon(log.action_type)}
+                            {formatActionType(log.action_type)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-xs">
+                          <div className="text-sm text-muted-foreground truncate">
+                            {log.new_value && typeof log.new_value === 'object' ? (
+                              <code className="text-xs bg-muted px-2 py-1 rounded">
+                                {JSON.stringify(log.new_value).substring(0, 50)}...
+                              </code>
+                            ) : log.old_value && log.new_value ? (
+                              <span>
+                                {String(log.old_value)} → {String(log.new_value)}
+                              </span>
+                            ) : (
+                              <span>{log.new_value || log.old_value || '-'}</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {log.ip_address || '-'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Page {page} of {totalPages}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                    >
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

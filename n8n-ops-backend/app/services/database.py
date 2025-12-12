@@ -1,6 +1,8 @@
 from supabase import create_client, Client
 from app.core.config import settings
 from typing import List, Dict, Any, Optional
+from datetime import datetime
+from uuid import uuid4
 
 
 class DatabaseService:
@@ -345,7 +347,7 @@ class DatabaseService:
             print(f"Failed to update sync status: {str(e)}")
             return False
 
-    async def sync_workflows_from_n8n(self, tenant_id: str, environment_id: str, n8n_workflows: List[Dict[str, Any]], workflows_with_analysis: Optional[Dict[str, Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    async def sync_workflows_from_n8n(self, tenant_id: str, environment_id: str, n8n_workflows: List[Dict[str, Any]], workflows_with_analysis: Optional[Dict[str, Dict[str, Any]]] = None, provider: str = "n8n") -> List[Dict[str, Any]]:
         """Sync workflows from N8N API to database cache (batch operation)"""
         from datetime import datetime
 
@@ -373,6 +375,13 @@ class DatabaseService:
             if result:
                 results.append(result)
 
+        # Refresh dependency index
+        try:
+            await self.refresh_workflow_dependencies_for_env(tenant_id, environment_id, provider)
+        except Exception:
+            # Best-effort; do not fail sync
+            pass
+
         return results
 
     async def delete_workflow_from_cache(self, tenant_id: str, environment_id: str, n8n_workflow_id: str) -> bool:
@@ -389,6 +398,29 @@ class DatabaseService:
     async def update_workflow_in_cache(self, tenant_id: str, environment_id: str, n8n_workflow_id: str, workflow_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Update an existing workflow in cache with new data"""
         return await self.upsert_workflow(tenant_id, environment_id, workflow_data)
+
+    async def refresh_workflow_dependencies_for_env(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        provider: str,
+    ) -> None:
+        """
+        Refresh workflow credential dependencies for all workflows in an environment.
+        Call this after sync workflows to keep dependency index fresh.
+        """
+        from app.services.adapters.n8n_adapter import N8NProviderAdapter
+
+        workflows = await self.get_workflows(tenant_id, environment_id)
+        for wf in workflows:
+            wf_data = wf.get("workflow_data") or {}
+            logical_keys = N8NProviderAdapter.extract_logical_credentials(wf_data)
+            await self.upsert_workflow_dependencies(
+                tenant_id=tenant_id,
+                workflow_id=str(wf.get("n8n_workflow_id") or wf.get("id")),
+                provider=provider,
+                logical_credential_ids=logical_keys,
+            )
 
     # Execution cache operations
     async def upsert_execution(self, tenant_id: str, environment_id: str, execution_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1017,6 +1049,152 @@ class DatabaseService:
             "created": created,
             "restored": 0  # TODO: track restore events
         }
+
+
+    # ---------- Logical Credentials, Mappings, Dependencies ----------
+
+    async def create_logical_credential(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        response = self.client.table("logical_credentials").insert(data).execute()
+        return response.data[0]
+
+    async def list_logical_credentials(self, tenant_id: str) -> List[Dict[str, Any]]:
+        response = (
+            self.client.table("logical_credentials")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .order("name")
+            .execute()
+        )
+        return response.data or []
+
+    async def find_logical_credential_by_name(self, tenant_id: str, name: str) -> Optional[Dict[str, Any]]:
+        response = (
+            self.client.table("logical_credentials")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .eq("name", name)
+            .single()
+            .execute()
+        )
+        return response.data
+
+    async def get_logical_credential(self, tenant_id: str, logical_id: str) -> Optional[Dict[str, Any]]:
+        response = (
+            self.client.table("logical_credentials")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .eq("id", logical_id)
+            .single()
+            .execute()
+        )
+        return response.data
+
+    async def update_logical_credential(self, tenant_id: str, logical_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        response = (
+            self.client.table("logical_credentials")
+            .update(data)
+            .eq("tenant_id", tenant_id)
+            .eq("id", logical_id)
+            .execute()
+        )
+        return response.data[0] if response.data else None
+
+    async def delete_logical_credential(self, tenant_id: str, logical_id: str) -> bool:
+        self.client.table("logical_credentials").delete().eq("tenant_id", tenant_id).eq("id", logical_id).execute()
+        return True
+
+    async def create_credential_mapping(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        response = self.client.table("credential_mappings").insert(data).execute()
+        return response.data[0]
+
+    async def list_credential_mappings(
+        self,
+        tenant_id: str,
+        environment_id: Optional[str] = None,
+        provider: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        query = self.client.table("credential_mappings").select("*").eq("tenant_id", tenant_id)
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+        if provider:
+            query = query.eq("provider", provider)
+        response = query.order("created_at", desc=True).execute()
+        return response.data or []
+
+    async def get_credential_mapping(self, tenant_id: str, mapping_id: str) -> Optional[Dict[str, Any]]:
+        response = (
+            self.client.table("credential_mappings")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .eq("id", mapping_id)
+            .single()
+            .execute()
+        )
+        return response.data
+
+    async def update_credential_mapping(self, tenant_id: str, mapping_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        response = (
+            self.client.table("credential_mappings")
+            .update(data)
+            .eq("tenant_id", tenant_id)
+            .eq("id", mapping_id)
+            .execute()
+        )
+        return response.data[0] if response.data else None
+
+    async def delete_credential_mapping(self, tenant_id: str, mapping_id: str) -> bool:
+        self.client.table("credential_mappings").delete().eq("tenant_id", tenant_id).eq("id", mapping_id).execute()
+        return True
+
+    async def get_mapping_for_logical(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        provider: str,
+        logical_credential_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        response = (
+            self.client.table("credential_mappings")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .eq("environment_id", environment_id)
+            .eq("provider", provider)
+            .eq("logical_credential_id", logical_credential_id)
+            .single()
+            .execute()
+        )
+        return response.data
+
+    async def upsert_workflow_dependencies(
+        self,
+        tenant_id: str,
+        workflow_id: str,
+        provider: str,
+        logical_credential_ids: List[str],
+    ) -> Dict[str, Any]:
+        record = {
+            "tenant_id": tenant_id,
+            "workflow_id": workflow_id,
+            "provider": provider,
+            "logical_credential_ids": logical_credential_ids,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        response = self.client.table("workflow_credential_dependencies").upsert(
+            record,
+            on_conflict="workflow_id,provider",
+        ).execute()
+        return response.data[0] if response.data else record
+
+    async def get_workflow_dependencies(self, workflow_id: str, provider: str) -> Optional[Dict[str, Any]]:
+        response = (
+            self.client.table("workflow_credential_dependencies")
+            .select("*")
+            .eq("workflow_id", workflow_id)
+            .eq("provider", provider)
+            .single()
+            .execute()
+        )
+        return response.data
 
 
 # Global instance

@@ -45,6 +45,7 @@ class GateResult(BaseModel):
     risk_level_allowed: bool = True
     errors: List[str] = []
     warnings: List[str] = []
+    credential_issues: List[Dict[str, Any]] = []
 
 
 class PromotionInitiateRequest(BaseModel):
@@ -68,6 +69,7 @@ class PromotionInitiateResponse(BaseModel):
     requires_approval: bool
     approval_id: Optional[str] = None
     dependency_warnings: Dict[str, List[DependencyWarning]] = {}  # workflow_id -> list of missing deps
+    preflight: Optional[Dict[str, Any]] = None
     message: str
 
 

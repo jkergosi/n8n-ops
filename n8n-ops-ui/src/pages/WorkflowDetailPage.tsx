@@ -76,6 +76,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import type { EnvironmentType, Workflow, WorkflowNode, ExecutionMetricsSummary, Execution } from '@/types';
+import type { WorkflowCredentialDependencyResponse } from '@/types/credentials';
 
 // Score badge component
 function ScoreBadge({ score, level }: { score: number; level: string }) {
@@ -615,6 +616,33 @@ export function WorkflowDetailPage() {
   const currentEnvironment = useMemo(() => {
     return environments?.data?.find((env) => env.type === environment);
   }, [environments, environment]);
+
+  // Credential dependencies query
+  const { data: credentialDeps, isLoading: isLoadingCredentialDeps, refetch: refetchCredentialDeps } = useQuery({
+    queryKey: ['workflow-credential-deps', id],
+    queryFn: async () => {
+      if (!id) return null;
+      const response = await apiClient.getWorkflowCredentialDependencies(id, 'n8n');
+      return response.data;
+    },
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+
+  // Refresh credential dependencies mutation
+  const refreshCredentialDepsMutation = useMutation({
+    mutationFn: async () => {
+      if (!id || !currentEnvironment?.id) throw new Error('Missing workflow or environment ID');
+      return apiClient.refreshWorkflowCredentialDependencies(id, currentEnvironment.id, 'n8n');
+    },
+    onSuccess: () => {
+      refetchCredentialDeps();
+      toast.success('Credential dependencies refreshed');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to refresh credential dependencies');
+    },
+  });
 
   // Executions query for metrics
   const { data: executionsData } = useQuery({
@@ -1166,6 +1194,10 @@ export function WorkflowDetailPage() {
           <TabsTrigger value="source" className="flex items-center gap-1">
             <Code className="h-4 w-4" />
             Source
+          </TabsTrigger>
+          <TabsTrigger value="credentials" className="flex items-center gap-1">
+            <Shield className="h-4 w-4" />
+            Credentials
           </TabsTrigger>
         </TabsList>
 
@@ -2524,6 +2556,91 @@ export function WorkflowDetailPage() {
         {/* Source Tab */}
         <TabsContent value="source" className="space-y-6">
           <JsonViewerTab workflow={workflow} />
+        </TabsContent>
+
+        {/* Credentials Tab */}
+        <TabsContent value="credentials" className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5" />
+                  Credential Dependencies
+                </CardTitle>
+                <CardDescription>
+                  Logical credentials this workflow requires for promotion across environments
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refreshCredentialDepsMutation.mutate()}
+                disabled={refreshCredentialDepsMutation.isPending || !currentEnvironment?.id}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${refreshCredentialDepsMutation.isPending ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {isLoadingCredentialDeps ? (
+                <div className="py-8 text-center text-muted-foreground">
+                  Loading credential dependencies...
+                </div>
+              ) : !credentialDeps || credentialDeps.credentials.length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground">
+                  <Shield className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No credential dependencies detected.</p>
+                  <p className="text-xs mt-1">
+                    This workflow either doesn't use credentials or hasn't been analyzed yet.
+                  </p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Credential</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Mapping Status</TableHead>
+                      <TableHead>Mapped Environments</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {credentialDeps.credentials.map((cred) => (
+                      <TableRow key={cred.logical_key}>
+                        <TableCell className="font-medium">{cred.credential_name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{cred.credential_type}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {cred.is_mapped ? (
+                            <Badge variant={cred.mapping_status === 'valid' ? 'default' : 'secondary'}>
+                              {cred.mapping_status || 'Mapped'}
+                            </Badge>
+                          ) : (
+                            <Badge variant="destructive">Not Mapped</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {cred.target_environments.length > 0 ? (
+                            <span className="text-sm">
+                              {cred.target_environments.length} environment(s)
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">None</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+              {credentialDeps && credentialDeps.updated_at && (
+                <p className="text-xs text-muted-foreground mt-4">
+                  Last updated: {new Date(credentialDeps.updated_at).toLocaleString()}
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

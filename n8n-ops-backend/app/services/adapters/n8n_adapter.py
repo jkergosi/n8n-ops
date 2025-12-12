@@ -126,6 +126,71 @@ class N8NProviderAdapter:
         return await self._client.update_workflow_tags(workflow_id, tag_ids)
 
     # =========================================================================
+    # Credential reference utilities (provider-specific)
+    # =========================================================================
+
+    @staticmethod
+    def extract_logical_credentials(workflow: Dict[str, Any]) -> List[str]:
+        """
+        Extract logical credential keys from workflow (format: type:name).
+        """
+        logical_keys = set()
+        nodes = workflow.get("nodes", [])
+        for node in nodes:
+            node_credentials = node.get("credentials", {})
+            for cred_type, cred_info in node_credentials.items():
+                if isinstance(cred_info, dict):
+                    cred_name = cred_info.get("name", "Unknown")
+                else:
+                    cred_name = str(cred_info) if cred_info else "Unknown"
+                logical_keys.add(f"{cred_type}:{cred_name}")
+        return sorted(logical_keys)
+
+    @staticmethod
+    def rewrite_credentials_with_mappings(
+        workflow: Dict[str, Any],
+        mapping_lookup: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Rewrite workflow credential references using mapping_lookup keyed by logical_key (type:name).
+        If mapping provides physical_credential_id, set it to 'id'; if physical_name provided, set 'name'.
+        """
+        nodes = workflow.get("nodes", [])
+        for node in nodes:
+            node_credentials = node.get("credentials", {})
+            for cred_type, cred_info in list(node_credentials.items()):
+                if isinstance(cred_info, dict):
+                    cred_name = cred_info.get("name", "Unknown")
+                else:
+                    cred_name = str(cred_info) if cred_info else "Unknown"
+                    cred_info = {}
+                logical_key = f"{cred_type}:{cred_name}"
+                mapping = mapping_lookup.get(logical_key)
+                if not mapping:
+                    continue
+
+                # Apply mapped values
+                physical_name = mapping.get("physical_name") or cred_name
+                physical_type = mapping.get("physical_type") or cred_type
+                physical_id = mapping.get("physical_credential_id")
+
+                cred_info["name"] = physical_name
+                if physical_id:
+                    cred_info["id"] = physical_id
+
+                # If type changes, rename key
+                if physical_type != cred_type:
+                    node_credentials.pop(cred_type, None)
+                    node_credentials[physical_type] = cred_info
+                else:
+                    node_credentials[cred_type] = cred_info
+
+            node["credentials"] = node_credentials
+
+        workflow["nodes"] = nodes
+        return workflow
+
+    # =========================================================================
     # Connection and Health
     # =========================================================================
 

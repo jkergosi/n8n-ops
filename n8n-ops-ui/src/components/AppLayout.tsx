@@ -127,6 +127,7 @@ const navigationSections: NavSection[] = [
       { id: 'plans', name: 'Plans', href: '/admin/plans', icon: CreditCard, requiredPlan: 'enterprise' },
       { id: 'usage', name: 'Usage & Limits', href: '/admin/usage', icon: BarChart3, requiredPlan: 'enterprise' },
       { id: 'billing', name: 'System Billing', href: '/admin/billing', icon: CreditCard, requiredPlan: 'enterprise' },
+      { id: 'credentialHealth', name: 'Credential Health', href: '/admin/credential-health', icon: Shield, requiredPlan: 'enterprise' },
       { id: 'featureMatrix', name: 'Feature Matrix', href: '/admin/entitlements/matrix', icon: LayoutGrid, requiredPlan: 'enterprise' },
       { id: 'tenantOverrides', name: 'Tenant Overrides', href: '/admin/entitlements/overrides', icon: Shield, requiredPlan: 'enterprise' },
       { id: 'entitlementsAudit', name: 'Entitlements Audit', href: '/admin/entitlements/audit', icon: History, requiredPlan: 'enterprise' },

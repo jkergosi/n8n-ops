@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
-import type { FeatureMatrix, FeatureMatrixEntry, AdminPlan } from '@/types';
+import type { FeatureMatrixEntry, AdminPlan } from '@/types';
 
 export function FeatureMatrixPage() {
   const queryClient = useQueryClient();

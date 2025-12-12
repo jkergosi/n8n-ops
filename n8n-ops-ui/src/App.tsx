@@ -41,6 +41,7 @@ import {
   FeatureMatrixPage,
   TenantOverridesPage,
   EntitlementsAuditPage,
+  CredentialHealthPage,
 } from '@/pages/admin';
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -183,6 +184,7 @@ function App() {
                 <Route path="/admin/tenants/:tenantId" element={<RoleProtectedRoute><TenantDetailPage /></RoleProtectedRoute>} />
                 <Route path="/admin/plans" element={<RoleProtectedRoute><PlansPage /></RoleProtectedRoute>} />
                 <Route path="/admin/billing" element={<RoleProtectedRoute><SystemBillingPage /></RoleProtectedRoute>} />
+                <Route path="/admin/credential-health" element={<RoleProtectedRoute><CredentialHealthPage /></RoleProtectedRoute>} />
                 <Route path="/admin/performance" element={<RoleProtectedRoute><PerformancePage /></RoleProtectedRoute>} />
                 <Route path="/admin/audit-logs" element={<RoleProtectedRoute><AuditLogsPage /></RoleProtectedRoute>} />
                 <Route path="/admin/notifications" element={<RoleProtectedRoute><NotificationsPage /></RoleProtectedRoute>} />

@@ -65,7 +65,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
-import type { Tenant, TenantNote, TenantUsage, TenantFeatureOverride } from '@/types';
+import type { Tenant, TenantNote, TenantFeatureOverride } from '@/types';
 
 const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',

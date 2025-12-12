@@ -706,7 +706,7 @@ export function WorkflowGraphTab({ workflow }: WorkflowGraphTabProps) {
     if (!sourceNode) return null;
     
     const isErrorPath = edge.label === 'error' || edge.animated;
-    const branchLabel = edge.label || undefined;
+    const branchLabel = typeof edge.label === 'string' ? edge.label : undefined;
     
     // Extract condition from node parameters if it's a branch node
     let condition: string | undefined;
@@ -717,7 +717,7 @@ export function WorkflowGraphTab({ workflow }: WorkflowGraphTabProps) {
       } else if (sourceNode.type.toLowerCase().includes('switch')) {
         const rules = sourceNode.parameters?.rules || sourceNode.parameters?.conditions;
         if (Array.isArray(rules)) {
-          const matchLabel = edge.label?.match(/case (\d+)/);
+          const labelStr = typeof edge.label === 'string' ? edge.label : '';const matchLabel = labelStr.match(/case (\d+)/);
           if (matchLabel) {
             const ruleIndex = parseInt(matchLabel[1]) - 1;
             if (rules[ruleIndex]) {

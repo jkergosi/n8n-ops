@@ -31,7 +31,7 @@ export function FeatureGate({ feature, children, fallback, showUpgradePrompt = t
 
   if (showUpgradePrompt) {
     const requiredPlan = FEATURE_REQUIRED_PLANS[feature];
-    return <UpgradePrompt feature={feature} requiredPlan={requiredPlan || 'pro'} />;
+    return <UpgradePrompt feature={feature} requiredPlan={requiredPlan === 'enterprise' ? 'enterprise' : 'pro'} />;
   }
 
   return null;

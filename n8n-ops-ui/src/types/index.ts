@@ -346,10 +346,16 @@ export interface BillingMetrics {
   churnedSubscriptions30d: number;
   payingTenants: number;
   freeTenants: number;
+  totalSubscriptions?: number;
+  trialSubscriptions?: number;
+  churnRate?: number;
+  avgRevenuePerUser?: number;
+  mrrGrowth?: number;
 }
 
 export interface PlanDistributionItem {
   planName: string;
+  plan?: string;
   count: number;
   percentage: number;
   revenue: number;
@@ -359,6 +365,7 @@ export interface RecentCharge {
   id: string;
   tenantId?: string;
   tenantName?: string;
+  type?: string;
   amount: number;
   currency: string;
   status: string;
@@ -383,6 +390,8 @@ export interface DunningTenant {
   planName: string;
   status: string;
   lastPaymentAttempt?: string;
+  dueDate?: string;
+  retryCount?: number;
   amountDue: number;
   failedAttempts: number;
 }

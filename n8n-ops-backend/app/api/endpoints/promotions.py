@@ -29,6 +29,7 @@ from app.schemas.promotion import (
     GateResult,
     PromotionExecutionResult,
 )
+from app.core.provider import Provider, DEFAULT_PROVIDER
 from app.schemas.pipeline import PipelineResponse
 
 router = APIRouter()
@@ -146,6 +147,14 @@ async def initiate_promotion(
                 target_workflows=target_workflows_map
             )
 
+        # NEW: Credential preflight summary
+        credential_issues = getattr(gate_results, 'credential_issues', [])
+        preflight = {
+          "credential_issues": credential_issues,
+          "dependency_warnings": dependency_warnings,
+          "drift_detected": getattr(drift_check, "has_drift", False),
+        }
+
         # Step 5: Check gates
         from app.schemas.pipeline import PipelineStage
         stage_obj = PipelineStage(**active_stage)
@@ -174,7 +183,7 @@ async def initiate_promotion(
                         "source_environment_id": request.source_environment_id,
                         "target_environment_id": request.target_environment_id,
                         "reason": "gates_failed",
-                        "gate_results": gate_results_dict,
+                        "gate_results": gate_results.dict(),
                         "drift_detected": drift_check.has_drift if drift_check else False
                     }
                 )
@@ -244,6 +253,12 @@ async def initiate_promotion(
             for wf_id, deps in dependency_warnings.items()
         }
 
+        preflight = {
+            "credential_issues": credential_issues,
+            "dependency_warnings": dependency_warnings_response,
+            "drift_detected": getattr(drift_check, "has_drift", False),
+        }
+
         return PromotionInitiateResponse(
             promotion_id=promotion_id,
             status=PromotionStatus.PENDING_APPROVAL if requires_approval else PromotionStatus.PENDING,
@@ -251,6 +266,7 @@ async def initiate_promotion(
             requires_approval=requires_approval,
             approval_id=approval_id,
             dependency_warnings=dependency_warnings_response,
+            preflight=preflight,
             message="Promotion initiated successfully"
         )
 

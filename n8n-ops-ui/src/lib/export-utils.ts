@@ -36,7 +36,7 @@ function escapeCSVValue(value: ExportableValue): string {
 /**
  * Convert an array of objects to CSV string
  */
-export function toCSV<T extends Record<string, unknown>>(
+export function toCSV<T>(
   data: T[],
   columns: ExportColumn<T>[]
 ): string {
@@ -88,7 +88,7 @@ export function downloadFile(content: string, filename: string, mimeType: string
 /**
  * Export data to CSV and trigger download
  */
-export function exportToCSV<T extends Record<string, unknown>>(
+export function exportToCSV<T>(
   data: T[],
   columns: ExportColumn<T>[],
   filename: string

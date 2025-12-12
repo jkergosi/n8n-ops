@@ -34,6 +34,8 @@ import { apiClient } from '@/lib/api-client';
 import { ArrowLeft, Play, AlertTriangle, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Pipeline, Environment, WorkflowSelection, WorkflowChangeType } from '@/types';
+import type { CredentialPreflightResult } from '@/types/credentials';
+import { CredentialPreflightDialog } from '@/components/promotion/CredentialPreflightDialog';
 
 export function PromotionPage() {
   const navigate = useNavigate();
@@ -49,6 +51,10 @@ export function PromotionPage() {
   const [promotionId, setPromotionId] = useState<string | null>(null);
   const [dependencyWarnings, setDependencyWarnings] = useState<Record<string, Array<{workflowId: string; workflowName: string; reason: string; message: string}>>>({});
   const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(false);
+
+  // Credential preflight state
+  const [showPreflightDialog, setShowPreflightDialog] = useState(false);
+  const [preflightResult, setPreflightResult] = useState<CredentialPreflightResult | null>(null);
 
   const { data: pipelines } = useQuery({
     queryKey: ['pipelines'],
@@ -131,6 +137,39 @@ export function PromotionPage() {
     },
   });
 
+  // Credential preflight mutation
+  const preflightMutation = useMutation({
+    mutationFn: () => {
+      if (!sourceEnvId || !targetEnvId) {
+        throw new Error('Missing environment IDs');
+      }
+      const selectedWorkflowIds = workflowSelections
+        .filter(ws => ws.selected)
+        .map(ws => ws.workflowId);
+      return apiClient.credentialPreflightCheck({
+        source_environment_id: sourceEnvId,
+        target_environment_id: targetEnvId,
+        workflow_ids: selectedWorkflowIds,
+        provider: 'n8n',
+      });
+    },
+    onSuccess: (data) => {
+      setPreflightResult(data.data);
+      // If there are any issues (blocking or warnings), show the dialog
+      if (data.data.blocking_issues.length > 0 || data.data.warnings.length > 0) {
+        setShowPreflightDialog(true);
+      } else {
+        // No issues, proceed directly to initiation
+        initiateMutation.mutate();
+      }
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || 'Failed to run credential preflight check');
+      // Still allow proceeding if preflight fails (graceful degradation)
+      initiateMutation.mutate();
+    },
+  });
+
   const handleWorkflowToggle = (workflowId: string, selected: boolean) => {
     setWorkflowSelections(prev =>
       prev.map(ws =>
@@ -150,7 +189,18 @@ export function PromotionPage() {
       return;
     }
 
+    // Run credential preflight check first
+    preflightMutation.mutate();
+  };
+
+  const handlePreflightProceed = () => {
+    setShowPreflightDialog(false);
     initiateMutation.mutate();
+  };
+
+  const handlePreflightCancel = () => {
+    setShowPreflightDialog(false);
+    setPreflightResult(null);
   };
 
   const getChangeTypeBadge = (changeType: WorkflowChangeType) => {
@@ -394,9 +444,14 @@ export function PromotionPage() {
           </Button>
           <Button
             onClick={handleInitiate}
-            disabled={initiateMutation.isPending || workflowSelections.filter(ws => ws.selected).length === 0}
+            disabled={preflightMutation.isPending || initiateMutation.isPending || workflowSelections.filter(ws => ws.selected).length === 0}
           >
-            {initiateMutation.isPending ? (
+            {preflightMutation.isPending ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Checking Credentials...
+              </>
+            ) : initiateMutation.isPending ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 Initiating...
@@ -500,6 +555,16 @@ export function PromotionPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Credential Preflight Dialog */}
+      <CredentialPreflightDialog
+        open={showPreflightDialog}
+        onOpenChange={setShowPreflightDialog}
+        preflightResult={preflightResult}
+        onProceed={handlePreflightProceed}
+        onCancel={handlePreflightCancel}
+        isLoading={initiateMutation.isPending}
+      />
     </div>
   );
 }

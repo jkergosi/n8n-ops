@@ -504,6 +504,18 @@ class PromotionService:
             if not workflow:
                 continue
             
+            # Extract logical credentials; store dependency index
+            logical_keys = N8NProviderAdapter.extract_logical_credentials(workflow)
+            try:
+                await self.db.upsert_workflow_dependencies(
+                    tenant_id=tenant_id,
+                    workflow_id=selection.workflow_id,
+                    provider=target_env.get("provider", "n8n") if isinstance(target_env, dict) else "n8n",
+                    logical_credential_ids=logical_keys,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to upsert workflow deps for {selection.workflow_id}: {e}")
+
             # Extract credentials from workflow nodes
             nodes = workflow.get("nodes", [])
             for node in nodes:
@@ -516,10 +528,52 @@ class PromotionService:
                     
                     cred_key = (cred_type, cred_name)
                     
-                    # Check if credential exists in target
+                    # Try provider-aware logical mapping first
+                    logical_key = f"{cred_type}:{cred_name}"
+                    logical = await self.db.find_logical_credential_by_name(tenant_id, logical_key)
+                    if logical:
+                        mapping = await self.db.get_mapping_for_logical(
+                            tenant_id,
+                            target_env_id,
+                            target_env.get("provider", "n8n") if isinstance(target_env, dict) else "n8n",
+                            logical.get("id"),
+                        )
+                        if not mapping:
+                            credential_issues.append({
+                                "workflow_id": selection.workflow_id,
+                                "workflow_name": selection.workflow_name,
+                                "credential_type": cred_type,
+                                "credential_name": cred_name,
+                                "issue": "missing_mapping",
+                                "message": f"No mapping for logical credential '{logical_key}' in target environment",
+                            })
+                            continue
+
+                        mapped_key = (
+                            mapping.get("physical_type") or cred_type,
+                            mapping.get("physical_name") or cred_name,
+                        )
+                        if mapped_key not in target_cred_map:
+                            credential_issues.append({
+                                "workflow_id": selection.workflow_id,
+                                "workflow_name": selection.workflow_name,
+                                "credential_type": cred_type,
+                                "credential_name": cred_name,
+                                "issue": "mapped_missing_in_target",
+                                "message": f"Mapped credential not found in target environment for '{logical_key}'",
+                                "details": {
+                                    "expected_physical_name": mapping.get("physical_name"),
+                                    "expected_physical_type": mapping.get("physical_type"),
+                                }
+                            })
+                            continue
+
+                        # Mapping satisfied; continue
+                        continue
+
+                    # Fallback: direct type/name check as before
                     if cred_key not in target_cred_map:
                         if allow_placeholders:
-                            # Create placeholder credential
                             placeholder_created = await self._create_placeholder_credential(
                                 target_adapter, cred_type, cred_name, tenant_id, target_env_id
                             )
@@ -531,7 +585,6 @@ class PromotionService:
                                 "placeholder_created": placeholder_created
                             })
                         else:
-                            # Emit credential.missing event when placeholders are not allowed
                             try:
                                 await notification_service.emit_event(
                                     tenant_id=tenant_id,
@@ -847,6 +900,23 @@ class PromotionService:
                     workflows_with_placeholders.add(issue["workflow_id"])
                     created_placeholders.append(f"{issue['credential_name']} ({issue['workflow_name']})")
 
+        # Preload logical credentials and mappings for rewrite
+        logical_creds = await self.db.list_logical_credentials(tenant_id)
+        logical_name_by_id = {lc.get("id"): lc.get("name") for lc in (logical_creds or [])}
+
+        target_provider = target_env.get("provider", "n8n") if isinstance(target_env, dict) else "n8n"
+        target_mappings = await self.db.list_credential_mappings(
+            tenant_id=tenant_id,
+            environment_id=target_env_id,
+            provider=target_provider
+        )
+        mapping_lookup = {}
+        for m in target_mappings:
+            logical_name = logical_name_by_id.get(m.get("logical_credential_id"))
+            if not logical_name:
+                continue
+            mapping_lookup[logical_name] = m
+
         # Promote each selected workflow
         for selection in workflow_selections:
             if not selection.selected:
@@ -867,6 +937,16 @@ class PromotionService:
                     warnings.append(f"Workflow {selection.workflow_name} disabled due to placeholder credentials")
                 else:
                     workflow_data["active"] = selection.enabled_in_source
+
+                # Rewrite credential references using mappings (if any)
+                if mapping_lookup:
+                    try:
+                        workflow_data = N8NProviderAdapter.rewrite_credentials_with_mappings(
+                            workflow_data,
+                            mapping_lookup,
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to rewrite credentials for {selection.workflow_name}: {e}")
 
                 # Write to target provider
                 workflow_id = workflow_data.get("id")

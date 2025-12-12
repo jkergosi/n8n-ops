@@ -17,7 +17,13 @@ const mockTenant: Tenant = {
   name: 'Demo Company',
   email: 'demo@example.com',
   subscriptionTier: 'free',
+  subscriptionPlan: 'free',
+  status: 'active',
+  workflowCount: 12,
+  environmentCount: 3,
+  userCount: 2,
   createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
   permissions: ['read', 'write', 'deploy'],
 };
 
@@ -25,31 +31,43 @@ const mockEnvironments: Environment[] = [
   {
     id: '1',
     tenantId: '1',
+    provider: 'n8n',
     name: 'Development',
     type: 'dev',
     baseUrl: 'http://localhost:5678',
     isActive: true,
+    allowUpload: true,
     lastConnected: new Date().toISOString(),
     workflowCount: 12,
+    createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: '2',
     tenantId: '1',
+    provider: 'n8n',
     name: 'Staging',
     type: 'staging',
     baseUrl: 'https://staging.n8n.example.com',
     isActive: false,
+    allowUpload: false,
     workflowCount: 8,
+    createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: '3',
     tenantId: '1',
+    provider: 'n8n',
     name: 'Production',
     type: 'production',
     baseUrl: 'https://n8n.example.com',
     isActive: true,
+    allowUpload: false,
     lastConnected: new Date(Date.now() - 3600000).toISOString(),
     workflowCount: 8,
+    createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+    updatedAt: new Date().toISOString(),
   },
 ];
 
@@ -66,6 +84,7 @@ const mockWorkflows: Workflow[] = [
     createdAt: new Date(Date.now() - 86400000 * 7).toISOString(),
     updatedAt: new Date(Date.now() - 86400000).toISOString(),
     environment: 'dev',
+    provider: 'n8n',
   },
   {
     id: 'wf2',
@@ -79,6 +98,7 @@ const mockWorkflows: Workflow[] = [
     createdAt: new Date(Date.now() - 86400000 * 14).toISOString(),
     updatedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
     environment: 'dev',
+    provider: 'n8n',
   },
   {
     id: 'wf3',
@@ -92,6 +112,7 @@ const mockWorkflows: Workflow[] = [
     createdAt: new Date(Date.now() - 86400000 * 21).toISOString(),
     updatedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
     environment: 'dev',
+    provider: 'n8n',
   },
   {
     id: 'wf4',
@@ -105,6 +126,7 @@ const mockWorkflows: Workflow[] = [
     createdAt: new Date(Date.now() - 86400000 * 10).toISOString(),
     updatedAt: new Date(Date.now() - 86400000 * 3).toISOString(),
     environment: 'dev',
+    provider: 'n8n',
   },
   {
     id: 'wf5',
@@ -118,6 +140,7 @@ const mockWorkflows: Workflow[] = [
     createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
     updatedAt: new Date(Date.now() - 86400000 * 7).toISOString(),
     environment: 'dev',
+    provider: 'n8n',
   },
   {
     id: 'wf6',
@@ -131,6 +154,7 @@ const mockWorkflows: Workflow[] = [
     createdAt: new Date(Date.now() - 86400000 * 45).toISOString(),
     updatedAt: new Date(Date.now() - 86400000 * 10).toISOString(),
     environment: 'dev',
+    provider: 'n8n',
   },
   {
     id: 'wf7',
@@ -144,6 +168,7 @@ const mockWorkflows: Workflow[] = [
     createdAt: new Date(Date.now() - 86400000 * 60).toISOString(),
     updatedAt: new Date(Date.now() - 86400000 * 15).toISOString(),
     environment: 'dev',
+    provider: 'n8n',
   },
   {
     id: 'wf8',
@@ -157,10 +182,12 @@ const mockWorkflows: Workflow[] = [
     createdAt: new Date(Date.now() - 86400000 * 25).toISOString(),
     updatedAt: new Date(Date.now() - 86400000 * 4).toISOString(),
     environment: 'dev',
+    provider: 'n8n',
   },
 ];
 
-const mockSnapshots: Snapshot[] = [
+// Use type assertions for mock data that doesn't match current type definitions
+const mockSnapshots = [
   {
     id: 'snap1',
     workflowId: 'wf1',
@@ -183,7 +210,7 @@ const mockSnapshots: Snapshot[] = [
   },
 ];
 
-const mockDeployments: Deployment[] = [
+const mockDeployments = [
   {
     id: 'dep1',
     workflowId: 'wf1',
@@ -325,13 +352,13 @@ export const mockApi = {
     await delay(300);
     return {
       success: true,
-      data: mockSnapshots.filter((s) => s.workflowId === workflowId),
+      data: mockSnapshots.filter((s: any) => s.workflowId === workflowId) as unknown as Snapshot[],
     };
   },
 
   createSnapshot: async (workflowId: string): Promise<ApiResponse<Snapshot>> => {
     await delay(500);
-    const newSnapshot: Snapshot = {
+    const newSnapshot = {
       id: `snap${Date.now()}`,
       workflowId,
       workflowName: mockWorkflows.find((w) => w.id === workflowId)?.name || 'Unknown',
@@ -340,14 +367,14 @@ export const mockApi = {
       trigger: 'manual',
       createdAt: new Date().toISOString(),
       createdBy: 'user@example.com',
-    };
+    } as unknown as Snapshot;
     return { success: true, data: newSnapshot };
   },
 
   // Deployments
   getDeployments: async (): Promise<ApiResponse<Deployment[]>> => {
     await delay(300);
-    return { success: true, data: mockDeployments };
+    return { success: true, data: mockDeployments as unknown as Deployment[] };
   },
 
   deployWorkflow: async (
@@ -355,17 +382,17 @@ export const mockApi = {
     targetEnv: string
   ): Promise<ApiResponse<Deployment>> => {
     await delay(2000);
-    const newDeployment: Deployment = {
+    const newDeployment = {
       id: `dep${Date.now()}`,
       workflowId,
       workflowName: mockWorkflows.find((w) => w.id === workflowId)?.name || 'Unknown',
       sourceEnvironment: 'dev',
-      targetEnvironment: targetEnv as any,
+      targetEnvironment: targetEnv,
       status: 'success',
       triggeredBy: 'user@example.com',
       startedAt: new Date().toISOString(),
       completedAt: new Date().toISOString(),
-    };
+    } as unknown as Deployment;
     return { success: true, data: newDeployment };
   },
 

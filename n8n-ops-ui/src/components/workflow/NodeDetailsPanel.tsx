@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  X, Key, AlertTriangle, RefreshCw, Settings,
+  X, Key, AlertTriangle, RefreshCw,
   CheckCircle2, XCircle, Clock, Play, Database,
   Maximize2, Minimize2
 } from 'lucide-react';
@@ -32,7 +32,6 @@ interface NodeDetailsPanelProps {
 export function NodeDetailsPanel({
   node,
   metrics,
-  executions = [],
   onClose
 }: NodeDetailsPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false);

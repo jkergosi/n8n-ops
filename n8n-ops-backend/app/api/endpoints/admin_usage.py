@@ -2,6 +2,7 @@
 Admin Usage Endpoints
 
 Provides global usage overview, top tenants by metric, and tenants at/near limits.
+Supports provider filtering for provider-scoped metrics (workflows, executions, environments).
 """
 
 from fastapi import APIRouter, Query, Depends, HTTPException, status
@@ -12,6 +13,27 @@ from app.services.database import db_service
 from app.services.auth_service import get_current_user
 
 router = APIRouter()
+
+
+# ============================================================================
+# Provider Filter Helper
+# ============================================================================
+
+def apply_provider_filter(query, provider: Optional[str], table_has_provider: bool = True):
+    """
+    Apply provider filter to a Supabase query.
+
+    Args:
+        query: Supabase query builder
+        provider: Provider filter value (n8n, make, all, or None)
+        table_has_provider: Whether the table has a provider column
+
+    Returns:
+        Modified query with provider filter applied
+    """
+    if not table_has_provider or not provider or provider == "all":
+        return query
+    return query.eq("provider", provider)
 
 
 # ============================================================================
@@ -145,35 +167,45 @@ def get_usage_status(percentage: float, limit: int) -> str:
 
 @router.get("/", response_model=GlobalUsageResponse)
 async def get_global_usage(
+    provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all"),
     user_info: dict = Depends(get_current_user)
 ):
     """
     Get global usage statistics across all tenants.
 
     Returns aggregate metrics, usage by plan, and growth trends.
+
+    Provider filter applies to provider-scoped metrics (workflows, environments, executions).
+    Users are platform-scoped and not affected by provider filter.
     """
     try:
         # Get all tenants with their stats
         tenants_result = await db_service.client.table("tenants").select("*").execute()
         tenants = tenants_result.data or []
 
-        # Get workflow counts
-        workflows_result = await db_service.client.table("workflows").select("id, tenant_id").execute()
+        # Get workflow counts (provider-scoped)
+        workflows_query = db_service.client.table("workflows").select("id, tenant_id")
+        workflows_query = apply_provider_filter(workflows_query, provider)
+        workflows_result = await workflows_query.execute()
         workflows = workflows_result.data or []
 
-        # Get environment counts
-        envs_result = await db_service.client.table("environments").select("id, tenant_id").execute()
+        # Get environment counts (provider-scoped)
+        envs_query = db_service.client.table("environments").select("id, tenant_id")
+        envs_query = apply_provider_filter(envs_query, provider)
+        envs_result = await envs_query.execute()
         environments = envs_result.data or []
 
-        # Get user counts
+        # Get user counts (platform-scoped - no provider filter)
         users_result = await db_service.client.table("users").select("id, tenant_id").execute()
         users = users_result.data or []
 
-        # Get execution counts (today and month)
+        # Get execution counts (today and month) (provider-scoped)
         today = datetime.utcnow().date()
         month_start = today.replace(day=1)
 
-        executions_result = await db_service.client.table("executions").select("id, tenant_id, started_at").execute()
+        executions_query = db_service.client.table("executions").select("id, tenant_id, started_at")
+        executions_query = apply_provider_filter(executions_query, provider)
+        executions_result = await executions_query.execute()
         executions = executions_result.data or []
 
         executions_today = sum(1 for e in executions if e.get("started_at", "")[:10] == str(today))
@@ -260,11 +292,15 @@ async def get_global_usage(
 async def get_top_tenants(
     metric: str = Query("workflows", description="Metric to rank by: workflows, users, environments, executions"),
     period: str = Query("all", description="Time period: today, week, month, all"),
+    provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all (users metric ignores this)"),
     limit: int = Query(10, ge=1, le=50),
     user_info: dict = Depends(get_current_user)
 ):
     """
     Get top tenants ranked by a specific metric.
+
+    Provider filter applies to provider-scoped metrics (workflows, environments, executions).
+    The 'users' metric is platform-scoped and ignores the provider filter.
     """
     try:
         # Get all tenants
@@ -274,7 +310,10 @@ async def get_top_tenants(
         tenant_values = []
 
         if metric == "workflows":
-            result = await db_service.client.table("workflows").select("tenant_id").execute()
+            # Workflows are provider-scoped
+            query = db_service.client.table("workflows").select("tenant_id")
+            query = apply_provider_filter(query, provider)
+            result = await query.execute()
             counts = {}
             for item in (result.data or []):
                 tid = item.get("tenant_id")
@@ -314,7 +353,10 @@ async def get_top_tenants(
                     })
 
         elif metric == "environments":
-            result = await db_service.client.table("environments").select("tenant_id").execute()
+            # Environments are provider-scoped
+            query = db_service.client.table("environments").select("tenant_id")
+            query = apply_provider_filter(query, provider)
+            result = await query.execute()
             counts = {}
             for item in (result.data or []):
                 tid = item.get("tenant_id")
@@ -343,7 +385,10 @@ async def get_top_tenants(
             elif period == "month":
                 date_filter = str((datetime.utcnow() - timedelta(days=30)).date())
 
-            result = await db_service.client.table("executions").select("tenant_id, started_at").execute()
+            # Executions are provider-scoped
+            query = db_service.client.table("executions").select("tenant_id, started_at")
+            query = apply_provider_filter(query, provider)
+            result = await query.execute()
             counts = {}
             for item in (result.data or []):
                 if date_filter and item.get("started_at", "")[:10] < date_filter:
@@ -400,19 +445,30 @@ async def get_top_tenants(
 @router.get("/tenants-at-limit", response_model=TenantsAtLimitResponse)
 async def get_tenants_at_limit(
     threshold: int = Query(75, ge=50, le=100, description="Percentage threshold for 'near limit'"),
+    provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all (users metric ignores this)"),
     user_info: dict = Depends(get_current_user)
 ):
     """
     Get tenants that are at, near, or over their plan limits.
+
+    Provider filter applies to provider-scoped metrics (workflows, environments).
+    Users are platform-scoped and not affected by provider filter.
     """
     try:
         # Get all tenants
         tenants_result = await db_service.client.table("tenants").select("*").execute()
         tenants = tenants_result.data or []
 
-        # Get counts
-        workflows_result = await db_service.client.table("workflows").select("id, tenant_id").execute()
-        envs_result = await db_service.client.table("environments").select("id, tenant_id").execute()
+        # Get counts (with provider filter for provider-scoped resources)
+        workflows_query = db_service.client.table("workflows").select("id, tenant_id")
+        workflows_query = apply_provider_filter(workflows_query, provider)
+        workflows_result = await workflows_query.execute()
+
+        envs_query = db_service.client.table("environments").select("id, tenant_id")
+        envs_query = apply_provider_filter(envs_query, provider)
+        envs_result = await envs_query.execute()
+
+        # Users are platform-scoped (no provider filter)
         users_result = await db_service.client.table("users").select("id, tenant_id").execute()
 
         workflow_counts = {}

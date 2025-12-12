@@ -167,7 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const completeOnboarding = useCallback(async (organizationName?: string) => {
+  const completeOnboarding = useCallback(async (_organizationName?: string) => {
     // No-op in dev mode - onboarding is disabled
     setNeedsOnboarding(false);
   }, []);

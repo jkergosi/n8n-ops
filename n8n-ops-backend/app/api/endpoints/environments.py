@@ -16,6 +16,7 @@ from app.services.github_service import GitHubService
 from app.services.feature_service import feature_service
 from app.core.feature_gate import require_environment_limit
 from app.core.entitlements_gate import require_entitlement
+from app.api.endpoints.admin_audit import create_audit_log
 
 router = APIRouter()
 
@@ -212,6 +213,27 @@ async def create_environment(
         }
 
         created_environment = await db_service.create_environment(environment_data)
+
+        # Create audit log with provider context
+        try:
+            provider = created_environment.get("provider", "n8n")
+            await create_audit_log(
+                action_type="ENVIRONMENT_CREATED",
+                action=f"Created environment '{environment.n8n_name}'",
+                tenant_id=MOCK_TENANT_ID,
+                resource_type="environment",
+                resource_id=created_environment.get("id"),
+                resource_name=environment.n8n_name,
+                provider=provider,
+                new_value={
+                    "name": environment.n8n_name,
+                    "type": environment.n8n_type,
+                    "base_url": environment.n8n_base_url
+                }
+            )
+        except Exception:
+            pass  # Don't fail if audit logging fails
+
         return created_environment
     except HTTPException:
         raise
@@ -281,7 +303,31 @@ async def delete_environment(
                 detail="Environment not found"
             )
 
+        # Store info for audit log before deletion
+        env_name = existing.get("n8n_name", existing.get("name", environment_id))
+        env_provider = existing.get("provider", "n8n")
+
         await db_service.delete_environment(environment_id, MOCK_TENANT_ID)
+
+        # Create audit log with provider context
+        try:
+            await create_audit_log(
+                action_type="ENVIRONMENT_DELETED",
+                action=f"Deleted environment '{env_name}'",
+                tenant_id=MOCK_TENANT_ID,
+                resource_type="environment",
+                resource_id=environment_id,
+                resource_name=env_name,
+                provider=env_provider,
+                old_value={
+                    "name": env_name,
+                    "type": existing.get("n8n_type"),
+                    "base_url": existing.get("n8n_base_url")
+                }
+            )
+        except Exception:
+            pass
+
         return None
     except HTTPException:
         raise

@@ -57,6 +57,7 @@ class AuditLogResponse(BaseModel):
     resource_type: Optional[str] = None
     resource_id: Optional[str] = None
     resource_name: Optional[str] = None
+    provider: Optional[str] = None  # Provider context (n8n, make) for provider-scoped actions
     old_value: Optional[dict] = None
     new_value: Optional[dict] = None
     reason: Optional[str] = None
@@ -82,6 +83,7 @@ class AuditLogCreate(BaseModel):
     resource_type: Optional[str] = None
     resource_id: Optional[str] = None
     resource_name: Optional[str] = None
+    provider: Optional[str] = None  # Provider context for provider-scoped actions
     old_value: Optional[dict] = None
     new_value: Optional[dict] = None
     reason: Optional[str] = None
@@ -99,6 +101,7 @@ async def create_audit_log(
     resource_type: Optional[str] = None,
     resource_id: Optional[str] = None,
     resource_name: Optional[str] = None,
+    provider: Optional[str] = None,  # Provider context for provider-scoped actions
     old_value: Optional[dict] = None,
     new_value: Optional[dict] = None,
     reason: Optional[str] = None,
@@ -106,7 +109,12 @@ async def create_audit_log(
     user_agent: Optional[str] = None,
     metadata: Optional[dict] = None,
 ) -> dict:
-    """Create an audit log entry."""
+    """Create an audit log entry.
+
+    Args:
+        provider: Provider type (n8n, make) for provider-scoped actions.
+                  Set to None for platform-scoped actions (tenant, user, plan, etc.)
+    """
     try:
         log_data = {
             "action_type": action_type,
@@ -119,6 +127,7 @@ async def create_audit_log(
             "resource_type": resource_type,
             "resource_id": resource_id,
             "resource_name": resource_name,
+            "provider": provider,
             "old_value": old_value,
             "new_value": new_value,
             "reason": reason,
@@ -145,11 +154,19 @@ async def get_audit_logs(
     action_type: Optional[str] = Query(None, description="Filter by action type"),
     tenant_id: Optional[str] = Query(None, description="Filter by tenant ID"),
     resource_type: Optional[str] = Query(None, description="Filter by resource type"),
+    provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, platform (NULL), or all"),
     search: Optional[str] = Query(None, description="Search in action, resource_name"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
 ):
-    """Get audit logs with filtering and pagination."""
+    """Get audit logs with filtering and pagination.
+
+    Provider filter values:
+    - n8n: Show only n8n provider actions
+    - make: Show only Make.com provider actions
+    - platform: Show only platform-scoped actions (provider IS NULL)
+    - all (or omit): Show all entries
+    """
     try:
         # Build query
         query = db_service.client.table("audit_logs").select("*", count="exact")
@@ -167,6 +184,14 @@ async def get_audit_logs(
             query = query.eq("tenant_id", tenant_id)
         if resource_type:
             query = query.eq("resource_type", resource_type)
+
+        # Provider filter
+        if provider and provider != "all":
+            if provider == "platform":
+                query = query.is_("provider", "null")
+            else:
+                query = query.eq("provider", provider)
+
         if search:
             query = query.or_(f"action.ilike.%{search}%,resource_name.ilike.%{search}%,actor_email.ilike.%{search}%")
 
@@ -238,6 +263,7 @@ async def export_audit_logs(
     end_date: Optional[datetime] = Query(None),
     action_type: Optional[str] = Query(None),
     tenant_id: Optional[str] = Query(None),
+    provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, platform, or all"),
 ):
     """Export audit logs as JSON (for CSV conversion on frontend)."""
     try:
@@ -251,6 +277,13 @@ async def export_audit_logs(
             query = query.eq("action_type", action_type)
         if tenant_id:
             query = query.eq("tenant_id", tenant_id)
+
+        # Provider filter
+        if provider and provider != "all":
+            if provider == "platform":
+                query = query.is_("provider", "null")
+            else:
+                query = query.eq("provider", provider)
 
         query = query.order("timestamp", desc=True).limit(10000)
 

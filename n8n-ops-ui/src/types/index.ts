@@ -521,7 +521,7 @@ export interface Pipeline {
 
 // Promotion types
 export type PromotionStatus = 'pending' | 'pending_approval' | 'approved' | 'rejected' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type WorkflowChangeType = 'new' | 'changed' | 'staging_hotfix' | 'conflict' | 'unchanged';
+// Note: WorkflowChangeType is defined above with Deployment types
 
 export interface WorkflowSelection {
   workflowId: string;
@@ -1004,4 +1004,101 @@ export interface TenantAtLimit {
 export interface TenantsAtLimitResponse {
   total: number;
   tenants: TenantAtLimit[];
+}
+
+// Promotion Request/Response types (for API client)
+export interface PromotionInitiateRequest {
+  pipelineId: string;
+  sourceEnvironmentId: string;
+  targetEnvironmentId: string;
+  workflowIds?: string[];
+  notes?: string;
+}
+
+export interface PromotionInitiateResponse {
+  promotionId: string;
+  status: PromotionStatus;
+  workflowSelections: WorkflowSelection[];
+  gateResults?: GateResult;
+  requiresApproval: boolean;
+}
+
+export interface PromotionExecutionResult {
+  promotionId: string;
+  status: PromotionStatus;
+  workflowResults: Array<{
+    workflowId: string;
+    workflowName: string;
+    status: string;
+    error?: string;
+  }>;
+  errors?: string[];
+}
+
+export interface PromotionApprovalRequest {
+  approved: boolean;
+  notes?: string;
+}
+
+export interface PromotionApprovalResponse {
+  promotionId: string;
+  status: PromotionStatus;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectionReason?: string;
+}
+
+export interface PromotionSnapshotRequest {
+  environmentId: string;
+  type: SnapshotType;
+  reason?: string;
+}
+
+export interface PromotionSnapshotResponse {
+  snapshotId: string;
+  gitCommitSha: string;
+  type: SnapshotType;
+  createdAt: string;
+}
+
+export interface PromotionCheckDriftRequest {
+  sourceEnvironmentId: string;
+  targetEnvironmentId: string;
+  workflowIds?: string[];
+}
+
+export interface PromotionCheckDriftResponse {
+  hasDrift: boolean;
+  driftDetails: Array<{
+    workflowId: string;
+    workflowName: string;
+    sourceVersion?: string;
+    targetVersion?: string;
+    status: 'in_sync' | 'modified' | 'missing_source' | 'missing_target';
+  }>;
+}
+
+// Alias for Promotion (used by api-client)
+export type PromotionResponse = Promotion;
+
+// Tenant Stats (for admin)
+export interface TenantStats {
+  totalTenants: number;
+  activeTenants: number;
+  suspendedTenants: number;
+  trialTenants: number;
+  paidTenants: number;
+  byPlan: Record<string, number>;
+  recentSignups: number;
+  churnedThisMonth: number;
+}
+
+// Execution Metrics Summary
+export interface ExecutionMetricsSummary {
+  totalExecutions: number;
+  successCount: number;
+  failureCount: number;
+  successRate: number;
+  avgDurationMs: number;
+  period: string;
 }

@@ -33,9 +33,6 @@ import {
   Code,
   Settings,
   Bot,
-  ArrowRight,
-  ZoomIn,
-  ZoomOut,
   Maximize2,
   Network,
 } from 'lucide-react';
@@ -96,7 +93,7 @@ function CustomNode({ data, selected }: NodeProps) {
       {/* AI Input Handles (bottom) - for AI agents accepting tools, memory, etc. */}
       {hasAiInputs && (
         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex gap-2">
-          {data.aiInputTypes.map((inputType: string, idx: number) => {
+          {data.aiInputTypes.map((inputType: string) => {
             const colors: Record<string, string> = {
               ai_tool: '!bg-orange-500',
               ai_memory: '!bg-purple-500',
@@ -654,8 +651,8 @@ export function WorkflowGraphTab({ workflow }: WorkflowGraphTabProps) {
     return calculateLayout(workflow.nodes, workflow.connections || {});
   }, [workflow]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, , onNodesChange] = useNodesState(initialNodes);
+  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
   // Get last status and error for a node
   const getNodeStatus = useCallback((nodeId: string) => {
@@ -683,7 +680,7 @@ export function WorkflowGraphTab({ workflow }: WorkflowGraphTabProps) {
   }, []);
 
   // Handle node click
-  const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
+  const onNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     const workflowNode = workflow.nodes.find(n => n.id === node.id);
     setSelectedNode(workflowNode || null);
     setHoveredNode(null); // Close tooltip when opening panel

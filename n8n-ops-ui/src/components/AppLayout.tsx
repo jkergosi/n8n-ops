@@ -33,7 +33,6 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { PlanBadge } from '@/components/FeatureGate';
 import { useTheme } from '@/components/ThemeProvider';
 import {
   LayoutDashboard,
@@ -41,7 +40,6 @@ import {
   Server,
   Workflow,
   ListChecks,
-  Tag,
   Camera,
   Rocket,
   Activity,
@@ -62,8 +60,6 @@ import {
   UserCircle,
   Key,
   HelpCircle,
-  Book,
-  Bug,
   Palette,
   GitMerge,
   ChevronRight,
@@ -147,7 +143,7 @@ export function AppLayout() {
   const { user, logout, availableUsers, loginAs } = useAuth();
   const { sidebarOpen, toggleSidebar } = useAppStore();
   const { canUseFeature, planName } = useFeatures();
-  const { theme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
   const [searchOpen, setSearchOpen] = React.useState(false);
   
   // State for collapsible sections - default all sections to expanded

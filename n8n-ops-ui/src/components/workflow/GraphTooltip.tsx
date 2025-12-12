@@ -64,12 +64,11 @@ interface EdgeTooltipProps {
   isErrorPath?: boolean;
 }
 
-export function EdgeTooltip({ 
-  edge, 
-  branchLabel, 
-  condition, 
+export function EdgeTooltip({
+  branchLabel,
+  condition,
   executionPercentage,
-  isErrorPath 
+  isErrorPath
 }: EdgeTooltipProps) {
   return (
     <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg p-3 max-w-xs z-50">

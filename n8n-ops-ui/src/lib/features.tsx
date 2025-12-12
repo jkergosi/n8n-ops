@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useAuth } from '@/lib/auth';
 
 // Plan feature definitions - Phase 2 Full Feature Catalog
@@ -439,8 +439,8 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
     const loadFeatures = async () => {
       setIsLoading(true);
       try {
-        // Use entitlements plan name if available, otherwise fall back to subscription tier
-        const userPlan = entitlements?.plan_name || user?.subscription_plan || 'free';
+        // Use entitlements plan name if available, otherwise fall back to 'free'
+        const userPlan = entitlements?.plan_name || 'free';
         setPlanName(userPlan);
 
         // Start with base plan features
@@ -492,9 +492,7 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
           setFeatures(baseFeatures);
         }
 
-        // Mock usage data - workflow limit from entitlements if available
-        const workflowLimit = entitlements?.features?.workflow_limits as number ||
-                             baseFeatures.max_workflows_per_env || 10;
+        // Mock usage data
         setUsage({
           environments: { current: 1, max: baseFeatures.max_environments || 2 },
           team_members: { current: 1, max: baseFeatures.max_team_members || 3 },

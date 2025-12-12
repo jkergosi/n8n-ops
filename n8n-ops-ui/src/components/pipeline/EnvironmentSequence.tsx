@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowRight, X, ChevronUp, ChevronDown, Plus } from 'lucide-react';
+import { ArrowRight, X, ChevronUp, ChevronDown } from 'lucide-react';
 import type { Environment } from '@/types';
 
 interface EnvironmentSequenceProps {

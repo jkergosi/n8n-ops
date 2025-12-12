@@ -14,6 +14,7 @@ from app.services.github_service import GitHubService
 from app.services.diff_service import compare_workflows
 from app.services.sync_status_service import compute_sync_status
 from app.core.entitlements_gate import require_workflow_limit, require_entitlement
+from app.api.endpoints.admin_audit import create_audit_log
 
 router = APIRouter()
 
@@ -1002,6 +1003,26 @@ async def activate_workflow(
         except Exception as cache_error:
             print(f"Failed to update workflow cache: {str(cache_error)}")
 
+        # Create audit log with provider context
+        try:
+            await create_audit_log(
+                action_type="WORKFLOW_ACTIVATED",
+                action=f"Activated workflow '{workflow.get('name', workflow_id)}'",
+                tenant_id=MOCK_TENANT_ID,
+                resource_type="workflow",
+                resource_id=workflow_id,
+                resource_name=workflow.get("name", workflow_id),
+                provider=env_config.get("provider", "n8n"),
+                old_value={"active": False},
+                new_value={"active": True},
+                metadata={
+                    "environment_id": env_config.get("id"),
+                    "environment_name": env_config.get("name")
+                }
+            )
+        except Exception:
+            pass
+
         return workflow
 
     except HTTPException:
@@ -1038,6 +1059,26 @@ async def deactivate_workflow(
             )
         except Exception as cache_error:
             print(f"Failed to update workflow cache: {str(cache_error)}")
+
+        # Create audit log with provider context
+        try:
+            await create_audit_log(
+                action_type="WORKFLOW_DEACTIVATED",
+                action=f"Deactivated workflow '{workflow.get('name', workflow_id)}'",
+                tenant_id=MOCK_TENANT_ID,
+                resource_type="workflow",
+                resource_id=workflow_id,
+                resource_name=workflow.get("name", workflow_id),
+                provider=env_config.get("provider", "n8n"),
+                old_value={"active": True},
+                new_value={"active": False},
+                metadata={
+                    "environment_id": env_config.get("id"),
+                    "environment_name": env_config.get("name")
+                }
+            )
+        except Exception:
+            pass
 
         return workflow
 
@@ -1195,6 +1236,14 @@ async def delete_workflow(
 
         adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
+        # Get workflow name before deletion for audit log
+        workflow_name = None
+        try:
+            workflow_data = await adapter.get_workflow(workflow_id)
+            workflow_name = workflow_data.get("name", workflow_id)
+        except Exception:
+            workflow_name = workflow_id
+
         await adapter.delete_workflow(workflow_id)
 
         # Soft delete from cache
@@ -1217,6 +1266,24 @@ async def delete_workflow(
             )
         except Exception as count_error:
             print(f"Failed to update workflow count: {str(count_error)}")
+
+        # Create audit log with provider context
+        try:
+            await create_audit_log(
+                action_type="WORKFLOW_DELETED",
+                action=f"Deleted workflow '{workflow_name}'",
+                tenant_id=MOCK_TENANT_ID,
+                resource_type="workflow",
+                resource_id=workflow_id,
+                resource_name=workflow_name,
+                provider=env_config.get("provider", "n8n"),  # Provider context
+                metadata={
+                    "environment_id": env_config.get("id"),
+                    "environment_name": env_config.get("name")
+                }
+            )
+        except Exception:
+            pass  # Don't fail if audit logging fails
 
         return None
 

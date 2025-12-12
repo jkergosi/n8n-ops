@@ -232,3 +232,41 @@ class ProviderAdapter(Protocol):
             True if connection is successful, False otherwise
         """
         ...
+
+    # =========================================================================
+    # Credential Extraction (Provider-specific workflow parsing)
+    # =========================================================================
+
+    @staticmethod
+    def extract_logical_credentials(workflow: Dict[str, Any]) -> List[str]:
+        """Extract logical credential keys from a workflow definition.
+
+        Parses the workflow structure to identify all credentials referenced
+        by nodes, returning them in a provider-agnostic format.
+
+        Args:
+            workflow: The workflow definition dictionary from the provider
+
+        Returns:
+            List of logical credential keys in format "type:name"
+        """
+        ...
+
+    @staticmethod
+    def rewrite_credentials_with_mappings(
+        workflow: Dict[str, Any],
+        mapping_lookup: Dict[str, Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Rewrite workflow credential references using mapping lookup.
+
+        Transforms credential references in a workflow to point to target
+        environment credentials based on the provided mapping.
+
+        Args:
+            workflow: The workflow definition to transform
+            mapping_lookup: Dict keyed by logical_key (type:name) with mapping info
+
+        Returns:
+            Transformed workflow with updated credential references
+        """
+        ...

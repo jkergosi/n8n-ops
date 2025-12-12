@@ -3,8 +3,7 @@ from typing import Optional, List
 import logging
 
 from app.services.database import db_service
-from app.services.adapters.registry import ProviderRegistry
-from app.services.adapters.n8n_adapter import N8NProviderAdapter
+from app.services.provider_registry import ProviderRegistry
 from app.schemas.credential import (
     LogicalCredentialCreate,
     LogicalCredentialResponse,
@@ -144,8 +143,9 @@ async def credential_preflight_check(
         workflow_name = workflow_record.get("name", "Unknown")
         workflow_data = workflow_record.get("workflow_data", {})
 
-        # Extract logical credentials
-        logical_keys = N8NProviderAdapter.extract_logical_credentials(workflow_data)
+        # Extract logical credentials using provider-specific adapter
+        adapter_class = ProviderRegistry.get_adapter_class(body.provider)
+        logical_keys = adapter_class.extract_logical_credentials(workflow_data)
 
         # Check each credential
         nodes = workflow_data.get("nodes", [])
@@ -323,8 +323,9 @@ async def refresh_workflow_dependencies(
 
     workflow_data = workflow_record.get("workflow_data", {})
 
-    # Extract logical credentials
-    logical_keys = N8NProviderAdapter.extract_logical_credentials(workflow_data)
+    # Extract logical credentials using provider-specific adapter
+    adapter_class = ProviderRegistry.get_adapter_class(provider)
+    logical_keys = adapter_class.extract_logical_credentials(workflow_data)
 
     # Upsert dependencies
     await db_service.upsert_workflow_dependencies(

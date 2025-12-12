@@ -150,3 +150,32 @@ class ProviderRegistry:
             List of provider string values that have adapter implementations
         """
         return [p.value for p in cls._adapter_classes.keys()]
+
+    @classmethod
+    def get_adapter_class(cls, provider: Union[Provider, str]) -> Type:
+        """Get the adapter class for a provider (for static method access).
+
+        Use this when you need to call static methods on the adapter class
+        without instantiating it (e.g., extract_logical_credentials).
+
+        Args:
+            provider: Provider enum or string value
+
+        Returns:
+            The adapter class (not instance)
+
+        Raises:
+            ValueError: If provider is not supported
+        """
+        if isinstance(provider, str):
+            provider = Provider.from_string(provider)
+
+        adapter_class = cls._adapter_classes.get(provider)
+        if not adapter_class:
+            supported = [p.value for p in cls._adapter_classes.keys()]
+            raise ValueError(
+                f"Unsupported provider: {provider}. "
+                f"Supported providers: {supported}"
+            )
+
+        return adapter_class

@@ -1,6 +1,4 @@
-// @ts-nocheck
-// TODO: Fix TypeScript errors in this file
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { useAppStore } from '@/store/use-app-store';
@@ -159,16 +157,16 @@ export function AppLayout() {
   });
 
   // Get user's role mapped to frontend role system
-  const getUserRole = (): Role => {
+  const getUserRole = useCallback((): Role => {
     if (!user?.role) return 'user';
     return mapBackendRoleToFrontendRole(user.role);
-  };
+  }, [user?.role]);
 
   // Check if a nav item is accessible based on plan
-  const isFeatureAvailable = (item: NavItem): boolean => {
+  const isFeatureAvailable = useCallback((item: NavItem): boolean => {
     if (!item.feature) return true;
     return canUseFeature(item.feature);
-  };
+  }, [canUseFeature]);
 
   // Build search items from navigation
   const searchItems = React.useMemo(() => {
@@ -182,7 +180,7 @@ export function AppLayout() {
       });
     });
     return items;
-  }, [user?.role, canUseFeature]);
+  }, [getUserRole, isFeatureAvailable]);
 
   const toggleSection = (sectionTitle: string) => {
     setExpandedSections((prev) => ({

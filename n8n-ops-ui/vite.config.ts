@@ -15,6 +15,9 @@ export default defineConfig({
     environment: 'happy-dom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    env: {
+      VITE_API_BASE_URL: 'http://localhost:4000/api/v1',
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

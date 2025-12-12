@@ -217,6 +217,77 @@ export const handlers = [
     return HttpResponse.json({ ...workflow, active: false });
   }),
 
+  http.put(`${API_BASE}/workflows/:id`, async ({ params, request }) => {
+    const workflow = mockWorkflows.find((w) => w.id === params.id);
+    if (!workflow) {
+      return new HttpResponse(null, { status: 404 });
+    }
+    const body = await request.json();
+    return HttpResponse.json({ ...workflow, ...body, updated_at: new Date().toISOString() });
+  }),
+
+  http.delete(`${API_BASE}/workflows/:id`, ({ params }) => {
+    const workflow = mockWorkflows.find((w) => w.id === params.id);
+    if (!workflow) {
+      return new HttpResponse(null, { status: 404 });
+    }
+    return HttpResponse.json({ success: true });
+  }),
+
+  http.put(`${API_BASE}/workflows/:id/tags`, async ({ params, request }) => {
+    const workflow = mockWorkflows.find((w) => w.id === params.id);
+    if (!workflow) {
+      return new HttpResponse(null, { status: 404 });
+    }
+    const body = await request.json();
+    return HttpResponse.json({ ...workflow, tags: body.tags || body });
+  }),
+
+  http.post(`${API_BASE}/workflows/sync-to-github`, () => {
+    return HttpResponse.json({ success: true, synced: 2, skipped: 0, failed: 0 });
+  }),
+
+  // Execution endpoints
+  http.get(`${API_BASE}/executions`, () => {
+    return HttpResponse.json([
+      { id: 'exec-1', workflowId: 'wf-1', status: 'success', startedAt: '2024-01-01T00:00:00Z' },
+      { id: 'exec-2', workflowId: 'wf-1', status: 'success', startedAt: '2024-01-02T00:00:00Z' },
+      { id: 'exec-3', workflowId: 'wf-2', status: 'error', startedAt: '2024-01-03T00:00:00Z' },
+    ]);
+  }),
+
+  // Promotions endpoints
+  http.get(`${API_BASE}/promotions`, () => {
+    return HttpResponse.json([]);
+  }),
+
+  http.post(`${API_BASE}/promotions/initiate`, async ({ request }) => {
+    const body = await request.json();
+    return HttpResponse.json({
+      id: `promo-${Date.now()}`,
+      status: 'pending_approval',
+      pipeline_id: body.pipeline_id,
+      source_environment_id: body.source_environment_id,
+      target_environment_id: body.target_environment_id,
+      workflows: body.workflow_ids?.map((id: string) => ({ id, name: `Workflow ${id}` })) || [],
+      gate_results: { all_passed: true },
+      created_at: new Date().toISOString(),
+    });
+  }),
+
+  http.post(`${API_BASE}/promotions/:id/approve`, ({ params }) => {
+    return HttpResponse.json({ id: params.id, status: 'approved', approved_at: new Date().toISOString() });
+  }),
+
+  http.post(`${API_BASE}/promotions/:id/execute`, ({ params }) => {
+    return HttpResponse.json({
+      id: params.id,
+      status: 'completed',
+      executed_at: new Date().toISOString(),
+      results: { workflows_promoted: 2, errors: [] },
+    });
+  }),
+
   // Pipeline endpoints
   http.get(`${API_BASE}/pipelines`, () => {
     return HttpResponse.json(mockPipelines);
@@ -293,6 +364,10 @@ export const handlers = [
       { id: 'pro', name: 'Pro', price: 29 },
       { id: 'enterprise', name: 'Enterprise', price: 99 },
     ]);
+  }),
+
+  http.get(`${API_BASE}/billing/payment-history`, () => {
+    return HttpResponse.json([]);
   }),
 ];
 

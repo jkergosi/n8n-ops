@@ -1014,6 +1014,93 @@ export const handlers = [
       total: 1,
     });
   }),
+
+  // Tenants endpoint (non-admin)
+  http.get(`${API_BASE}/tenants`, () => {
+    return HttpResponse.json({
+      tenants: [
+        {
+          id: 'tenant-1',
+          name: 'Acme Corp',
+          email: 'admin@acme.com',
+          subscriptionPlan: 'pro',
+          status: 'active',
+        },
+        {
+          id: 'tenant-2',
+          name: 'Test Org',
+          email: 'admin@test.com',
+          subscriptionPlan: 'free',
+          status: 'active',
+        },
+      ],
+      total: 2,
+    });
+  }),
+
+  // Admin entitlements features
+  http.get(`${API_BASE}/admin/entitlements/features`, () => {
+    return HttpResponse.json({
+      features: [
+        { key: 'max_environments', name: 'Max Environments', description: 'Maximum environments allowed' },
+        { key: 'max_workflows', name: 'Max Workflows', description: 'Maximum workflows allowed' },
+        { key: 'max_team_members', name: 'Max Team Members', description: 'Maximum team members allowed' },
+      ],
+    });
+  }),
+
+  // Entitlements audit endpoints
+  http.get(`${API_BASE}/tenants/entitlements/audits`, () => {
+    return HttpResponse.json({
+      audits: [
+        {
+          id: 'audit-1',
+          timestamp: new Date().toISOString(),
+          actor_email: 'admin@test.com',
+          action: 'override_created',
+          tenant_name: 'Acme Corp',
+          feature_key: 'max_workflows',
+          old_value: null,
+          new_value: 200,
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    });
+  }),
+
+  http.get(`${API_BASE}/tenants/entitlements/access-logs`, () => {
+    return HttpResponse.json({
+      logs: [],
+      total: 0,
+      page: 1,
+      page_size: 20,
+    });
+  }),
+
+  // Active providers endpoint
+  http.get(`${API_BASE}/providers/active`, () => {
+    return HttpResponse.json([
+      { provider: 'n8n', displayName: 'n8n', isActive: true },
+      { provider: 'local', displayName: 'Local', isActive: true },
+    ]);
+  }),
+
+  // Logical credentials endpoint
+  http.get(`${API_BASE}/credentials/logical`, () => {
+    return HttpResponse.json([
+      { id: 'logical-1', name: 'Slack API', requiredType: 'slackApi', description: 'Slack API credentials', tenantId: 'tenant-1' },
+      { id: 'logical-2', name: 'GitHub Token', requiredType: 'githubApi', description: 'GitHub API credentials', tenantId: 'tenant-1' },
+    ]);
+  }),
+
+  // Credential mappings endpoint
+  http.get(`${API_BASE}/credentials/mappings`, () => {
+    return HttpResponse.json([
+      { id: 'mapping-1', logicalCredentialId: 'logical-1', environmentId: 'env-1', physicalCredentialId: 'physical-1', provider: 'n8n' },
+    ]);
+  }),
 ];
 
 // Error handlers for testing error states

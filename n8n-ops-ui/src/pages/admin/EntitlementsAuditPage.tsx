@@ -91,7 +91,7 @@ export function EntitlementsAuditPage() {
       }),
   });
 
-  const tenants = tenantsData?.data || [];
+  const tenants = tenantsData?.data?.tenants || [];
   const features = featuresData?.data?.features || [];
   const configAudits = configAuditsData?.data?.audits || [];
   const configTotal = configAuditsData?.data?.total || 0;
@@ -206,7 +206,7 @@ export function EntitlementsAuditPage() {
   );
 
   const filteredAccessLogs = accessLogs.filter((log: FeatureAccessLog) =>
-    log.featureKey.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    log.featureKey?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     log.userEmail?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     log.endpoint?.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -241,12 +241,12 @@ export function EntitlementsAuditPage() {
         <CardContent>
           <div className="flex flex-wrap gap-4">
             <div className="w-48">
-              <Select value={selectedTenantId} onValueChange={setSelectedTenantId}>
+              <Select value={selectedTenantId || 'all'} onValueChange={(v) => setSelectedTenantId(v === 'all' ? '' : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Tenants" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Tenants</SelectItem>
+                  <SelectItem value="all">All Tenants</SelectItem>
                   {tenants.map((tenant: Tenant) => (
                     <SelectItem key={tenant.id} value={tenant.id}>
                       {tenant.name}
@@ -256,12 +256,12 @@ export function EntitlementsAuditPage() {
               </Select>
             </div>
             <div className="w-48">
-              <Select value={selectedFeatureKey} onValueChange={setSelectedFeatureKey}>
+              <Select value={selectedFeatureKey || 'all'} onValueChange={(v) => setSelectedFeatureKey(v === 'all' ? '' : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="All Features" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Features</SelectItem>
+                  <SelectItem value="all">All Features</SelectItem>
                   {features.map((feature: any) => (
                     <SelectItem key={feature.id} value={feature.key}>
                       {feature.displayName}
@@ -272,12 +272,12 @@ export function EntitlementsAuditPage() {
             </div>
             {activeTab === 'access' && (
               <div className="w-40">
-                <Select value={selectedResult} onValueChange={setSelectedResult}>
+                <Select value={selectedResult || 'all'} onValueChange={(v) => setSelectedResult(v === 'all' ? '' : v)}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Results" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Results</SelectItem>
+                    <SelectItem value="all">All Results</SelectItem>
                     <SelectItem value="allowed">Allowed</SelectItem>
                     <SelectItem value="denied">Denied</SelectItem>
                     <SelectItem value="limit_exceeded">Limit Exceeded</SelectItem>

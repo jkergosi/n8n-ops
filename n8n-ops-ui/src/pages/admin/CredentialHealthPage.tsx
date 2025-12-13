@@ -337,12 +337,12 @@ export function CredentialHealthPage() {
             <CardDescription>Filter by provider (optional)</CardDescription>
           </CardHeader>
           <CardContent>
-            <Select value={selectedProvider} onValueChange={setSelectedProvider}>
+            <Select value={selectedProvider || 'all'} onValueChange={(v) => setSelectedProvider(v === 'all' ? undefined : v)}>
               <SelectTrigger>
                 <SelectValue placeholder="All providers" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All providers</SelectItem>
+                <SelectItem value="all">All providers</SelectItem>
                 {providers.map((p: any) => (
                   <SelectItem key={p.provider} value={p.provider}>
                     {p.provider}

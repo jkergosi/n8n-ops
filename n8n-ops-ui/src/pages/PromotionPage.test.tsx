@@ -8,46 +8,42 @@ import { server } from '@/test/mocks/server';
 
 const API_BASE = 'http://localhost:4000/api/v1';
 
-const mockPipelines = {
-  data: [
-    {
-      id: 'pipeline-1',
-      name: 'Dev to Staging',
-      isActive: true,
-      stages: [
-        {
-          sourceEnvironmentId: 'env-dev',
-          targetEnvironmentId: 'env-staging',
-          approvals: { requireApproval: true },
-          policyFlags: { allowOverwritingHotfixes: false },
-        },
-      ],
-    },
-    {
-      id: 'pipeline-2',
-      name: 'Staging to Prod',
-      isActive: true,
-      stages: [
-        {
-          sourceEnvironmentId: 'env-staging',
-          targetEnvironmentId: 'env-prod',
-          approvals: { requireApproval: true },
-          policyFlags: { allowOverwritingHotfixes: false },
-        },
-      ],
-    },
-  ],
-  total: 2,
-};
+// API returns array directly, api-client wraps it with { data: ... }
+const mockPipelines = [
+  {
+    id: 'pipeline-1',
+    name: 'Dev to Staging',
+    isActive: true,
+    stages: [
+      {
+        sourceEnvironmentId: 'env-dev',
+        targetEnvironmentId: 'env-staging',
+        approvals: { requireApproval: true },
+        policyFlags: { allowOverwritingHotfixes: false },
+      },
+    ],
+  },
+  {
+    id: 'pipeline-2',
+    name: 'Staging to Prod',
+    isActive: true,
+    stages: [
+      {
+        sourceEnvironmentId: 'env-staging',
+        targetEnvironmentId: 'env-prod',
+        approvals: { requireApproval: true },
+        policyFlags: { allowOverwritingHotfixes: false },
+      },
+    ],
+  },
+];
 
-const mockEnvironments = {
-  data: [
-    { id: 'env-dev', name: 'Development', type: 'dev', provider: 'n8n' },
-    { id: 'env-staging', name: 'Staging', type: 'staging', provider: 'n8n' },
-    { id: 'env-prod', name: 'Production', type: 'production', provider: 'n8n' },
-  ],
-  total: 3,
-};
+// API returns array directly for environments
+const mockEnvironments = [
+  { id: 'env-dev', name: 'Development', type: 'dev', provider: 'n8n' },
+  { id: 'env-staging', name: 'Staging', type: 'staging', provider: 'n8n' },
+  { id: 'env-prod', name: 'Production', type: 'production', provider: 'n8n' },
+];
 
 // Mock useSearchParams
 vi.mock('react-router-dom', async () => {

@@ -6,6 +6,16 @@ import { TenantOverridesPage } from './TenantOverridesPage';
 
 const API_BASE = 'http://localhost:4000/api/v1';
 
+const mockTenants = [
+  { id: 'tenant-1', name: 'Acme Corp', email: 'admin@acme.com', subscriptionPlan: 'pro', status: 'active' },
+  { id: 'tenant-2', name: 'Test Org', email: 'admin@test.com', subscriptionPlan: 'free', status: 'active' },
+];
+
+const mockFeatures = [
+  { key: 'max_workflows', name: 'Max Workflows', description: 'Maximum workflows allowed' },
+  { key: 'max_environments', name: 'Max Environments', description: 'Maximum environments allowed' },
+];
+
 const mockOverrides = [
   {
     id: 'override-1',
@@ -15,16 +25,6 @@ const mockOverrides = [
     override_value: 200,
     reason: 'Enterprise upgrade pending',
     created_at: '2024-01-01T00:00:00Z',
-    created_by: 'admin@test.com',
-  },
-  {
-    id: 'override-2',
-    tenant_id: 'tenant-2',
-    tenant_name: 'Test Org',
-    feature_key: 'max_environments',
-    override_value: 10,
-    reason: 'Trial extension',
-    created_at: '2024-01-15T00:00:00Z',
     created_by: 'admin@test.com',
   },
 ];
@@ -37,7 +37,18 @@ describe('TenantOverridesPage', () => {
       http.get(`${API_BASE}/admin/entitlements/overrides`, () => {
         return HttpResponse.json({
           overrides: mockOverrides,
+          total: 1,
+        });
+      }),
+      http.get(`${API_BASE}/tenants`, () => {
+        return HttpResponse.json({
+          tenants: mockTenants,
           total: 2,
+        });
+      }),
+      http.get(`${API_BASE}/admin/entitlements/features`, () => {
+        return HttpResponse.json({
+          features: mockFeatures,
         });
       }),
       http.get(`${API_BASE}/auth/status`, () => {
@@ -63,90 +74,45 @@ describe('TenantOverridesPage', () => {
     it('should display the page description', async () => {
       render(<TenantOverridesPage />);
 
-      expect(screen.getByText(/manage per-tenant feature limit overrides/i)).toBeInTheDocument();
-    });
-
-    it('should display Feature Matrix link', async () => {
-      render(<TenantOverridesPage />);
-
-      expect(screen.getByRole('link', { name: /feature matrix/i })).toBeInTheDocument();
-    });
-
-    it('should display Add Override button', async () => {
-      render(<TenantOverridesPage />);
-
-      expect(screen.getByRole('button', { name: /add override/i })).toBeInTheDocument();
+      expect(screen.getByText(/manage feature overrides for specific tenants/i)).toBeInTheDocument();
     });
   });
 
-  describe('Overrides Table', () => {
-    it('should display table headers', async () => {
+  describe('Tenant Selection', () => {
+    it('should display Select Tenant section', async () => {
       render(<TenantOverridesPage />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Tenant')).toBeInTheDocument();
-      });
-      expect(screen.getByText('Feature')).toBeInTheDocument();
-      expect(screen.getByText('Override Value')).toBeInTheDocument();
-      expect(screen.getByText('Reason')).toBeInTheDocument();
+      expect(screen.getByText('Select Tenant')).toBeInTheDocument();
     });
 
-    it('should display tenant names', async () => {
+    it('should display tenant selection description', async () => {
       render(<TenantOverridesPage />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Acme Corp')).toBeInTheDocument();
-      });
-      expect(screen.getByText('Test Org')).toBeInTheDocument();
+      expect(screen.getByText(/choose a tenant to view and manage their feature overrides/i)).toBeInTheDocument();
     });
 
-    it('should display feature keys', async () => {
+    it('should have tenant selector dropdown', async () => {
       render(<TenantOverridesPage />);
 
-      await waitFor(() => {
-        expect(screen.getByText('max_workflows')).toBeInTheDocument();
-      });
-      expect(screen.getByText('max_environments')).toBeInTheDocument();
-    });
-
-    it('should display override reasons', async () => {
-      render(<TenantOverridesPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Enterprise upgrade pending')).toBeInTheDocument();
-      });
-      expect(screen.getByText('Trial extension')).toBeInTheDocument();
+      expect(screen.getByText(/select a tenant/i)).toBeInTheDocument();
     });
   });
 
-  describe('Empty State', () => {
-    it('should show empty message when no overrides exist', async () => {
-      server.use(
-        http.get(`${API_BASE}/admin/entitlements/overrides`, () => {
-          return HttpResponse.json({ overrides: [], total: 0 });
-        })
-      );
-
+  describe('Action Buttons', () => {
+    it('should display Refresh button (disabled initially)', async () => {
       render(<TenantOverridesPage />);
 
-      await waitFor(() => {
-        expect(screen.getByText(/no overrides found/i)).toBeInTheDocument();
-      });
+      const refreshButton = screen.getByRole('button', { name: /refresh/i });
+      expect(refreshButton).toBeInTheDocument();
+      expect(refreshButton).toBeDisabled();
     });
-  });
 
-  describe('Loading State', () => {
-    it('should show loading state initially', async () => {
-      server.use(
-        http.get(`${API_BASE}/admin/entitlements/overrides`, async () => {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          return HttpResponse.json({ overrides: mockOverrides, total: 2 });
-        })
-      );
-
+    it('should display Add Override button (disabled initially)', async () => {
       render(<TenantOverridesPage />);
 
-      expect(screen.getByText(/loading overrides/i)).toBeInTheDocument();
+      const addButton = screen.getByRole('button', { name: /add override/i });
+      expect(addButton).toBeInTheDocument();
+      expect(addButton).toBeDisabled();
     });
   });
 });

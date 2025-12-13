@@ -89,7 +89,7 @@ export function TenantOverridesPage() {
     enabled: !!selectedTenantId,
   });
 
-  const tenants = tenantsData?.data || [];
+  const tenants = tenantsData?.data?.tenants || [];
   const features = featuresData?.data?.features || [];
   const overrides = overridesData?.data?.overrides || [];
 

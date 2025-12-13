@@ -8,55 +8,54 @@ import { server } from '@/test/mocks/server';
 
 const API_BASE = 'http://localhost:4000/api/v1';
 
-const mockN8NUsers = {
-  data: [
-    {
-      id: 'n8n-user-1',
-      email: 'admin@example.com',
-      first_name: 'Admin',
-      last_name: 'User',
-      role: 'owner',
-      is_pending: false,
-      environment: { id: 'env-1', name: 'Development', type: 'dev' },
-      last_synced_at: '2024-01-15T10:00:00Z',
-    },
-    {
-      id: 'n8n-user-2',
-      email: 'developer@example.com',
-      first_name: 'Developer',
-      last_name: 'User',
-      role: 'member',
-      is_pending: false,
-      environment: { id: 'env-2', name: 'Staging', type: 'staging' },
-      last_synced_at: '2024-01-14T10:00:00Z',
-    },
-    {
-      id: 'n8n-user-3',
-      email: 'pending@example.com',
-      first_name: 'Pending',
-      last_name: 'User',
-      role: 'member',
-      is_pending: true,
-      environment: { id: 'env-1', name: 'Development', type: 'dev' },
-      last_synced_at: '2024-01-13T10:00:00Z',
-    },
-  ],
-  total: 3,
-};
+// API returns array directly, api-client wraps it with { data: ... }
+const mockN8NUsers = [
+  {
+    id: 'n8n-user-1',
+    email: 'admin@example.com',
+    first_name: 'Admin',
+    last_name: 'User',
+    role: 'owner',
+    is_pending: false,
+    environment: { id: 'env-1', name: 'Development', type: 'dev' },
+    last_synced_at: '2024-01-15T10:00:00Z',
+  },
+  {
+    id: 'n8n-user-2',
+    email: 'developer@example.com',
+    first_name: 'Developer',
+    last_name: 'User',
+    role: 'member',
+    is_pending: false,
+    environment: { id: 'env-2', name: 'Staging', type: 'staging' },
+    last_synced_at: '2024-01-14T10:00:00Z',
+  },
+  {
+    id: 'n8n-user-3',
+    email: 'pending@example.com',
+    first_name: 'Pending',
+    last_name: 'User',
+    role: 'member',
+    is_pending: true,
+    environment: { id: 'env-1', name: 'Development', type: 'dev' },
+    last_synced_at: '2024-01-13T10:00:00Z',
+  },
+];
 
-const mockEnvironments = {
-  data: [
-    { id: 'env-1', name: 'Development', type: 'dev' },
-    { id: 'env-2', name: 'Staging', type: 'staging' },
-  ],
-  total: 2,
-};
+// API returns array directly for environments
+const mockEnvironments = [
+  { id: 'env-1', name: 'Development', type: 'dev' },
+  { id: 'env-2', name: 'Staging', type: 'staging' },
+];
 
 describe('N8NUsersPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     server.use(
       http.get(`${API_BASE}/n8n-users`, () => {
+        return HttpResponse.json(mockN8NUsers);
+      }),
+      http.get(`${API_BASE}/n8n-users/`, () => {
         return HttpResponse.json(mockN8NUsers);
       }),
       http.get(`${API_BASE}/environments`, () => {
@@ -69,6 +68,10 @@ describe('N8NUsersPage', () => {
     it('should show loading state initially', async () => {
       server.use(
         http.get(`${API_BASE}/n8n-users`, async () => {
+          await new Promise((r) => setTimeout(r, 100));
+          return HttpResponse.json(mockN8NUsers);
+        }),
+        http.get(`${API_BASE}/n8n-users/`, async () => {
           await new Promise((r) => setTimeout(r, 100));
           return HttpResponse.json(mockN8NUsers);
         })
@@ -128,7 +131,10 @@ describe('N8NUsersPage', () => {
     it('should show empty state when no users exist', async () => {
       server.use(
         http.get(`${API_BASE}/n8n-users`, () => {
-          return HttpResponse.json({ data: [], total: 0 });
+          return HttpResponse.json([]);
+        }),
+        http.get(`${API_BASE}/n8n-users/`, () => {
+          return HttpResponse.json([]);
         })
       );
 

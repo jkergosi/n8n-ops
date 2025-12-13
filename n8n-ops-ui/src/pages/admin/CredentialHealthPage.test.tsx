@@ -6,25 +6,41 @@ import { CredentialHealthPage } from './CredentialHealthPage';
 
 const API_BASE = 'http://localhost:4000/api/v1';
 
+const mockEnvironments = [
+  { id: 'env-1', tenant_id: 'tenant-1', n8n_name: 'Development', n8n_type: 'development', n8n_base_url: 'https://dev.n8n.example.com', is_active: true },
+  { id: 'env-2', tenant_id: 'tenant-1', n8n_name: 'Production', n8n_type: 'production', n8n_base_url: 'https://prod.n8n.example.com', is_active: true },
+];
+
+const mockProviders = [
+  { provider: 'n8n', displayName: 'n8n', isActive: true },
+  { provider: 'local', displayName: 'Local', isActive: true },
+];
+
+const mockLogicalCredentials = [
+  { id: 'logical-1', name: 'Slack API', requiredType: 'slackApi', description: 'Slack API credentials', tenantId: 'tenant-1' },
+  { id: 'logical-2', name: 'GitHub Token', requiredType: 'githubApi', description: 'GitHub API credentials', tenantId: 'tenant-1' },
+];
+
+const mockCredentialMappings = [
+  { id: 'mapping-1', logicalCredentialId: 'logical-1', environmentId: 'env-1', physicalCredentialId: 'physical-1', provider: 'n8n' },
+];
+
 describe('CredentialHealthPage', () => {
   beforeEach(() => {
     server.resetHandlers();
 
     server.use(
-      http.get(`${API_BASE}/admin/credentials/health`, () => {
-        return HttpResponse.json({
-          summary: {
-            total: 50,
-            healthy: 45,
-            warning: 3,
-            error: 2,
-          },
-          credentials: [
-            { id: 'cred-1', name: 'Slack API', type: 'slackApi', status: 'healthy', tenant: 'Acme Corp', lastChecked: new Date().toISOString() },
-            { id: 'cred-2', name: 'GitHub Token', type: 'githubApi', status: 'warning', tenant: 'Test Org', lastChecked: new Date().toISOString() },
-            { id: 'cred-3', name: 'OpenAI Key', type: 'openAiApi', status: 'error', tenant: 'Demo Inc', lastChecked: new Date().toISOString() },
-          ],
-        });
+      http.get(`${API_BASE}/environments`, () => {
+        return HttpResponse.json(mockEnvironments);
+      }),
+      http.get(`${API_BASE}/providers/active`, () => {
+        return HttpResponse.json(mockProviders);
+      }),
+      http.get(`${API_BASE}/credentials/logical`, () => {
+        return HttpResponse.json(mockLogicalCredentials);
+      }),
+      http.get(`${API_BASE}/credentials/mappings`, () => {
+        return HttpResponse.json(mockCredentialMappings);
       }),
       http.get(`${API_BASE}/auth/status`, () => {
         return HttpResponse.json({
@@ -49,94 +65,35 @@ describe('CredentialHealthPage', () => {
     it('should display the page description', async () => {
       render(<CredentialHealthPage />);
 
-      expect(screen.getByText(/monitor credential status across all tenants/i)).toBeInTheDocument();
-    });
-
-    it('should display Refresh button', async () => {
-      render(<CredentialHealthPage />);
-
-      expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument();
+      expect(screen.getByText(/manage logical credentials and their environment mappings/i)).toBeInTheDocument();
     });
   });
 
-  describe('Summary Cards', () => {
-    it('should display Total Credentials card', async () => {
+  describe('Selector Cards', () => {
+    it('should display Environment card', async () => {
       render(<CredentialHealthPage />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Total Credentials')).toBeInTheDocument();
-      });
+      expect(screen.getByText('Environment')).toBeInTheDocument();
     });
 
-    it('should display Healthy card', async () => {
+    it('should display Provider card', async () => {
       render(<CredentialHealthPage />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Healthy')).toBeInTheDocument();
-      });
-    });
-
-    it('should display Warning card', async () => {
-      render(<CredentialHealthPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Warning')).toBeInTheDocument();
-      });
-    });
-
-    it('should display Error card', async () => {
-      render(<CredentialHealthPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Error')).toBeInTheDocument();
-      });
+      expect(screen.getByText('Provider')).toBeInTheDocument();
     });
   });
 
-  describe('Credentials Table', () => {
-    it('should display table headers', async () => {
+  describe('Credential Sections', () => {
+    it('should display Logical Credentials section', async () => {
       render(<CredentialHealthPage />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Credential')).toBeInTheDocument();
-      });
-      expect(screen.getByText('Type')).toBeInTheDocument();
-      expect(screen.getByText('Status')).toBeInTheDocument();
+      expect(screen.getByText('Logical Credentials')).toBeInTheDocument();
     });
 
-    it('should display credential names', async () => {
+    it('should display Credential Mappings section', async () => {
       render(<CredentialHealthPage />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Slack API')).toBeInTheDocument();
-      });
-      expect(screen.getByText('GitHub Token')).toBeInTheDocument();
-      expect(screen.getByText('OpenAI Key')).toBeInTheDocument();
-    });
-
-    it('should display status badges', async () => {
-      render(<CredentialHealthPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('healthy')).toBeInTheDocument();
-      });
-      expect(screen.getByText('warning')).toBeInTheDocument();
-      expect(screen.getByText('error')).toBeInTheDocument();
-    });
-  });
-
-  describe('Loading State', () => {
-    it('should show loading state initially', async () => {
-      server.use(
-        http.get(`${API_BASE}/admin/credentials/health`, async () => {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          return HttpResponse.json({ summary: {}, credentials: [] });
-        })
-      );
-
-      render(<CredentialHealthPage />);
-
-      expect(screen.getByText(/loading credential health/i)).toBeInTheDocument();
+      expect(screen.getByText('Credential Mappings')).toBeInTheDocument();
     });
   });
 });

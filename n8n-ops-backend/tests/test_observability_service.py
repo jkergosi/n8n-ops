@@ -59,7 +59,7 @@ class FakeDB:
         return {"status": "healthy", "latency_ms": 42, "error_message": None}
 
     async def get_uptime_stats(self, tenant_id, env_id, since):
-        return {"uptime": 0.99}
+        return {"uptime_percent": 99.0}
 
     async def get_deployments(self, tenant_id):
         return []
@@ -75,6 +75,15 @@ class FakeDB:
 
     async def get_sync_stats(self, tenant_id, since):
         return {"syncs": 2, "success": 2, "failed": 0}
+
+    async def get_deployment_stats(self, tenant_id, since):
+        return {"total": 5, "success": 4, "failed": 1, "blocked": 0}
+
+    async def get_snapshot_stats(self, tenant_id, since):
+        return {"created": 10, "restored": 2}
+
+    async def get_recent_deployments_with_details(self, tenant_id, limit=5):
+        return []
 
     async def create_environment_health_check(self, *args, **kwargs):
         return {"id": "hc-1", "checked_at": "now"}

@@ -12,13 +12,17 @@ const mockUser = {
   role: 'admin',
 };
 
-vi.mock('@/lib/auth', () => ({
-  useAuth: () => ({
-    user: mockUser,
-    isAuthenticated: true,
-    isLoading: false,
-  }),
-}));
+vi.mock('@/lib/auth', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    useAuth: () => ({
+      user: mockUser,
+      isAuthenticated: true,
+      isLoading: false,
+    }),
+  };
+});
 
 describe('ProfilePage', () => {
   beforeEach(() => {

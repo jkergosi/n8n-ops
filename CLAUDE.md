@@ -56,13 +56,18 @@ npm run dev -- --port <FRONTEND_PORT>
 
 - **Environments**: Manage multiple N8N instances (dev/staging/prod)
 - **Workflows**: View, upload, sync, activate/deactivate workflows
+- **Credentials**: View and manage N8N credentials across environments
+- **Executions**: Monitor workflow execution history
 - **GitHub Sync**: Backup/restore workflows to Git repositories
 - **Pipelines**: Define promotion flows between environments
 - **Promotions**: Move workflows with gates, approvals, drift detection
 - **Snapshots**: Git-backed environment state versioning
+- **Restore**: Restore workflows from snapshots
 - **Deployments**: Track promotion history and rollback
+- **Observability**: Health monitoring, alerts, and metrics
 - **Team Management**: Role-based access (admin, developer, viewer)
 - **Billing**: Stripe integration with free/pro/enterprise tiers
+- **Admin Portal**: 14 admin pages for system management
 
 ## Dev Mode Authentication
 
@@ -81,15 +86,16 @@ n8n-ops/
 │   ├── CLAUDE.md                # Backend-specific docs
 │   ├── app/
 │   │   ├── main.py              # App entry, router registration
-│   │   ├── api/endpoints/       # 16 API routers
-│   │   ├── services/            # 11 business logic services
-│   │   ├── schemas/             # 10 Pydantic model files
+│   │   ├── api/endpoints/       # 24 API routers
+│   │   ├── services/            # 18 business logic services
+│   │   ├── schemas/             # 14 Pydantic model files
 │   │   └── core/                # Config, feature gates
-│   └── migrations/              # SQL migrations
+│   ├── migrations/              # SQL migrations
+│   └── tests/                   # 25 pytest test files
 ├── n8n-ops-ui/                  # React frontend
 │   ├── CLAUDE.md                # Frontend-specific docs
 │   └── src/
-│       ├── pages/               # 21 pages + 7 admin pages
+│       ├── pages/               # 22 pages + 14 admin pages
 │       ├── components/          # UI, workflow, pipeline components
 │       ├── lib/                 # API client, auth, features
 │       ├── store/               # Zustand state
@@ -140,6 +146,11 @@ npm install
 npm run dev -- --port 3000
 npm run build
 npm run lint
+
+# Testing
+cd n8n-ops-backend && pytest                    # Backend tests
+cd n8n-ops-ui && npm test                       # Frontend tests
+cd n8n-ops-ui && npm test -- --coverage         # With coverage
 ```
 
 ## Resources

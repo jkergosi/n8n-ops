@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import logging
 
 from app.services.database import db_service
+from app.services.audit_service import audit_service
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +251,6 @@ class EntitlementsService:
         if not allowed:
             # Phase 3: Log denial
             if log_denial:
-                from app.services.audit_service import audit_service
                 await audit_service.log_denial(
                     tenant_id=tenant_id,
                     feature_key=feature_name,
@@ -293,7 +293,6 @@ class EntitlementsService:
         if not allowed:
             # Phase 3: Log limit exceeded
             if log_limit_exceeded:
-                from app.services.audit_service import audit_service
                 await audit_service.log_limit_exceeded(
                     tenant_id=tenant_id,
                     feature_key=feature_name,

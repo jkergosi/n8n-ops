@@ -78,8 +78,8 @@ async def get_workflows(
         if not force_refresh:
             cached_workflows = await db_service.get_workflows(MOCK_TENANT_ID, env_id)
 
-            if cached_workflows:
-                # Transform cached workflows to match frontend expectations
+            if cached_workflows is not None:
+                # Transform cached workflows to match frontend expectations (including empty lists)
                 transformed_workflows = []
                 for cached in cached_workflows:
                     # Extract data from workflow_data JSONB field

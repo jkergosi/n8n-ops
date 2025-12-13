@@ -369,6 +369,73 @@ export const handlers = [
   http.get(`${API_BASE}/billing/payment-history`, () => {
     return HttpResponse.json([]);
   }),
+
+  // N8N Users endpoints
+  http.get(`${API_BASE}/n8n-users`, () => {
+    return HttpResponse.json({
+      data: [
+        {
+          id: 'n8n-user-1',
+          email: 'admin@example.com',
+          first_name: 'Admin',
+          last_name: 'User',
+          role: 'owner',
+          is_pending: false,
+          environment: { id: 'env-1', name: 'Development', type: 'dev' },
+          last_synced_at: '2024-01-15T10:00:00Z',
+        },
+        {
+          id: 'n8n-user-2',
+          email: 'member@example.com',
+          first_name: 'Member',
+          last_name: 'User',
+          role: 'member',
+          is_pending: false,
+          environment: { id: 'env-1', name: 'Development', type: 'dev' },
+          last_synced_at: '2024-01-14T10:00:00Z',
+        },
+      ],
+      total: 2,
+    });
+  }),
+
+  // Tags endpoints
+  http.get(`${API_BASE}/tags`, () => {
+    return HttpResponse.json([
+      { id: 'tag-1', name: 'production', created_at: '2024-01-01T00:00:00Z' },
+      { id: 'tag-2', name: 'staging', created_at: '2024-01-02T00:00:00Z' },
+      { id: 'tag-3', name: 'automation', created_at: '2024-01-03T00:00:00Z' },
+    ]);
+  }),
+
+  // Credentials endpoints
+  http.get(`${API_BASE}/credentials`, () => {
+    return HttpResponse.json([
+      { id: 'cred-1', name: 'Slack API', type: 'slackApi', created_at: '2024-01-01T00:00:00Z' },
+      { id: 'cred-2', name: 'GitHub Token', type: 'githubApi', created_at: '2024-01-02T00:00:00Z' },
+    ]);
+  }),
+
+  // Dashboard stats
+  http.get(`${API_BASE}/stats/dashboard`, () => {
+    return HttpResponse.json({
+      total_workflows: 10,
+      active_workflows: 7,
+      total_executions: 100,
+      successful_executions: 85,
+      failed_executions: 15,
+    });
+  }),
+
+  // User profile update
+  http.patch(`${API_BASE}/auth/me`, async ({ request }) => {
+    const body = await request.json();
+    return HttpResponse.json({
+      id: 'user-1',
+      ...body,
+      updated_at: new Date().toISOString(),
+    });
+  }),
 ];
 
 // Error handlers for testing error states

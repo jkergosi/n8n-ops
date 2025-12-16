@@ -303,6 +303,20 @@ async def _execute_promotion_background(
             await db_service.create_deployment_workflow(workflow_record)
             workflow_results.append(workflow_record)
 
+            # Update deployment's updated_at timestamp and running summary so UI can see progress
+            await db_service.update_deployment(deployment_id, {
+                "summary_json": {
+                    "total": total_workflows,
+                    "created": created_count,
+                    "updated": updated_count,
+                    "deleted": 0,
+                    "failed": failed_count,
+                    "skipped": skipped_count,
+                    "processed": idx,
+                    "current_workflow": workflow_name
+                }
+            })
+
         # Calculate final summary
         summary_json = {
             "total": total_workflows,
@@ -311,6 +325,7 @@ async def _execute_promotion_background(
             "deleted": 0,
             "failed": failed_count,
             "skipped": skipped_count,
+            "processed": total_workflows,
         }
 
         # Determine final status

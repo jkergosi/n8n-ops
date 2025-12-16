@@ -104,6 +104,14 @@ export function DeploymentsPage() {
     return pipelines?.data?.find((p) => p.id === pipelineId)?.name || pipelineId;
   };
 
+  const getProgress = (deployment: Deployment) => {
+    const total = deployment.progressTotal ?? deployment.summaryJson?.total ?? 0;
+    const processed = deployment.progressCurrent ?? deployment.summaryJson?.processed ?? 0;
+    const current =
+      deployment.status === 'running' && total ? Math.min(processed + 1, total) : processed || total;
+    return { current, total };
+  };
+
   const formatDuration = (startedAt: string, finishedAt?: string) => {
     const start = new Date(startedAt).getTime();
     const end = finishedAt ? new Date(finishedAt).getTime() : Date.now();
@@ -235,7 +243,6 @@ export function DeploymentsPage() {
                   <TableHead>Pipeline</TableHead>
                   <TableHead>Stage</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Triggered By</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Duration</TableHead>
                   <TableHead>Actions</TableHead>
@@ -247,6 +254,17 @@ export function DeploymentsPage() {
                   const workflowName = deployment.summaryJson?.total === 1 
                     ? 'Single workflow' // Would need to fetch workflow name
                     : `${workflowCount} workflows`;
+                  const { current: progressCurrent, total: progressTotal } = getProgress(deployment);
+                  let statusText = deployment.status;
+                  if (progressTotal > 0) {
+                    if (deployment.status === 'running') {
+                      statusText = `${progressCurrent} of ${progressTotal}`;
+                    } else if (deployment.status === 'success') {
+                      statusText = `${progressTotal}/${progressTotal} deployed`;
+                    } else if (deployment.status === 'failed') {
+                      statusText = `${progressCurrent}/${progressTotal} deployed`;
+                    }
+                  }
 
                   return (
                     <TableRow
@@ -259,7 +277,11 @@ export function DeploymentsPage() {
                           {workflowName}
                         </span>
                       </TableCell>
-                      <TableCell>{getPipelineName(deployment.pipelineId)}</TableCell>
+                      <TableCell>
+                        <span className="text-primary hover:underline">
+                          {getPipelineName(deployment.pipelineId)}
+                        </span>
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Badge variant="outline">
@@ -275,12 +297,9 @@ export function DeploymentsPage() {
                         <div className="flex items-center gap-2">
                           {getStatusIcon(deployment.status)}
                           <Badge variant={getStatusVariant(deployment.status)}>
-                            {deployment.status}
+                            {statusText}
                           </Badge>
                         </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {deployment.triggeredByUserId}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {new Date(deployment.startedAt).toLocaleString()}

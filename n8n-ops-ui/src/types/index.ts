@@ -143,7 +143,12 @@ export interface Deployment {
     deleted: number;
     failed: number;
     skipped?: number;
+    processed?: number;
+    current_workflow?: string;
   };
+  progressCurrent?: number;
+  progressTotal?: number;
+  currentWorkflowName?: string;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;

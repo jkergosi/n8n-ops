@@ -84,7 +84,9 @@ class DatabaseService:
         return response.data[0]
 
     async def update_deployment(self, deployment_id: str, deployment_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Update a deployment record"""
+        """Update a deployment record - always updates updated_at timestamp"""
+        # Always set updated_at to current time
+        deployment_data["updated_at"] = datetime.utcnow().isoformat()
         response = self.client.table("deployments").update(deployment_data).eq("id", deployment_id).execute()
         return response.data[0]
 
@@ -615,9 +617,37 @@ class DatabaseService:
         return results
 
     # Pipeline operations
-    async def get_pipelines(self, tenant_id: str) -> List[Dict[str, Any]]:
-        """Get all pipelines for a tenant"""
-        response = self.client.table("pipelines").select("*").eq("tenant_id", tenant_id).order("created_at", desc=True).execute()
+    async def get_pipelines(self, tenant_id: str, include_inactive: bool = True) -> List[Dict[str, Any]]:
+        """
+        Get all pipelines for a tenant.
+        
+        Args:
+            tenant_id: Tenant ID
+            include_inactive: If True (default), returns all pipelines. If False, filters out inactive pipelines.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        query = self.client.table("pipelines").select("*").eq("tenant_id", tenant_id)
+        
+        logger.debug(f"get_pipelines: tenant_id={tenant_id}, include_inactive={include_inactive} (type: {type(include_inactive).__name__})")
+        
+        if not include_inactive:
+            query = query.eq("is_active", True)
+            logger.debug("Applied filter: is_active = True")
+        else:
+            logger.debug("No filter applied - returning all pipelines")
+        
+        response = query.order("created_at", desc=True).execute()
+        result_count = len(response.data) if response.data else 0
+        logger.info(f"Database query returned {result_count} pipelines (include_inactive={include_inactive})")
+        
+        # Debug: log what we're actually getting
+        if response.data:
+            active_in_result = sum(1 for p in response.data if p.get("is_active", True))
+            inactive_in_result = sum(1 for p in response.data if not p.get("is_active", True))
+            logger.info(f"Result breakdown: {active_in_result} active, {inactive_in_result} inactive")
+        
         return response.data
 
     async def get_pipeline(self, pipeline_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:

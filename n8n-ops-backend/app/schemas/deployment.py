@@ -90,6 +90,10 @@ class DeploymentResponse(DeploymentBase):
     tenant_id: str
     created_at: datetime
     updated_at: datetime
+    # Progress helpers for UI (derived from summary_json)
+    progress_current: Optional[int] = None
+    progress_total: Optional[int] = None
+    current_workflow_name: Optional[str] = None
 
     class Config:
         from_attributes = True

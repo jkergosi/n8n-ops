@@ -1,16 +1,19 @@
 """
 Pipelines API endpoints for managing promotion pipelines
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Query
 from typing import List, Optional
 from datetime import datetime
 import uuid
+import logging
 
 from app.services.feature_service import feature_service
 from app.core.feature_gate import require_feature
 from app.core.entitlements_gate import require_entitlement
 from app.services.database import db_service
 from app.schemas.pipeline import PipelineCreate, PipelineUpdate, PipelineResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -20,32 +23,49 @@ MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
 
 @router.get("/", response_model=List[PipelineResponse])
 async def get_pipelines(
+    include_inactive: bool = Query(True, description="Include inactive/deactivated pipelines"),
     _: None = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
     Get all pipelines for the tenant.
     Requires Pro or Enterprise plan with environment_promotion feature.
+    
+    Args:
+        include_inactive: If True (default), returns all pipelines. If False, returns only active pipelines.
     """
     try:
-        pipelines = await db_service.get_pipelines(MOCK_TENANT_ID)
+        logger.info(f"API get_pipelines called: include_inactive={include_inactive} (type: {type(include_inactive).__name__})")
+        pipelines = await db_service.get_pipelines(MOCK_TENANT_ID, include_inactive=include_inactive)
+        logger.info(f"Database returned {len(pipelines)} pipelines")
+        
+        # Debug: log pipeline statuses before transformation
+        active_count = sum(1 for p in pipelines if p.get("is_active", True))
+        inactive_count = sum(1 for p in pipelines if not p.get("is_active", True))
+        logger.info(f"Pipeline breakdown before transform: {active_count} active, {inactive_count} inactive")
         
         # Transform database records to response format
         result = []
         for pipeline in pipelines:
-            result.append({
-                "id": pipeline.get("id"),
-                "tenant_id": pipeline.get("tenant_id"),
-                "name": pipeline.get("name"),
-                "description": pipeline.get("description"),
-                "is_active": pipeline.get("is_active", True),
-                "environment_ids": pipeline.get("environment_ids", []),
-                "stages": pipeline.get("stages", []),
-                "last_modified_by": pipeline.get("last_modified_by"),
-                "last_modified_at": pipeline.get("last_modified_at", pipeline.get("updated_at")),
-                "created_at": pipeline.get("created_at"),
-                "updated_at": pipeline.get("updated_at"),
-            })
+            try:
+                transformed = {
+                    "id": pipeline.get("id"),
+                    "tenant_id": pipeline.get("tenant_id"),
+                    "name": pipeline.get("name"),
+                    "description": pipeline.get("description"),
+                    "is_active": pipeline.get("is_active", True),
+                    "environment_ids": pipeline.get("environment_ids", []),
+                    "stages": pipeline.get("stages", []),
+                    "last_modified_by": pipeline.get("last_modified_by"),
+                    "last_modified_at": pipeline.get("last_modified_at", pipeline.get("updated_at")),
+                    "created_at": pipeline.get("created_at"),
+                    "updated_at": pipeline.get("updated_at"),
+                }
+                result.append(transformed)
+            except Exception as e:
+                logger.error(f"Error transforming pipeline {pipeline.get('id', 'unknown')}: {str(e)}", exc_info=True)
+                continue
         
+        logger.info(f"Returning {len(result)} pipelines after transformation (dropped {len(pipelines) - len(result)})")
         return result
     except Exception as e:
         raise HTTPException(

@@ -101,6 +101,15 @@ export function DeploymentDetailPage() {
     return pipelines?.data?.find((p) => p.id === pipelineId)?.name || pipelineId;
   };
 
+  const getProgress = () => {
+    if (!deployment) return { current: 0, total: 0 };
+    const total = deployment.progressTotal ?? deployment.summaryJson?.total ?? 0;
+    const processed = deployment.progressCurrent ?? deployment.summaryJson?.processed ?? 0;
+    const current =
+      deployment.status === 'running' && total ? Math.min(processed + 1, total) : processed || total;
+    return { current, total };
+  };
+
   const formatDuration = (startedAt: string, finishedAt?: string) => {
     if (!finishedAt) return 'In progress...';
     const start = new Date(startedAt).getTime();
@@ -255,9 +264,20 @@ export function DeploymentDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Workflows are being transferred to the target environment. This page will automatically update when complete.
-            </p>
+            {(() => {
+              const { current, total } = getProgress();
+              return (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Workflows are being transferred to the target environment. This page will automatically update when complete.
+                  </p>
+                  <p className="text-sm font-medium">
+                    Progress: {current} of {total || '—'}
+                    {deployment.currentWorkflowName ? ` (working on ${deployment.currentWorkflowName})` : ''}
+                  </p>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       )}

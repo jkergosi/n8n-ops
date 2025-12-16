@@ -612,8 +612,12 @@ class ApiClient {
     };
   }
 
-  async getPipelines(): Promise<{ data: Pipeline[] }> {
-    const response = await this.client.get<any[]>('/pipelines');
+  async getPipelines(params?: { includeInactive?: boolean }): Promise<{ data: Pipeline[] }> {
+    const queryParams: any = {};
+    if (params?.includeInactive !== undefined) {
+      queryParams.include_inactive = params.includeInactive;
+    }
+    const response = await this.client.get<any[]>('/pipelines', { params: queryParams });
     return { data: response.data.map((p) => this.transformPipelineResponse(p)) };
   }
 
@@ -834,6 +838,9 @@ class ApiClient {
       preSnapshotId: d.pre_snapshot_id,
       postSnapshotId: d.post_snapshot_id,
       summaryJson: d.summary_json,
+      progressCurrent: d.progress_current,
+      progressTotal: d.progress_total,
+      currentWorkflowName: d.current_workflow_name,
       createdAt: d.created_at,
       updatedAt: d.updated_at,
       deletedAt: d.deleted_at,
@@ -883,6 +890,9 @@ class ApiClient {
       preSnapshotId: d.pre_snapshot_id,
       postSnapshotId: d.post_snapshot_id,
       summaryJson: d.summary_json,
+      progressCurrent: d.progress_current,
+      progressTotal: d.progress_total,
+      currentWorkflowName: d.current_workflow_name,
       createdAt: d.created_at,
       updatedAt: d.updated_at,
       workflows,

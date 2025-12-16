@@ -28,6 +28,35 @@ router = APIRouter()
 MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
 
 
+def _attach_progress_fields(deployment: dict, workflows: Optional[List[dict]] = None) -> dict:
+    """
+    Attach progress fields derived from summary_json/workflows so UI can display counts.
+    """
+    summary = deployment.get("summary_json") or {}
+    total = summary.get("total")
+    if total is None and workflows is not None:
+        total = len(workflows)
+    if total is None:
+        total = 0
+
+    processed = summary.get("processed")
+    if processed is None and workflows is not None:
+        processed = sum(1 for wf in workflows if wf.get("status") in ["success", "failed", "skipped"])
+    if processed is None:
+        processed = 0
+
+    current = processed
+    if deployment.get("status") == DeploymentStatus.RUNNING.value and total:
+        current = min(processed + 1, total)
+    if deployment.get("status") in [DeploymentStatus.SUCCESS.value, DeploymentStatus.FAILED.value] and total:
+        current = total
+
+    deployment["progress_current"] = current
+    deployment["progress_total"] = total
+    deployment["current_workflow_name"] = summary.get("current_workflow")
+    return deployment
+
+
 @router.get("/", response_model=DeploymentListResponse)
 async def get_deployments(
     status: Optional[DeploymentStatus] = Query(None, alias="status"),
@@ -156,10 +185,11 @@ async def get_deployments(
         # Pending approvals count (can be 0 in v1)
         pending_approvals_count = 0
 
-        # Convert to response models
-        deployments = [
-            DeploymentResponse(**deployment) for deployment in deployments_data
-        ]
+        # Attach progress fields and convert to response models
+        for deployment in deployments_data:
+            _attach_progress_fields(deployment)
+
+        deployments = [DeploymentResponse(**deployment) for deployment in deployments_data]
 
         return DeploymentListResponse(
             deployments=deployments,
@@ -219,7 +249,7 @@ async def get_deployment(
                 detail=f"Deployment {deployment_id} not found",
             )
 
-        deployment = DeploymentResponse(**deployment_result.data)
+        deployment_data = deployment_result.data
 
         # Get deployment workflows
         workflows_result = (
@@ -228,9 +258,11 @@ async def get_deployment(
             .eq("deployment_id", deployment_id)
             .execute()
         )
-        workflows = [
-            DeploymentWorkflowResponse(**wf) for wf in (workflows_result.data or [])
-        ]
+        workflows_raw = workflows_result.data or []
+        workflows = [DeploymentWorkflowResponse(**wf) for wf in workflows_raw]
+
+        _attach_progress_fields(deployment_data, workflows_raw)
+        deployment = DeploymentResponse(**deployment_data)
         
         # If deployment is running, check if it's stale and verify job status
         job_status = None
@@ -267,7 +299,9 @@ async def get_deployment(
                             .execute()
                         )
                         if deployment_result.data:
-                            deployment = DeploymentResponse(**deployment_result.data)
+                            refreshed_data = deployment_result.data
+                            _attach_progress_fields(refreshed_data, workflows_raw)
+                            deployment = DeploymentResponse(**refreshed_data)
                 except Exception as stale_check_error:
                     logger.error(f"Failed to check if deployment {deployment_id} is stale: {str(stale_check_error)}")
             

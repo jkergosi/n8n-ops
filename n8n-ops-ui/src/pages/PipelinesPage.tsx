@@ -6,6 +6,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -32,10 +34,11 @@ export function PipelinesPage() {
   const queryClient = useQueryClient();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [pipelineToDelete, setPipelineToDelete] = useState<Pipeline | null>(null);
+  const [showInactive, setShowInactive] = useState(true);
 
   const { data: pipelines, isLoading } = useQuery({
-    queryKey: ['pipelines'],
-    queryFn: () => apiClient.getPipelines(),
+    queryKey: ['pipelines', showInactive],
+    queryFn: () => apiClient.getPipelines({ includeInactive: showInactive }),
   });
 
   const { data: environments } = useQuery({
@@ -133,10 +136,27 @@ export function PipelinesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Deployment Pipelines</CardTitle>
-          <CardDescription>
-            Manage pipelines that define how workflows are deployed between environments
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Deployment Pipelines</CardTitle>
+              <CardDescription>
+                Manage pipelines that define how workflows are deployed between environments
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="show-inactive"
+                checked={showInactive}
+                onCheckedChange={(checked) => setShowInactive(checked === true)}
+              />
+              <Label
+                htmlFor="show-inactive"
+                className="text-sm font-normal cursor-pointer text-muted-foreground"
+              >
+                Show inactive pipelines
+              </Label>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -162,11 +182,14 @@ export function PipelinesPage() {
               </TableHeader>
               <TableBody>
                 {pipelines.data.map((pipeline) => (
-                  <TableRow key={pipeline.id}>
+                  <TableRow 
+                    key={pipeline.id}
+                    className={!pipeline.isActive ? 'opacity-60' : ''}
+                  >
                     <TableCell className="font-medium">
                       <Link
                         to={`/pipelines/${pipeline.id}`}
-                        className="text-primary hover:underline"
+                        className={`${!pipeline.isActive ? 'text-muted-foreground' : 'text-primary'} hover:underline`}
                       >
                         {pipeline.name}
                       </Link>

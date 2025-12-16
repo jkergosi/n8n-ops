@@ -72,12 +72,12 @@ class N8NClient:
         
         async with httpx.AsyncClient() as client:
             try:
-                # Use the pre-serialized JSON string approach to avoid Windows errno 22 issues
-                # httpx will handle the json parameter, but we've validated it's serializable
+                # Use pre-serialized JSON content to avoid Windows errno 22 issues
+                # This bypasses httpx's internal JSON serialization which can fail on Windows
                 response = await client.post(
                     f"{self.base_url}/api/v1/workflows",
                     headers=self.headers,
-                    json=cleaned_data,
+                    content=json_str.encode('utf-8'),
                     timeout=30.0
                 )
                 response.raise_for_status()
@@ -142,28 +142,68 @@ class N8NClient:
 
         # DO NOT include 'shared' field - it contains read-only nested objects that n8n rejects
 
-        # Debug: print what we're sending
-        print("="*80)
-        print("DEBUG N8N CLIENT: Input keys:", list(workflow_data.keys()))
-        print("DEBUG N8N CLIENT: Cleaned keys:", list(cleaned_data.keys()))
-        print("DEBUG N8N CLIENT: Cleaned payload:")
-        print(json.dumps(cleaned_data, indent=2))
-        print("="*80)
-        
+        # Validate and clean the data before sending (same as create_workflow)
+        try:
+            # Test JSON serialization first
+            json_str = json.dumps(cleaned_data, default=str, ensure_ascii=False)
+        except (TypeError, ValueError) as json_error:
+            error_msg = f"Workflow data is not JSON serializable: {str(json_error)}"
+            print(f"ERROR: {error_msg}")
+            print(f"ERROR: Data keys: {list(cleaned_data.keys())}")
+            raise ValueError(error_msg) from json_error
+
         async with httpx.AsyncClient() as client:
             try:
+                # Use pre-serialized JSON content to avoid Windows errno 22 issues
+                # This bypasses httpx's internal JSON serialization which can fail on Windows
                 response = await client.put(
                     f"{self.base_url}/api/v1/workflows/{workflow_id}",
                     headers=self.headers,
-                    json=cleaned_data,
+                    content=json_str.encode('utf-8'),
                     timeout=30.0
                 )
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as e:
-                print(f"ERROR: n8n returned {e.response.status_code}")
-                print(f"ERROR: Response text: {e.response.text}")
-                print(f"ERROR: What we sent: {json.dumps(cleaned_data, indent=2)}")
+                error_msg = f"n8n update_workflow returned {e.response.status_code}"
+                print(f"ERROR: {error_msg}")
+                print(f"ERROR: Response text: {e.response.text[:500] if e.response.text else 'No response text'}")
+                try:
+                    print(f"ERROR: What we sent (first 1000 chars): {json_str[:1000]}")
+                except:
+                    print(f"ERROR: Could not serialize sent data for logging")
+                raise
+            except OSError as e:
+                # Windows-specific error handling for errno 22
+                if hasattr(e, 'errno') and e.errno == 22:
+                    error_msg = f"Windows errno 22 (Invalid argument) - possibly invalid characters or data in workflow"
+                    print(f"ERROR: {error_msg}")
+                    print(f"ERROR: Exception: {str(e)}")
+                    print(f"ERROR: Workflow ID: {workflow_id}")
+                    print(f"ERROR: Workflow name: {cleaned_data.get('name', 'unknown')}")
+                    print(f"ERROR: Number of nodes: {len(cleaned_data.get('nodes', []))}")
+                    print(f"ERROR: Number of connections: {len(str(cleaned_data.get('connections', {})))}")
+                    # Try to identify problematic data
+                    try:
+                        for i, node in enumerate(cleaned_data.get('nodes', [])[:5]):  # Check first 5 nodes
+                            try:
+                                node_json = json.dumps(node, default=str, ensure_ascii=False)
+                                if len(node_json) > 2000:
+                                    print(f"ERROR: Node {i} ({node.get('name', 'unnamed')}) is very large: {len(node_json)} chars")
+                            except Exception as node_error:
+                                print(f"ERROR: Node {i} cannot be serialized: {node_error}")
+                    except Exception as node_error:
+                        print(f"ERROR: Could not inspect nodes: {node_error}")
+                    raise ValueError(error_msg) from e
+                raise
+            except Exception as e:
+                error_msg = f"Unexpected error in update_workflow: {str(e)}"
+                print(f"ERROR: {error_msg}")
+                print(f"ERROR: Exception type: {type(e).__name__}")
+                if hasattr(e, 'errno'):
+                    print(f"ERROR: errno: {e.errno}")
+                import traceback
+                traceback.print_exc()
                 raise
 
     async def delete_workflow(self, workflow_id: str) -> bool:

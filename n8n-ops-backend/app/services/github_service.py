@@ -126,25 +126,88 @@ class GitHubService:
         except GithubException:
             return None
 
-    async def get_all_workflows_from_github(self) -> List[Dict[str, Any]]:
-        """Get all workflows from GitHub"""
+    async def get_all_workflows_from_github(
+        self,
+        environment_type: Optional[str] = None,
+        commit_sha: Optional[str] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all workflows from GitHub, optionally at a specific commit.
+        
+        Args:
+            environment_type: Filter by environment folder (e.g., 'dev', 'staging', 'prod')
+            commit_sha: Specific Git commit SHA to fetch from. If None, uses current branch HEAD.
+            
+        Returns:
+            Dict mapping workflow_id to workflow_data
+        """
         if not self.is_configured() or not self.repo:
-            return []
+            return {}
 
         try:
-            workflows = []
-            contents = self.repo.get_contents("workflows", ref=self.branch)
+            workflows = {}
+            ref = commit_sha or self.branch
+            
+            if environment_type:
+                base_path = f"workflows/{environment_type}"
+            else:
+                base_path = "workflows"
+            
+            try:
+                contents = self.repo.get_contents(base_path, ref=ref)
+            except GithubException as e:
+                if e.status == 404:
+                    return {}
+                raise
+            
+            if not isinstance(contents, list):
+                contents = [contents]
 
             for content_file in contents:
-                if content_file.name.endswith('.json'):
-                    file_content = self.repo.get_contents(content_file.path, ref=self.branch)
-                    decoded_content = base64.b64decode(file_content.content).decode('utf-8')
-                    workflow_data = json.loads(decoded_content)
-                    workflows.append(workflow_data)
+                if content_file.type == "dir":
+                    subdir_contents = self.repo.get_contents(content_file.path, ref=ref)
+                    if not isinstance(subdir_contents, list):
+                        subdir_contents = [subdir_contents]
+                    for subfile in subdir_contents:
+                        if subfile.name.endswith('.json'):
+                            workflow_data = self._parse_workflow_file(subfile, ref)
+                            if workflow_data:
+                                workflow_id = workflow_data.get("id") or self._extract_workflow_id(workflow_data)
+                                if workflow_id:
+                                    workflows[workflow_id] = workflow_data
+                elif content_file.name.endswith('.json'):
+                    workflow_data = self._parse_workflow_file(content_file, ref)
+                    if workflow_data:
+                        workflow_id = workflow_data.get("id") or self._extract_workflow_id(workflow_data)
+                        if workflow_id:
+                            workflows[workflow_id] = workflow_data
 
             return workflows
-        except GithubException:
-            return []
+        except GithubException as e:
+            print(f"Error fetching workflows from GitHub: {str(e)}")
+            return {}
+    
+    def _parse_workflow_file(self, content_file, ref: str) -> Optional[Dict[str, Any]]:
+        """Parse a workflow JSON file from GitHub."""
+        try:
+            if hasattr(content_file, 'content') and content_file.content:
+                decoded_content = base64.b64decode(content_file.content).decode('utf-8')
+            else:
+                file_content = self.repo.get_contents(content_file.path, ref=ref)
+                decoded_content = base64.b64decode(file_content.content).decode('utf-8')
+            return json.loads(decoded_content)
+        except Exception as e:
+            print(f"Error parsing workflow file {content_file.path}: {str(e)}")
+            return None
+    
+    def _extract_workflow_id(self, workflow_data: Dict[str, Any]) -> Optional[str]:
+        """Extract workflow ID from workflow data or _comment field."""
+        if workflow_data.get("id"):
+            return workflow_data["id"]
+        comment = workflow_data.get("_comment", "")
+        if "Workflow ID:" in comment:
+            return comment.split("Workflow ID:")[-1].strip()
+        return None
 
     async def get_workflow_by_name(self, workflow_name: str) -> Optional[Dict[str, Any]]:
         """

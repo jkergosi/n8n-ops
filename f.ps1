@@ -1,40 +1,60 @@
 <#
-=====================================================
-Worktree Menu Script (Interactive + Headless)
+.SYNOPSIS
+Worktree management script with interactive and headless modes.
 
-INTERACTIVE MODE
-----------------
-Run with no parameters:
+.DESCRIPTION
+Manages Git worktrees for features (main, f1–f4). Supports:
+- Interactive menu-driven usage (no parameters)
+- Fully headless automation via parameters (no prompts)
+
+.PARAMETER Feature
+Selects the feature/worktree.
+
+Valid values:
+  M = main
+  1 = f1
+  2 = f2
+  3 = f3
+  4 = f4
+
+.PARAMETER Action
+Action to perform on the selected feature.
+
+Valid values:
+  S = Start    (create worktree if missing)
+  F = Finish   (git add -A + git commit)
+  D = Destroy  (git worktree remove)
+
+.PARAMETER Message
+Commit message used for Finish in headless mode.
+Required when -Action F is used headlessly.
+
+.PARAMETER Yes
+Required for headless Destroy.
+Explicit confirmation for destructive operations.
+
+.PARAMETER AllowEmpty
+Allows Finish to commit even if there are no changes.
+Without this flag, Finish fails on clean worktrees.
+
+.PARAMETER Help
+Displays this help text and exits.
+
+.EXAMPLE
+Interactive mode:
   .\worktree_menu.ps1
 
-HEADLESS MODE (no prompts, automation-safe)
--------------------------------------------
-Required:
-  -Feature  M | 1 | 2 | 3 | 4
-  -Action   S | F | D
-
-Action-specific parameters:
-
-Start:
+.EXAMPLE
+Start feature f2:
   .\worktree_menu.ps1 -Feature 2 -Action S
 
-Finish:
-  .\worktree_menu.ps1 -Feature 3 -Action F -Message "Commit message"
+.EXAMPLE
+Finish feature f3:
+  .\worktree_menu.ps1 -Feature 3 -Action F -Message "Add provider registry"
 
-  Optional:
-    -AllowEmpty   Allow commit when no changes exist
-
-Destroy:
+.EXAMPLE
+Destroy feature f4:
   .\worktree_menu.ps1 -Feature 4 -Action D -Yes
-
-HELP
-----
-  .\worktree_menu.ps1 -Help
-
-Exit codes:
-  0 = success
-  1 = invalid usage or failure
-=====================================================
 #>
 
 param (

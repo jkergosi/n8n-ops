@@ -616,13 +616,13 @@ class DatabaseService:
 
     # Pipeline operations
     async def get_pipelines(self, tenant_id: str) -> List[Dict[str, Any]]:
-        """Get all active pipelines for a tenant (excludes soft-deleted)"""
-        response = self.client.table("pipelines").select("*").eq("tenant_id", tenant_id).eq("is_active", True).order("created_at", desc=True).execute()
+        """Get all pipelines for a tenant"""
+        response = self.client.table("pipelines").select("*").eq("tenant_id", tenant_id).order("created_at", desc=True).execute()
         return response.data
 
     async def get_pipeline(self, pipeline_id: str, tenant_id: str) -> Optional[Dict[str, Any]]:
-        """Get a specific active pipeline (excludes soft-deleted)"""
-        response = self.client.table("pipelines").select("*").eq("id", pipeline_id).eq("tenant_id", tenant_id).eq("is_active", True).execute()
+        """Get a specific pipeline"""
+        response = self.client.table("pipelines").select("*").eq("id", pipeline_id).eq("tenant_id", tenant_id).execute()
         return response.data[0] if response.data else None
 
     async def create_pipeline(self, pipeline_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -638,8 +638,8 @@ class DatabaseService:
         return response.data[0] if response.data else None
 
     async def delete_pipeline(self, pipeline_id: str, tenant_id: str) -> bool:
-        """Delete a pipeline (soft delete by setting is_active=false)"""
-        response = self.client.table("pipelines").update({"is_active": False}).eq("id", pipeline_id).eq("tenant_id", tenant_id).execute()
+        """Delete a pipeline (hard delete)"""
+        response = self.client.table("pipelines").delete().eq("id", pipeline_id).eq("tenant_id", tenant_id).execute()
         return True
 
     # Promotion operations

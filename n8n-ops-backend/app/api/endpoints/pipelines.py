@@ -302,7 +302,7 @@ async def delete_pipeline(
     _: None = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
-    Delete a pipeline (soft delete by setting is_active=false).
+    Delete a pipeline.
     """
     try:
         existing = await db_service.get_pipeline(pipeline_id, MOCK_TENANT_ID)

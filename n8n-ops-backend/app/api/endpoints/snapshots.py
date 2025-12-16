@@ -163,12 +163,10 @@ async def restore_snapshot(
         # Create provider adapter
         adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 
-        # Get all workflows from GitHub at the commit SHA
-        # Note: This requires GitHub API to get tree/blob at specific commit
-        # For now, we'll use the current branch state (v1 limitation)
-        # TODO: Implement commit SHA checkout in GitHubService
+        # Get all workflows from GitHub at the specific commit SHA
         workflows = await github_service.get_all_workflows_from_github(
-            environment_type=env_config.get("n8n_type", "dev")
+            environment_type=env_config.get("n8n_type", "dev"),
+            commit_sha=commit_sha
         )
 
         if not workflows:

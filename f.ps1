@@ -1,399 +1,199 @@
-$RepoPath  = "F:\web\AllThings\_projects\n8n-ops.git"
-$TreesPath = "F:\web\AllThings\_projects\n8n-ops-trees"
-$MainPath  = "F:\web\AllThings\_projects\n8n-ops-trees\main"
+# =====================================
+# Worktree Menu – Option A (Refined)
+# =====================================
 
-# Port mapping
-$PortMap = @{
-    "main" = @{ Frontend = 3000; Backend = 4000 }
-    "f1"   = @{ Frontend = 3001; Backend = 4001 }
-    "f2"   = @{ Frontend = 3002; Backend = 4002 }
-    "f3"   = @{ Frontend = 3003; Backend = 4003 }
-    "f4"   = @{ Frontend = 3004; Backend = 4004 }
+$WorktreeRoot = "F:\web\AllThings\_projects\n8n-ops-trees"
+
+$FeatureOrder = @("M", "1", "2", "3", "4")
+
+$Features = @{
+    "M" = "main"
+    "1" = "f1"
+    "2" = "f2"
+    "3" = "f3"
+    "4" = "f4"
 }
 
-# .env files to copy from main (relative paths)
-$EnvFiles = @(
-    "n8n-ops-backend\.env"
-    "n8n-ops-ui\.env"
-)
+# ---------- Helpers ----------
+function Get-WorktreePath($name) {
+    Join-Path $WorktreeRoot $name
+}
 
-function Show-Menu {
+function Test-WorktreeExists($name) {
+    Test-Path (Get-WorktreePath $name)
+}
+
+function Require-Worktree($name) {
+    if (-not (Test-WorktreeExists $name)) {
+        Write-Host "Worktree '$name' does not exist." -ForegroundColor Red
+        Read-Host "Press ENTER to continue"
+        return $false
+    }
+    return $true
+}
+
+function Invoke-Git {
+    param (
+        [string]$Path,
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$GitArgs
+    )
+    & git -C $Path @GitArgs
+}
+
+function Get-GitDirty($path) {
+    $out = Invoke-Git $path status --porcelain
+    return -not [string]::IsNullOrWhiteSpace($out)
+}
+
+# ---------- Menus ----------
+function Show-FeatureMenu {
     Clear-Host
-    Write-Host ""
-    Write-Host "  n8n-ops Feature Manager" -ForegroundColor Cyan
-    Write-Host "  =======================" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  FEATURE     START    FINISH   DESTROY" -ForegroundColor White
-    Write-Host "  -------     -----    ------   -------" -ForegroundColor Gray
-    Write-Host "  main        M        1                 (localhost:3000/4000)"
-    Write-Host "  f1          2        f1       d1       (localhost:3001/4001)"
-    Write-Host "  f2          3        f2       d2       (localhost:3002/4002)"
-    Write-Host "  f3          4        f3       d3       (localhost:3003/4003)"
-    Write-Host "  f4          5        f4       d4       (localhost:3004/4004)"
-    Write-Host ""
-    Write-Host "  OTHER" -ForegroundColor Magenta
-    Write-Host "    L   List worktrees"
-    Write-Host "    Q   Quit"
-    Write-Host ""
-}
+    Write-Host "Select FEATURE:`n"
+    Write-Host "  Key  Feature  Exists"
+    Write-Host "  ---  -------  ------"
 
-function Copy-EnvFiles {
-    param([string]$FeaturePath)
-    
-    foreach ($envFile in $EnvFiles) {
-        $sourcePath = Join-Path $MainPath $envFile
-        $destPath   = Join-Path $FeaturePath $envFile
-        
-        if (Test-Path $sourcePath) {
-            $destDir = Split-Path $destPath -Parent
-            if (-not (Test-Path $destDir)) {
-                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-            }
-            Copy-Item $sourcePath $destPath -Force
-            Write-Host "Copied $envFile" -ForegroundColor Gray
-        } else {
-            Write-Host "Warning: $envFile not found in main" -ForegroundColor Yellow
-        }
+    foreach ($key in $FeatureOrder) {
+        $name   = $Features[$key]
+        $exists = if (Test-WorktreeExists $name) { "Yes" } else { "No" }
+        Write-Host ("   {0,-2}  {1,-7} {2}" -f $key, $name, $exists)
     }
+
+    Write-Host ""
+    Write-Host "   L   List"
+    Write-Host "   Q   Quit`n"
 }
 
-function Install-Dependencies {
-    param([string]$FeaturePath)
-    
-    # Install Python dependencies
-    $backendPath = Join-Path $FeaturePath "n8n-ops-backend"
-    if (Test-Path "$backendPath\requirements.txt") {
-        Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
-        Push-Location $backendPath
-        pip install -r requirements.txt --quiet
+function Show-ActionMenu($name) {
+    $exists = Test-WorktreeExists $name
+    $dirty  = if ($exists) { Get-GitDirty (Get-WorktreePath $name) } else { $false }
+
+    Clear-Host
+    Write-Host "Feature: $name   Exists: $(if ($exists) { 'Yes' } else { 'No' })`n"
+    Write-Host "Select ACTION:"
+    Write-Host "  S  Start"
+
+    if ($exists -and $dirty) {
+        Write-Host "  F  Finish"
+    }
+
+    if ($exists) {
+        Write-Host "  D  Destroy"
+    }
+
+    Write-Host "  B  Back"
+    Write-Host "  Q  Quit`n"
+}
+
+# ---------- Actions ----------
+function Start-Feature($name) {
+    if (-not (Test-WorktreeExists $name)) {
+        Write-Host "Creating worktree '$name'..."
+        Push-Location $WorktreeRoot
+        git worktree add $name
         Pop-Location
-        Write-Host "Python dependencies installed" -ForegroundColor Gray
     }
-    
-    # Install Node dependencies
-    $frontendPath = Join-Path $FeaturePath "n8n-ops-ui"
-    if (Test-Path "$frontendPath\package.json") {
-        Write-Host "Installing Node dependencies..." -ForegroundColor Cyan
-        Push-Location $frontendPath
-        npm install --silent
-        Pop-Location
-        Write-Host "Node dependencies installed" -ForegroundColor Gray
-    }
+
+    Write-Host "Started feature '$name'."
+    Read-Host "Press ENTER to continue"
 }
 
-function Start-Feature {
-    param([string]$FeatureName)
-    
-    $FeaturePath  = "$TreesPath\$FeatureName"
-    $FrontendPort = $PortMap[$FeatureName].Frontend
-    $BackendPort  = $PortMap[$FeatureName].Backend
+function Finish-Feature($name) {
+    if (-not (Require-Worktree $name)) { return }
 
-    $frontendDir = Join-Path $FeaturePath "n8n-ops-ui"
-    $backendDir  = Join-Path $FeaturePath "n8n-ops-backend"
+    $path = Get-WorktreePath $name
 
-    $StartupMessage = @"
-Write-Host ''
-Write-Host '  =======================================' -ForegroundColor Cyan
-Write-Host '  $FeatureName - n8n-ops' -ForegroundColor Cyan
-Write-Host '  =======================================' -ForegroundColor Cyan
-Write-Host ''
-Write-Host '  Frontend: http://localhost:$FrontendPort' -ForegroundColor Green
-Write-Host '  Backend:  http://localhost:$BackendPort' -ForegroundColor Green
-Write-Host ''
-Write-Host '  .env.local has these ports configured' -ForegroundColor Gray
-Write-Host ''
-Write-Host 'Starting frontend and backend as background jobs...' -ForegroundColor Cyan
-
-Start-Job -ScriptBlock { cd '$frontendDir'; npm run dev }
-Start-Job -ScriptBlock { cd '$backendDir'; python -m uvicorn app.main:app --reload --port $BackendPort }
-
-claude --dangerously-skip-permissions
-"@
-
-    if (Test-Path $FeaturePath) {
-        Write-Host "Worktree '$FeatureName' exists. Opening feature window..." -ForegroundColor Cyan
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$FeaturePath'; $StartupMessage"
+    if (-not (Get-GitDirty $path)) {
+        Write-Host "No changes to commit."
+        Read-Host "Press ENTER to continue"
         return
     }
 
-    # Create worktree
-    Push-Location $RepoPath
-    git fetch origin
-    git worktree add $FeaturePath -b $FeatureName
-    $wtExit = $LASTEXITCODE
-    Pop-Location
-
-    if ($wtExit -eq 0) {
-        $envContent = @"
-# Auto-generated by n8n-ops launcher
-FEATURE_NAME=$FeatureName
-FRONTEND_PORT=$FrontendPort
-BACKEND_PORT=$BackendPort
-PORT=$FrontendPort
-API_PORT=$BackendPort
-VITE_PORT=$FrontendPort
-"@
-        $envContent | Out-File -FilePath "$FeaturePath\.env.local" -Encoding UTF8
-        
-        Write-Host "Copying .env files from main..." -ForegroundColor Cyan
-        Copy-EnvFiles -FeaturePath $FeaturePath
-        
-        Write-Host "Installing dependencies..." -ForegroundColor Cyan
-        Install-Dependencies -FeaturePath $FeaturePath
-        
-        Write-Host "Created worktree '$FeatureName'" -ForegroundColor Green
-        Write-Host "Location: $FeaturePath" -ForegroundColor Cyan
-        Write-Host "Opening feature window..." -ForegroundColor Cyan
-
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$FeaturePath'; $StartupMessage"
-    } else {
-        Write-Host "Failed to create worktree" -ForegroundColor Red
-    }
-}
-
-function Finish-Feature {
-    param([string]$FeatureName)
-    
-    $FeaturePath = "$TreesPath\$FeatureName"
-
-    if (-not (Test-Path $FeaturePath)) {
-        Write-Host "Worktree '$FeatureName' not found" -ForegroundColor Red
-        return
-    }
-
-    # 1) Commit feature worktree if dirty
+    Clear-Host
+    Invoke-Git $path status
     Write-Host ""
-    Write-Host "Enter commit message for feature '$FeatureName' (or press Enter for default): " -NoNewline -ForegroundColor White
-    $FeatureCommitMessage = Read-Host
-    if ([string]::IsNullOrWhiteSpace($FeatureCommitMessage)) {
-        $FeatureCommitMessage = "Complete feature: $FeatureName"
-    }
+    Invoke-Git $path diff --stat
 
-    Write-Host "`n[1/6] Committing feature changes (if any)..." -ForegroundColor Cyan
-    Push-Location $FeaturePath
-    $featStatus = git status --porcelain
-    if ($featStatus) {
-        git add -A
-        git commit -m $FeatureCommitMessage
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Commit failed in feature worktree. Fix and retry." -ForegroundColor Red
-            Pop-Location
-            return
-        }
-    } else {
-        Write-Host "No pending changes in feature worktree." -ForegroundColor Gray
-    }
-
-    # 2) Push feature branch
-    Write-Host "`n[2/6] Pushing feature branch..." -ForegroundColor Cyan
-    git push -u origin $FeatureName 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Push of feature branch failed. Check git output above." -ForegroundColor Red
-        Pop-Location
-        return
-    }
-    Pop-Location
-
-    # 3) Ensure main is clean: if dirty, commit first
-    Write-Host "`n[3/6] Ensuring main is clean before merge..." -ForegroundColor Cyan
-    Push-Location $MainPath
-    $mainStatus = git status --porcelain
-
-    if ($mainStatus) {
-        Write-Host "Main has pending changes:" -ForegroundColor Yellow
-        git status -sb
-
+    while ($true) {
         Write-Host ""
-        Write-Host "Enter commit message for main (or press Enter for default): " -NoNewline -ForegroundColor White
-        $MainCommitMessage = Read-Host
-        if ([string]::IsNullOrWhiteSpace($MainCommitMessage)) {
-            $MainCommitMessage = "Pre-merge main cleanup"
+        Write-Host "V  View full diff"
+        Write-Host "C  Commit"
+        Write-Host "B  Back"
+        $choice = (Read-Host ">").Trim().ToUpper()
+
+        if ($choice -eq "V") {
+            Invoke-Git $path diff --color=always | more
+            continue
         }
 
-        git add -A
-        git commit -m $MainCommitMessage
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Commit failed on main. Fix and rerun Finish-Feature." -ForegroundColor Red
-            Pop-Location
+        if ($choice -eq "B") {
             return
         }
-    } else {
-        Write-Host "Main is clean. No pre-merge commit needed." -ForegroundColor Gray
+
+        if ($choice -eq "C") {
+            break
+        }
     }
 
-    # 4) Merge feature into main
-    Write-Host "`n[4/6] Pulling and merging '$FeatureName' into main..." -ForegroundColor Cyan
-    git pull
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "git pull failed on main. Fix this and rerun Finish-Feature." -ForegroundColor Red
-        Pop-Location
-        return
-    }
+    do {
+        $msg = Read-Host "Commit message"
+    } while ([string]::IsNullOrWhiteSpace($msg))
 
-    git merge $FeatureName -m "Merge feature: $FeatureName"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "`nMerge conflict detected!" -ForegroundColor Red
-        Write-Host "Resolve conflicts in: $MainPath" -ForegroundColor Yellow
-        Write-Host "Then commit and run finish again" -ForegroundColor Yellow
-        Pop-Location
-        return
-    }
+    Invoke-Git $path add -A
+    Invoke-Git $path commit -m $msg
 
-    git push
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Push failed on main. Check git output above." -ForegroundColor Red
-        Pop-Location
-        return
-    }
-    Pop-Location
+    Write-Host "`nCreated commit:"
+    Invoke-Git $path log -1 --oneline
 
-    # 5) Remove worktree and branches
-    Write-Host "`n[5/6] Removing worktree and branches..." -ForegroundColor Cyan
-    Push-Location $RepoPath
-    git worktree remove $FeaturePath --force
-    git branch -d $FeatureName 2>$null
-    git push origin --delete $FeatureName 2>$null
-    git worktree prune
-    Pop-Location
-
-    # 6) Done
-    Write-Host "`n[6/6] Complete!" -ForegroundColor Green
-    Write-Host "Feature '$FeatureName' merged and cleaned up." -ForegroundColor Green
+    Read-Host "`nPress ENTER to continue"
 }
 
-function Commit-Main {
-    if (-not (Test-Path $MainPath)) {
-        Write-Host "Main worktree not found at $MainPath" -ForegroundColor Red
-        return
-    }
+function Destroy-Feature($name) {
+    if (-not (Require-Worktree $name)) { return }
 
-    Write-Host ""
-    Write-Host "[1/3] Checking main status..." -ForegroundColor Cyan
-    Push-Location $MainPath
-    $status = git status --porcelain
+    $confirm = Read-Host "Type YES to destroy worktree '$name'"
+    if ($confirm -ne "YES") { return }
 
-    if (-not $status) {
-        Write-Host "No changes to commit on main." -ForegroundColor Gray
-        Pop-Location
-        return
-    }
-
-    git status -sb
-
-    Write-Host ""
-    Write-Host "Enter commit message (or press Enter for default): " -NoNewline -ForegroundColor White
-    $CommitMessage = Read-Host
-    if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
-        $CommitMessage = "Update main"
-    }
-
-    Write-Host "`n[2/3] Committing changes..." -ForegroundColor Cyan
-    git add -A
-    git commit -m $CommitMessage
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Commit failed. Check git output above." -ForegroundColor Red
-        Pop-Location
-        return
-    }
-
-    Write-Host "`n[3/3] Pushing main..." -ForegroundColor Cyan
-    git push
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Push failed. Check git output above." -ForegroundColor Red
-        Pop-Location
-        return
-    }
-
-    Pop-Location
-    Write-Host "`nMain branch committed and pushed." -ForegroundColor Green
-}
-
-function Destroy-Feature {
-    param([string]$FeatureName)
-    
-    $FeaturePath = "$TreesPath\$FeatureName"
-
-    if (-not (Test-Path $FeaturePath)) {
-        Write-Host "Worktree '$FeatureName' not found" -ForegroundColor Yellow
-        return
-    }
-
-    Write-Host ""
-    Write-Host "WARNING: This will destroy '$FeatureName' without merging!" -ForegroundColor Red
-    Write-Host "Type 'yes' to confirm: " -NoNewline -ForegroundColor Yellow
-    $confirm = Read-Host
-    
-    if ($confirm -ne "yes") {
-        Write-Host "Cancelled" -ForegroundColor Gray
-        return
-    }
-
-    Write-Host "`nKilling processes..." -ForegroundColor Cyan
-    taskkill /F /IM python.exe 2>$null | Out-Null
-    taskkill /F /IM node.exe 2>$null | Out-Null
-    Start-Sleep -Seconds 1
-
-    Write-Host "Removing folder..." -ForegroundColor Cyan
-    Remove-Item -Path $FeaturePath -Recurse -Force -ErrorAction SilentlyContinue
-    
-    if (Test-Path $FeaturePath) {
-        Write-Host "Folder still locked. Try closing all windows and run destroy again." -ForegroundColor Red
-        return
-    }
-
-    Write-Host "Cleaning up git..." -ForegroundColor Cyan
-    Push-Location $RepoPath
-    git worktree prune
-    git branch -D $FeatureName 2>$null
-    git push origin --delete $FeatureName 2>$null
+    Push-Location $WorktreeRoot
+    git worktree remove $name
     Pop-Location
 
-    Write-Host "`nDestroyed '$FeatureName'" -ForegroundColor Green
+    Write-Host "Destroyed '$name'."
+    Read-Host "Press ENTER to continue"
 }
 
 function List-Worktrees {
-    Write-Host ""
-    Write-Host "Active Worktrees:" -ForegroundColor Cyan
-    Write-Host "=================" -ForegroundColor Cyan
-    Push-Location $RepoPath
-    git worktree list
-    Pop-Location
+    Clear-Host
+    Write-Host "Worktrees:`n"
+    foreach ($key in $FeatureOrder) {
+        $name   = $Features[$key]
+        $exists = if (Test-WorktreeExists $name) { "Yes" } else { "No" }
+        Write-Host ("  {0,-2} {1,-7} Exists: {2}" -f $key, $name, $exists)
+    }
+    Read-Host "`nPress ENTER to return"
 }
 
-# Main loop
-do {
-    Show-Menu
-    Write-Host "  Choice: " -NoNewline -ForegroundColor White
-    $choice = Read-Host
+# ---------- Main Loop ----------
+while ($true) {
+    Show-FeatureMenu
+    $key = (Read-Host ">").Trim().ToUpper()
 
-    switch ($choice.ToUpper()) {
-        # main
-        "M"  { Start-Feature "main"; pause }
-        "1"  { Commit-Main;          pause }
+    if ($key -eq "Q") { break }
+    if ($key -eq "L") { List-Worktrees; continue }
+    if (-not $Features.ContainsKey($key)) { continue }
 
-        # Start features
-        "2"  { Start-Feature "f1";   pause }
-        "3"  { Start-Feature "f2";   pause }
-        "4"  { Start-Feature "f3";   pause }
-        "5"  { Start-Feature "f4";   pause }
+    $name = $Features[$key]
 
-        # Finish
-        "F1" { Finish-Feature "f1";  pause }
-        "F2" { Finish-Feature "f2";  pause }
-        "F3" { Finish-Feature "f3";  pause }
-        "F4" { Finish-Feature "f4";  pause }
+    while ($true) {
+        Show-ActionMenu $name
+        $action = (Read-Host ">").Trim().ToUpper()
 
-        # Destroy
-        "D1" { Destroy-Feature "f1"; pause }
-        "D2" { Destroy-Feature "f2"; pause }
-        "D3" { Destroy-Feature "f3"; pause }
-        "D4" { Destroy-Feature "f4"; pause }
-
-        # Other
-        "L"  { List-Worktrees;       pause }
-        "Q"  { exit }
-        default { Write-Host "Invalid choice" -ForegroundColor Red; Start-Sleep -Seconds 1 }
+        switch ($action) {
+            "S" { Start-Feature  $name; break }
+            "F" { Finish-Feature $name; break }
+            "D" { Destroy-Feature $name; break }
+            "B" { break }
+            "Q" { exit }
+        }
     }
-} while ($true)
+}

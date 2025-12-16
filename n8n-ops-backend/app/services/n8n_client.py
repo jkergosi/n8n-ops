@@ -215,22 +215,15 @@ class N8NClient:
 
     async def test_connection(self) -> bool:
         """Test if the N8N instance is reachable and credentials are valid"""
-        print(f"N8NClient.test_connection - base_url: {self.base_url}", flush=True)
-        print(f"N8NClient.test_connection - api_key (first 10): {self.api_key[:10] if self.api_key else 'NONE'}...", flush=True)
-        print(f"N8NClient.test_connection - api_key length: {len(self.api_key) if self.api_key else 0}", flush=True)
         try:
             async with httpx.AsyncClient() as client:
-                url = f"{self.base_url}/api/v1/workflows"
-                print(f"N8NClient.test_connection - requesting: {url}", flush=True)
                 response = await client.get(
-                    url,
+                    f"{self.base_url}/api/v1/workflows",
                     headers=self.headers,
                     timeout=10.0
                 )
-                print(f"N8NClient.test_connection - status: {response.status_code}", flush=True)
                 return response.status_code == 200
-        except Exception as e:
-            print(f"N8NClient.test_connection - exception: {type(e).__name__}: {str(e)}", flush=True)
+        except Exception:
             return False
 
     async def get_executions(self, limit: int = 100) -> List[Dict[str, Any]]:
@@ -277,10 +270,10 @@ class N8NClient:
 
                 return credentials
         except httpx.HTTPStatusError as e:
-            # If credentials endpoint is not accessible (older n8n versions), fall back to workflow extraction
-            if e.response.status_code in [401, 403, 404]:
+            # If credentials endpoint is not accessible (older n8n versions or cloud), fall back to workflow extraction
+            if e.response.status_code in [401, 403, 404, 405]:
                 import logging
-                logging.info("N8N credentials API not available, extracting from workflows")
+                logging.info(f"N8N credentials API not available (status {e.response.status_code}), extracting from workflows")
                 return await self._extract_credentials_from_workflows()
             raise
         except Exception as e:

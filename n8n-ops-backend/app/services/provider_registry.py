@@ -83,29 +83,23 @@ class ProviderRegistry:
         Returns:
             Configured N8NProviderAdapter instance
         """
-        print(f"ProviderRegistry._create_n8n_adapter - config keys: {list(config.keys())}", flush=True)
-
-        # Try provider_config first (new style)
-        provider_config = config.get("provider_config", {})
-        print(f"ProviderRegistry._create_n8n_adapter - provider_config: {provider_config}", flush=True)
-        if provider_config:
-            base_url = provider_config.get("base_url")
-            api_key = provider_config.get("api_key")
-            print(f"ProviderRegistry._create_n8n_adapter - from provider_config: base_url={base_url}, api_key_present={bool(api_key)}", flush=True)
-            if base_url and api_key:
-                return N8NProviderAdapter(base_url=base_url, api_key=api_key)
-
-        # Fall back to legacy n8n_* fields
+        # Always use n8n_* fields first - these are what the UI edits
+        # The provider_config field may contain stale data
         base_url = config.get("n8n_base_url") or config.get("base_url")
         api_key = config.get("n8n_api_key") or config.get("api_key")
-        print(f"ProviderRegistry._create_n8n_adapter - from legacy: base_url={base_url}, api_key_present={bool(api_key)}, api_key_len={len(api_key) if api_key else 0}", flush=True)
+
+        # Only fall back to provider_config if n8n_* fields are missing
+        if not base_url or not api_key:
+            provider_config = config.get("provider_config", {})
+            if provider_config:
+                base_url = base_url or provider_config.get("base_url")
+                api_key = api_key or provider_config.get("api_key")
 
         if not base_url:
             raise ValueError("Missing required configuration: base_url or n8n_base_url")
         if not api_key:
             raise ValueError("Missing required configuration: api_key or n8n_api_key")
 
-        print(f"ProviderRegistry._create_n8n_adapter - creating adapter with base_url={base_url}", flush=True)
         return N8NProviderAdapter(base_url=base_url, api_key=api_key)
 
     @classmethod

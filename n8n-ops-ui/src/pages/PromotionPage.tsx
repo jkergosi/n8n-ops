@@ -180,9 +180,7 @@ export function PromotionPage() {
       } else {
         toast.success('Deployment started successfully');
         // Auto-execute in background if no approval needed
-        apiClient.executePromotion(promotionId).catch(() => {
-          // Error will be visible on deployments page
-        });
+        executeMutation.mutate(promotionId);
       }
 
       // Redirect to deployments page immediately so user can monitor progress
@@ -201,10 +199,19 @@ export function PromotionPage() {
 
   const executeMutation = useMutation({
     mutationFn: (id: string) => apiClient.executePromotion(id),
-    onSuccess: () => {
-      toast.success('Deployment executed successfully');
-      queryClient.invalidateQueries({ queryKey: ['promotions'] });
-      navigate('/deployments');
+    onSuccess: (data) => {
+      const jobId = data.data.job_id;
+      const promotionId = data.data.promotion_id;
+      
+      if (jobId) {
+        toast.success('Deployment started successfully. Monitoring progress...');
+        // Start polling for job status
+        startJobPolling(promotionId);
+      } else {
+        toast.success('Deployment executed successfully');
+        queryClient.invalidateQueries({ queryKey: ['promotions'] });
+        navigate('/deployments');
+      }
     },
     onError: (error: any) => {
       const detail = error.response?.data?.detail;
@@ -213,6 +220,50 @@ export function PromotionPage() {
         : (typeof detail === 'string' ? detail : 'Failed to execute deployment');
       toast.error(message);
     },
+  });
+
+  // Job polling state
+  const [pollingPromotionId, setPollingPromotionId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<any>(null);
+
+  // Poll for job status
+  const startJobPolling = (promotionId: string) => {
+    setPollingPromotionId(promotionId);
+    setJobStatus({ status: 'running', progress: { current: 0, total: 0, percentage: 0 } });
+  };
+
+  // Poll job status
+  useQuery({
+    queryKey: ['promotion-job', pollingPromotionId],
+    queryFn: () => apiClient.getPromotionJob(pollingPromotionId!),
+    enabled: !!pollingPromotionId,
+    refetchInterval: (query) => {
+      const data = query.state.data?.data;
+      if (data?.status === 'completed' || data?.status === 'failed' || data?.status === 'cancelled') {
+        return false; // Stop polling when done
+      }
+      return 2000; // Poll every 2 seconds
+    },
+    onSuccess: (data) => {
+      const job = data.data;
+      setJobStatus(job);
+      
+      if (job.status === 'completed') {
+        toast.success('Deployment completed successfully');
+        queryClient.invalidateQueries({ queryKey: ['promotions'] });
+        queryClient.invalidateQueries({ queryKey: ['deployments'] });
+        setPollingPromotionId(null);
+        setTimeout(() => navigate('/deployments'), 2000);
+      } else if (job.status === 'failed') {
+        toast.error(`Deployment failed: ${job.error_message || 'Unknown error'}`);
+        setPollingPromotionId(null);
+      }
+    },
+    onError: () => {
+      // If polling fails, stop polling and navigate to deployments
+      setPollingPromotionId(null);
+      navigate('/deployments');
+    }
   });
 
   // Credential preflight mutation
@@ -271,6 +322,10 @@ export function PromotionPage() {
     // TODO: Re-enable preflight check once endpoint is working
     // preflightMutation.mutate();
     initiateMutation.mutate();
+  };
+
+  const handleExecute = (promotionId: string) => {
+    executeMutation.mutate(promotionId);
   };
 
   const handlePreflightProceed = () => {
@@ -536,6 +591,46 @@ export function PromotionPage() {
         </Card>
       )}
 
+      {/* Job Status Display */}
+      {pollingPromotionId && jobStatus && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Deployment Progress</CardTitle>
+            <CardDescription>Monitoring deployment execution</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Status</span>
+                <Badge variant={jobStatus.status === 'completed' ? 'default' : jobStatus.status === 'failed' ? 'destructive' : 'secondary'}>
+                  {jobStatus.status}
+                </Badge>
+              </div>
+              {jobStatus.progress && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>{jobStatus.progress.message || 'Processing...'}</span>
+                    <span>{jobStatus.progress.current} / {jobStatus.progress.total}</span>
+                  </div>
+                  <div className="w-full bg-secondary rounded-full h-2">
+                    <div
+                      className="bg-primary h-2 rounded-full transition-all"
+                      style={{ width: `${jobStatus.progress.percentage || 0}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              {jobStatus.error_message && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{jobStatus.error_message}</AlertDescription>
+                </Alert>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Actions */}
       {selectedPipelineId && activeStage && (
         <div className="flex justify-end gap-2">
@@ -544,7 +639,7 @@ export function PromotionPage() {
           </Button>
           <Button
             onClick={handleInitiate}
-            disabled={preflightMutation.isPending || initiateMutation.isPending || workflowSelections.filter(ws => ws.selected).length === 0}
+            disabled={preflightMutation.isPending || initiateMutation.isPending || executeMutation.isPending || workflowSelections.filter(ws => ws.selected).length === 0}
           >
             {preflightMutation.isPending ? (
               <>

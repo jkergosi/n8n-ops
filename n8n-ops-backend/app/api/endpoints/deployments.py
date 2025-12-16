@@ -11,6 +11,7 @@ from app.schemas.deployment import (
     SnapshotResponse,
 )
 from app.core.entitlements_gate import require_entitlement
+from app.services.background_job_service import background_job_service
 
 router = APIRouter()
 
@@ -138,6 +139,40 @@ async def get_deployment(
         workflows = [
             DeploymentWorkflowResponse(**wf) for wf in (workflows_result.data or [])
         ]
+        
+        # If deployment is running, try to get job status for more details
+        # Find the promotion associated with this deployment and get its job
+        job_status = None
+        if deployment.status == DeploymentStatus.RUNNING.value:
+            try:
+                # Find promotion that matches this deployment
+                promotion_result = (
+                    db_service.client.table("promotions")
+                    .select("id")
+                    .eq("tenant_id", MOCK_TENANT_ID)
+                    .eq("source_environment_id", deployment.source_environment_id)
+                    .eq("target_environment_id", deployment.target_environment_id)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if promotion_result.data:
+                    promotion_id = promotion_result.data[0].get("id")
+                    job = await background_job_service.get_latest_job_by_resource(
+                        resource_type="promotion",
+                        resource_id=promotion_id,
+                        tenant_id=MOCK_TENANT_ID
+                    )
+                    # Verify this job is for this deployment by checking result.deployment_id
+                    if job and job.get("result", {}).get("deployment_id") == deployment_id:
+                        job_status = {
+                            "status": job.get("status"),
+                            "progress": job.get("progress", {}),
+                            "error_message": job.get("error_message")
+                        }
+            except Exception:
+                # If we can't get job status, continue without it
+                pass
 
         # Get pre snapshot if exists
         pre_snapshot = None

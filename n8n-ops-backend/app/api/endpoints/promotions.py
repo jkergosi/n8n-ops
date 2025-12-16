@@ -3,7 +3,7 @@ Promotions API endpoints for pipeline-aware environment promotion
 """
 from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from uuid import uuid4
 import logging
@@ -16,6 +16,16 @@ from app.core.entitlements_gate import require_entitlement
 from app.services.promotion_service import promotion_service
 from app.services.database import db_service
 from app.services.notification_service import notification_service
+from app.services.background_job_service import (
+    background_job_service,
+    BackgroundJobStatus,
+    BackgroundJobType
+)
+from app.services.background_job_service import (
+    background_job_service,
+    BackgroundJobStatus,
+    BackgroundJobType
+)
 from app.schemas.promotion import (
     PromotionInitiateRequest,
     PromotionInitiateResponse,
@@ -138,7 +148,8 @@ async def initiate_promotion(
         )
 
 
-async def _run_promotion_transfer(
+async def _execute_promotion_background(
+    job_id: str,
     promotion_id: str,
     deployment_id: str,
     promotion: dict,
@@ -147,13 +158,22 @@ async def _run_promotion_transfer(
     selected_workflows: list
 ):
     """
-    Background task to transfer workflows from source to target n8n instance.
-    This runs asynchronously after the API returns.
+    Background task to execute promotion - transfers workflows from source to target.
+    Updates job progress as it processes workflows.
     """
     from app.services.n8n_client import N8NClient
     from app.schemas.deployment import DeploymentStatus, WorkflowChangeType, WorkflowStatus
 
+    total_workflows = len(selected_workflows)
+    
     try:
+        # Update job status to running
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.RUNNING,
+            progress={"current": 0, "total": total_workflows, "percentage": 0, "message": "Starting promotion execution"}
+        )
+
         # Create n8n clients
         source_client = N8NClient(source_env.get("base_url"), source_env.get("api_key"))
         target_client = N8NClient(target_env.get("base_url"), target_env.get("api_key"))
@@ -163,8 +183,9 @@ async def _run_promotion_transfer(
         updated_count = 0
         failed_count = 0
         skipped_count = 0
+        workflow_results = []
 
-        for ws in selected_workflows:
+        for idx, ws in enumerate(selected_workflows, 1):
             workflow_id = ws.get("workflow_id")
             workflow_name = ws.get("workflow_name")
             change_type = ws.get("change_type", "new")
@@ -172,9 +193,20 @@ async def _run_promotion_transfer(
             status_result = WorkflowStatus.SUCCESS
 
             try:
+                # Update progress
+                await background_job_service.update_progress(
+                    job_id=job_id,
+                    current=idx,
+                    total=total_workflows,
+                    message=f"Processing workflow: {workflow_name}"
+                )
+
                 # Fetch workflow from source
-                logger.info(f"Fetching workflow {workflow_id} from source")
+                logger.info(f"[Job {job_id}] Fetching workflow {workflow_id} ({workflow_name}) from source environment {source_env.get('name', source_env.get('id'))}")
                 source_workflow = await source_client.get_workflow(workflow_id)
+                
+                if not source_workflow:
+                    raise ValueError(f"Workflow {workflow_id} not found in source environment")
 
                 # Prepare workflow data for target (remove source-specific fields)
                 workflow_data = {
@@ -184,8 +216,11 @@ async def _run_promotion_transfer(
                     "settings": source_workflow.get("settings", {}),
                     "staticData": source_workflow.get("staticData"),
                 }
+                
+                logger.info(f"[Job {job_id}] Prepared workflow data for {workflow_name}: {len(workflow_data.get('nodes', []))} nodes")
 
                 # Try to find existing workflow in target by name
+                logger.info(f"[Job {job_id}] Checking for existing workflow '{workflow_name}' in target environment {target_env.get('name', target_env.get('id'))}")
                 target_workflows = await target_client.get_workflows()
                 existing_workflow = next(
                     (w for w in target_workflows if w.get("name") == workflow_name),
@@ -194,14 +229,16 @@ async def _run_promotion_transfer(
 
                 if existing_workflow:
                     # Update existing workflow
-                    logger.info(f"Updating workflow {workflow_name} in target")
-                    await target_client.update_workflow(existing_workflow.get("id"), workflow_data)
+                    logger.info(f"[Job {job_id}] Updating existing workflow '{workflow_name}' (ID: {existing_workflow.get('id')}) in target")
+                    result = await target_client.update_workflow(existing_workflow.get("id"), workflow_data)
+                    logger.info(f"[Job {job_id}] Successfully updated workflow '{workflow_name}' in target environment")
                     updated_count += 1
                     change_type = "changed"
                 else:
                     # Create new workflow
-                    logger.info(f"Creating workflow {workflow_name} in target")
-                    await target_client.create_workflow(workflow_data)
+                    logger.info(f"[Job {job_id}] Creating new workflow '{workflow_name}' in target environment")
+                    result = await target_client.create_workflow(workflow_data)
+                    logger.info(f"[Job {job_id}] Successfully created workflow '{workflow_name}' (ID: {result.get('id', 'unknown')}) in target environment")
                     created_count += 1
                     change_type = "new"
 
@@ -230,10 +267,11 @@ async def _run_promotion_transfer(
                 "error_message": error_message,
             }
             await db_service.create_deployment_workflow(workflow_record)
+            workflow_results.append(workflow_record)
 
         # Calculate final summary
         summary_json = {
-            "total": len(selected_workflows),
+            "total": total_workflows,
             "created": created_count,
             "updated": updated_count,
             "deleted": 0,
@@ -258,10 +296,33 @@ async def _run_promotion_transfer(
             "completed_at": datetime.utcnow().isoformat()
         })
 
+        # Update job as completed
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.COMPLETED if failed_count == 0 else BackgroundJobStatus.FAILED,
+            progress={"current": total_workflows, "total": total_workflows, "percentage": 100},
+            result={
+                "deployment_id": deployment_id,
+                "summary": summary_json,
+                "workflow_results": workflow_results
+            },
+            error_message=None if failed_count == 0 else f"{failed_count} workflow(s) failed"
+        )
+
         logger.info(f"Promotion {promotion_id} completed: {created_count} created, {updated_count} updated, {failed_count} failed")
 
     except Exception as e:
-        logger.error(f"Background promotion transfer failed: {str(e)}")
+        logger.error(f"Background promotion execution failed: {str(e)}")
+        error_msg = str(e)
+        
+        # Update job as failed
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.FAILED,
+            error_message=error_msg,
+            error_details={"exception_type": type(e).__name__, "traceback": str(e)}
+        )
+        
         # Update promotion and deployment status to failed
         try:
             await db_service.update_promotion(promotion_id, MOCK_TENANT_ID, {
@@ -271,7 +332,15 @@ async def _run_promotion_transfer(
             await db_service.update_deployment(deployment_id, {
                 "status": "failed",
                 "finished_at": datetime.utcnow().isoformat(),
-                "summary_json": {"total": len(selected_workflows), "created": 0, "updated": 0, "deleted": 0, "failed": len(selected_workflows), "skipped": 0, "error": str(e)},
+                "summary_json": {
+                    "total": total_workflows,
+                    "created": 0,
+                    "updated": 0,
+                    "deleted": 0,
+                    "failed": total_workflows,
+                    "skipped": 0,
+                    "error": error_msg
+                },
             })
         except Exception as update_error:
             logger.error(f"Failed to update promotion/deployment status: {str(update_error)}")
@@ -280,11 +349,12 @@ async def _run_promotion_transfer(
 @router.post("/execute/{promotion_id}")
 async def execute_promotion(
     promotion_id: str,
+    background_tasks: BackgroundTasks,
     _: None = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
-    Execute a promotion - creates deployment and starts background transfer.
-    Returns immediately with deployment_id for tracking.
+    Execute a promotion - creates deployment and starts background execution.
+    Returns immediately with job_id for tracking progress.
     """
     from app.schemas.deployment import DeploymentStatus
 
@@ -304,9 +374,6 @@ async def execute_promotion(
                 detail=f"Promotion cannot be executed in status: {promotion.get('status')}"
             )
 
-        # Update status to running
-        await db_service.update_promotion(promotion_id, MOCK_TENANT_ID, {"status": "running"})
-
         # Get source and target environments
         source_env = await db_service.get_environment(promotion.get("source_environment_id"), MOCK_TENANT_ID)
         target_env = await db_service.get_environment(promotion.get("target_environment_id"), MOCK_TENANT_ID)
@@ -320,6 +387,31 @@ async def execute_promotion(
         # Get selected workflows
         workflow_selections = promotion.get("workflow_selections", [])
         selected_workflows = [ws for ws in workflow_selections if ws.get("selected")]
+
+        if not selected_workflows:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No workflows selected for promotion"
+            )
+
+        # Create background job (link to both promotion and deployment)
+        job = await background_job_service.create_job(
+            tenant_id=MOCK_TENANT_ID,
+            job_type=BackgroundJobType.PROMOTION_EXECUTE,
+            resource_id=promotion_id,
+            resource_type="promotion",
+            created_by=promotion.get("created_by") or "00000000-0000-0000-0000-000000000000",
+            initial_progress={
+                "current": 0,
+                "total": len(selected_workflows),
+                "percentage": 0,
+                "message": "Initializing promotion execution"
+            }
+        )
+        job_id = job["id"]
+
+        # Update promotion status to running
+        await db_service.update_promotion(promotion_id, MOCK_TENANT_ID, {"status": "running"})
 
         # Create deployment record
         deployment_id = str(uuid4())
@@ -339,23 +431,33 @@ async def execute_promotion(
             "summary_json": {"total": len(selected_workflows), "created": 0, "updated": 0, "deleted": 0, "failed": 0, "skipped": 0},
         }
         await db_service.create_deployment(deployment_data)
+        
+        # Update job with deployment_id in result for tracking
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.PENDING,
+            result={"deployment_id": deployment_id}
+        )
 
-        # Start background transfer task
-        asyncio.create_task(_run_promotion_transfer(
+        # Start background execution task
+        background_tasks.add_task(
+            _execute_promotion_background,
+            job_id=job_id,
             promotion_id=promotion_id,
             deployment_id=deployment_id,
             promotion=promotion,
             source_env=source_env,
             target_env=target_env,
             selected_workflows=selected_workflows
-        ))
+        )
 
-        # Return immediately with deployment info
+        # Return immediately with job info
         return {
+            "job_id": job_id,
             "promotion_id": promotion_id,
             "deployment_id": deployment_id,
             "status": "running",
-            "message": f"Promotion started. Transferring {len(selected_workflows)} workflow(s) in the background."
+            "message": f"Promotion execution started. Processing {len(selected_workflows)} workflow(s) in the background."
         }
 
     except HTTPException:
@@ -373,6 +475,51 @@ async def execute_promotion(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to execute promotion: {str(e)}"
+        )
+
+
+@router.get("/{promotion_id}/job")
+async def get_promotion_job(
+    promotion_id: str,
+    _: None = Depends(require_entitlement("workflow_ci_cd"))
+):
+    """
+    Get the latest background job status for a promotion execution.
+    """
+    try:
+        # Get the latest job for this promotion
+        job = await background_job_service.get_latest_job_by_resource(
+            resource_type="promotion",
+            resource_id=promotion_id,
+            tenant_id=MOCK_TENANT_ID
+        )
+        
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No job found for this promotion"
+            )
+        
+        return {
+            "job_id": job.get("id"),
+            "promotion_id": promotion_id,
+            "status": job.get("status"),
+            "progress": job.get("progress", {}),
+            "result": job.get("result", {}),
+            "error_message": job.get("error_message"),
+            "error_details": job.get("error_details", {}),
+            "started_at": job.get("started_at"),
+            "completed_at": job.get("completed_at"),
+            "created_at": job.get("created_at")
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get promotion job: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get promotion job: {str(e)}"
         )
 
 

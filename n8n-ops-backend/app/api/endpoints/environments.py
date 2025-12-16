@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
 from typing import List
 from datetime import datetime
 
@@ -16,6 +16,11 @@ from app.services.github_service import GitHubService
 from app.services.entitlements_service import entitlements_service
 from app.core.entitlements_gate import require_entitlement, require_environment_limit
 from app.api.endpoints.admin_audit import create_audit_log
+from app.services.background_job_service import (
+    background_job_service,
+    BackgroundJobStatus,
+    BackgroundJobType
+)
 
 router = APIRouter()
 

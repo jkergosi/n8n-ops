@@ -1221,6 +1221,39 @@ class DatabaseService:
         ).execute()
         return response.data[0] if response.data else data
 
+    # Background job operations
+    async def create_background_job(self, job_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a background job record"""
+        response = self.client.table("background_jobs").insert(job_data).execute()
+        return response.data[0] if response.data else None
+
+    async def update_background_job(self, job_id: str, job_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update a background job record"""
+        response = self.client.table("background_jobs").update(job_data).eq("id", job_id).execute()
+        return response.data[0] if response.data else None
+
+    async def get_background_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get a background job by ID"""
+        try:
+            response = self.client.table("background_jobs").select("*").eq("id", job_id).single().execute()
+            return response.data
+        except Exception:
+            return None
+
+    async def get_background_jobs_by_resource(
+        self,
+        resource_type: str,
+        resource_id: str,
+        tenant_id: Optional[str] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Get background jobs for a specific resource"""
+        query = self.client.table("background_jobs").select("*").eq("resource_type", resource_type).eq("resource_id", resource_id)
+        if tenant_id:
+            query = query.eq("tenant_id", tenant_id)
+        response = query.order("created_at", desc=True).limit(limit).execute()
+        return response.data
+
 
 # Global instance
 db_service = DatabaseService()

@@ -754,8 +754,13 @@ class ApiClient {
     return { data: response.data };
   }
 
-  async executePromotion(promotionId: string): Promise<{ data: PromotionExecutionResult }> {
-    const response = await this.client.post<PromotionExecutionResult>(`/promotions/execute/${promotionId}`);
+  async executePromotion(promotionId: string): Promise<{ data: any }> {
+    const response = await this.client.post(`/promotions/execute/${promotionId}`);
+    return { data: response.data };
+  }
+
+  async getPromotionJob(promotionId: string): Promise<{ data: any }> {
+    const response = await this.client.get(`/promotions/${promotionId}/job`);
     return { data: response.data };
   }
 

@@ -23,6 +23,12 @@ export function DeploymentsPage() {
   const { data: deploymentsData, isLoading } = useQuery({
     queryKey: ['deployments'],
     queryFn: () => apiClient.getDeployments(),
+    refetchInterval: (query) => {
+      // Check if any deployment is running
+      const deployments = query.state.data?.data?.deployments || [];
+      const hasRunning = deployments.some((d: Deployment) => d.status === 'running');
+      return hasRunning ? 2000 : false; // Poll every 2 seconds if any are running
+    },
   });
 
   const { data: environments } = useQuery({
@@ -83,9 +89,8 @@ export function DeploymentsPage() {
   };
 
   const formatDuration = (startedAt: string, finishedAt?: string) => {
-    if (!finishedAt) return '—';
     const start = new Date(startedAt).getTime();
-    const end = new Date(finishedAt).getTime();
+    const end = finishedAt ? new Date(finishedAt).getTime() : Date.now();
     const seconds = Math.round((end - start) / 1000);
     if (seconds < 60) return `${seconds}s`;
     const minutes = Math.floor(seconds / 60);

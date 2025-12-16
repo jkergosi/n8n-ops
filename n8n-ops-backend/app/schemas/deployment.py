@@ -69,6 +69,8 @@ class DeploymentBase(BaseModel):
     pre_snapshot_id: Optional[str] = None
     post_snapshot_id: Optional[str] = None
     summary_json: Optional[Dict[str, Any]] = None
+    deleted_at: Optional[datetime] = None
+    deleted_by_user_id: Optional[str] = None
 
 
 class DeploymentCreate(DeploymentBase):

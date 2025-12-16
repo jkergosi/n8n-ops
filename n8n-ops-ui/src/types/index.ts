@@ -121,6 +121,8 @@ export interface Deployment {
   };
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
+  deletedByUserId?: string;
 }
 
 export interface DeploymentDetail extends Deployment {

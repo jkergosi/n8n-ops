@@ -98,6 +98,15 @@ class DatabaseService:
         response = self.client.table("deployments").select("*").eq("id", deployment_id).eq("tenant_id", tenant_id).single().execute()
         return response.data
 
+    async def delete_deployment(self, deployment_id: str, tenant_id: str, deleted_by_user_id: str) -> Dict[str, Any]:
+        """Soft delete a deployment"""
+        update_data = {
+            "deleted_at": datetime.utcnow().isoformat(),
+            "deleted_by_user_id": deleted_by_user_id
+        }
+        response = self.client.table("deployments").update(update_data).eq("id", deployment_id).eq("tenant_id", tenant_id).execute()
+        return response.data[0] if response.data else None
+
     # Snapshot operations (new Git-backed snapshots)
     async def create_snapshot(self, snapshot_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a snapshot record"""

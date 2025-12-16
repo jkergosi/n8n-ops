@@ -836,6 +836,8 @@ class ApiClient {
       summaryJson: d.summary_json,
       createdAt: d.created_at,
       updatedAt: d.updated_at,
+      deletedAt: d.deleted_at,
+      deletedByUserId: d.deleted_by_user_id,
     }));
     return {
       data: {

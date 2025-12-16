@@ -14,11 +14,26 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { apiClient } from '@/lib/api-client';
-import { ArrowLeft, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Rocket } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Rocket, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export function DeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const { data: deploymentData, isLoading, error } = useQuery({
     queryKey: ['deployment', id],
@@ -144,6 +159,16 @@ export function DeploymentDetailPage() {
           <Badge variant={getStatusVariant(deployment.status)} className="text-base px-3 py-1">
             {deployment.status}
           </Badge>
+          {canDeleteDeployment() && (
+            <Button
+              variant="destructive"
+              onClick={handleDeleteClick}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -348,6 +373,46 @@ export function DeploymentDetailPage() {
           <p>{deployment.triggeredByUserId || 'System'}</p>
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Deployment</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this deployment? This action cannot be undone.
+              {deployment && (
+                <div className="mt-2 space-y-1">
+                  <p className="font-medium">Deployment Details:</p>
+                  <p className="text-sm">
+                    {deployment.summaryJson?.total || 0} workflow(s) deployed from{' '}
+                    {getEnvironmentName(deployment.sourceEnvironmentId)} to{' '}
+                    {getEnvironmentName(deployment.targetEnvironmentId)}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Started: {new Date(deployment.startedAt).toLocaleString()}
+                  </p>
+                  {deployment.finishedAt && (
+                    <p className="text-sm text-muted-foreground">
+                      Finished: {new Date(deployment.finishedAt).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

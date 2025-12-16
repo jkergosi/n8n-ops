@@ -14,8 +14,20 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { apiClient } from '@/lib/api-client';
-import { Rocket, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2 } from 'lucide-react';
+import { Rocket, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Trash2 } from 'lucide-react';
 import type { Deployment } from '@/types';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export function DeploymentsPage() {
   const navigate = useNavigate();
@@ -254,6 +266,41 @@ export function DeploymentsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Deployment</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this deployment? This action cannot be undone.
+              {deploymentToDelete && (
+                <div className="mt-2 space-y-1">
+                  <p className="font-medium">Deployment Details:</p>
+                  <p className="text-sm">
+                    {deploymentToDelete.summaryJson?.total || 0} workflow(s) deployed from{' '}
+                    {getEnvironmentName(deploymentToDelete.sourceEnvironmentId)} to{' '}
+                    {getEnvironmentName(deploymentToDelete.targetEnvironmentId)}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Started: {new Date(deploymentToDelete.startedAt).toLocaleString()}
+                  </p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

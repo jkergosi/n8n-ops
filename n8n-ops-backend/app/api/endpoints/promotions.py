@@ -21,11 +21,7 @@ from app.services.background_job_service import (
     BackgroundJobStatus,
     BackgroundJobType
 )
-from app.services.background_job_service import (
-    background_job_service,
-    BackgroundJobStatus,
-    BackgroundJobType
-)
+from app.api.endpoints.admin_audit import create_audit_log
 from app.schemas.promotion import (
     PromotionInitiateRequest,
     PromotionInitiateResponse,
@@ -431,6 +427,35 @@ async def execute_promotion(
             "summary_json": {"total": len(selected_workflows), "created": 0, "updated": 0, "deleted": 0, "failed": 0, "skipped": 0},
         }
         await db_service.create_deployment(deployment_data)
+        
+        # Create audit log for deployment creation
+        try:
+            provider = source_env.get("provider", "n8n") or "n8n"
+            await create_audit_log(
+                action_type="DEPLOYMENT_CREATED",
+                action=f"Created deployment for {len(selected_workflows)} workflow(s)",
+                actor_id=promotion.get("created_by") or "00000000-0000-0000-0000-000000000000",
+                tenant_id=MOCK_TENANT_ID,
+                resource_type="deployment",
+                resource_id=deployment_id,
+                resource_name=f"Deployment {deployment_id[:8]}",
+                provider=provider,
+                new_value={
+                    "deployment_id": deployment_id,
+                    "promotion_id": promotion_id,
+                    "status": DeploymentStatus.RUNNING.value,
+                    "workflow_count": len(selected_workflows),
+                    "source_environment_id": promotion.get("source_environment_id"),
+                    "target_environment_id": promotion.get("target_environment_id"),
+                    "pipeline_id": promotion.get("pipeline_id"),
+                },
+                metadata={
+                    "job_id": job_id,
+                    "workflow_selections": [{"workflow_id": ws.get("workflow_id"), "workflow_name": ws.get("workflow_name")} for ws in selected_workflows]
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to create audit log for deployment creation: {str(audit_error)}")
         
         # Update job with deployment_id in result for tracking
         await background_job_service.update_job_status(

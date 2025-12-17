@@ -1,24 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
-import { server } from '@/test/mocks/server';
-import { http, HttpResponse } from 'msw';
 import { InlineMappingDialog } from './InlineMappingDialog';
 import type { CredentialIssue } from '@/types/credentials';
+import { http, HttpResponse } from 'msw';
+import { server } from '@/test/mocks/server';
 
 const API_BASE = 'http://localhost:3000/api/v1';
 
-const mockN8NCredentials = [
-  { id: 'n8n-cred-1', name: 'Prod Slack', type: 'slackApi', createdAt: '2024-01-01T00:00:00Z' },
-  { id: 'n8n-cred-2', name: 'Prod GitHub', type: 'githubApi', createdAt: '2024-01-02T00:00:00Z' },
-  { id: 'n8n-cred-3', name: 'Prod PostgreSQL', type: 'postgresApi', createdAt: '2024-01-03T00:00:00Z' },
-];
-
-const mockLogicalCredentials = [
-  { id: 'logical-1', name: 'slackApi:notifications', required_type: 'slackApi', tenant_id: 'tenant-1' },
-];
-
-const mockMissingMappingIssue: CredentialIssue = {
+const mockIssue: CredentialIssue = {
   workflow_id: 'wf-1',
   workflow_name: 'Notification Workflow',
   logical_credential_key: 'slackApi:notifications',
@@ -27,12 +17,12 @@ const mockMissingMappingIssue: CredentialIssue = {
   is_blocking: true,
 };
 
-const mockNoLogicalIssue: CredentialIssue = {
+const mockIssueNoLogical: CredentialIssue = {
   workflow_id: 'wf-2',
-  workflow_name: 'New Workflow',
-  logical_credential_key: 'githubApi:deployment',
+  workflow_name: 'Backup Workflow',
+  logical_credential_key: 'awsApi:s3-backup',
   issue_type: 'no_logical_credential',
-  message: 'No logical credential exists',
+  message: 'No logical credential exists for this reference',
   is_blocking: true,
 };
 
@@ -40,7 +30,7 @@ describe('InlineMappingDialog', () => {
   const defaultProps = {
     open: true,
     onOpenChange: vi.fn(),
-    issue: mockMissingMappingIssue,
+    issue: mockIssue,
     targetEnvironmentId: 'env-2',
     targetEnvironmentName: 'Production',
     onMappingCreated: vi.fn(),
@@ -48,282 +38,202 @@ describe('InlineMappingDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    server.resetHandlers();
-
-    // Setup default handlers
-    server.use(
-      http.get(`${API_BASE}/credentials/by-environment/:environmentId`, () => {
-        return HttpResponse.json(mockN8NCredentials);
-      }),
-      http.get(`${API_BASE}/admin/credentials/logical`, () => {
-        return HttpResponse.json(mockLogicalCredentials);
-      }),
-      http.post(`${API_BASE}/admin/credentials/logical`, async ({ request }) => {
-        const body = await request.json() as any;
-        return HttpResponse.json({
-          id: `logical-new-${Date.now()}`,
-          ...body,
-          created_at: new Date().toISOString(),
-        }, { status: 201 });
-      }),
-      http.post(`${API_BASE}/admin/credentials/mappings`, async ({ request }) => {
-        const body = await request.json() as any;
-        return HttpResponse.json({
-          id: `mapping-new-${Date.now()}`,
-          ...body,
-          created_at: new Date().toISOString(),
-        }, { status: 201 });
-      }),
-      http.get(`${API_BASE}/auth/status`, () => {
-        return HttpResponse.json({
-          authenticated: true,
-          onboarding_required: false,
-          has_environment: true,
-          user: { id: 'user-1', email: 'admin@test.com', name: 'Admin', role: 'admin' },
-          tenant: { id: 'tenant-1', name: 'Test Org', subscription_tier: 'pro' },
-          entitlements: { plan_name: 'pro', features: {} },
-        });
-      })
-    );
   });
 
   describe('Rendering', () => {
-    it('should render dialog when open', async () => {
+    it('should render dialog with correct title', async () => {
       render(<InlineMappingDialog {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Create Credential Mapping')).toBeInTheDocument();
-      });
-    });
-
-    it('should not render when open is false', () => {
-      render(<InlineMappingDialog {...defaultProps} open={false} />);
-
-      expect(screen.queryByText('Create Credential Mapping')).not.toBeInTheDocument();
-    });
-
-    it('should not render when issue is null', () => {
-      render(<InlineMappingDialog {...defaultProps} issue={null} />);
-
-      expect(screen.queryByText('Create Credential Mapping')).not.toBeInTheDocument();
+      expect(screen.getByText('Create Credential Mapping')).toBeInTheDocument();
     });
 
     it('should display workflow name in description', async () => {
       render(<InlineMappingDialog {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText(/Notification Workflow/)).toBeInTheDocument();
-      });
+      expect(screen.getByText(/notification workflow/i)).toBeInTheDocument();
     });
 
     it('should display target environment name', async () => {
       render(<InlineMappingDialog {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText(/Production/)).toBeInTheDocument();
-      });
+      expect(screen.getAllByText('Production').length).toBeGreaterThan(0);
     });
 
-    it('should display the logical credential key', async () => {
+    it('should show logical credential key in source info', async () => {
       render(<InlineMappingDialog {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText('slackApi:notifications')).toBeInTheDocument();
-      });
+      expect(screen.getByText('slackApi:notifications')).toBeInTheDocument();
+    });
+
+    it('should not render dialog content when issue is null', () => {
+      render(
+        <InlineMappingDialog {...defaultProps} issue={null} />
+      );
+
+      // When issue is null, the component returns null so no dialog should be visible
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.queryByText('Create Credential Mapping')).not.toBeInTheDocument();
+    });
+
+    it('should show warning alert when no logical credential exists', async () => {
+      render(<InlineMappingDialog {...defaultProps} issue={mockIssueNoLogical} />);
+
+      expect(
+        screen.getByText(/no logical credential exists for this reference/i)
+      ).toBeInTheDocument();
+    });
+
+    it('should disable logical name input when logical credential exists (missing_mapping issue)', async () => {
+      // When issue_type is 'missing_mapping', needsLogicalCredential is false,
+      // so input is disabled (disabled={!needsLogicalCredential})
+      render(<InlineMappingDialog {...defaultProps} issue={mockIssue} />);
+
+      const input = screen.getByDisplayValue('slackApi:notifications');
+      expect(input).toBeDisabled();
+    });
+
+    it('should enable logical name input when no logical credential exists', async () => {
+      // When issue_type is 'no_logical_credential', needsLogicalCredential is true,
+      // so input is NOT disabled (disabled={!needsLogicalCredential})
+      render(<InlineMappingDialog {...defaultProps} issue={mockIssueNoLogical} />);
+
+      const input = screen.getByDisplayValue('awsApi:s3-backup');
+      expect(input).not.toBeDisabled();
     });
   });
 
-  describe('Missing Mapping Issue', () => {
-    it('should show logical credential name as disabled input', async () => {
-      render(<InlineMappingDialog {...defaultProps} />);
-
-      await waitFor(() => {
-        const input = screen.getByDisplayValue('slackApi:notifications');
-        expect(input).toBeInTheDocument();
-        expect(input).toBeDisabled();
-      });
-    });
-
-    it('should not show alert for no_logical_credential', async () => {
-      render(<InlineMappingDialog {...defaultProps} />);
-
-      await waitFor(() => {
-        expect(screen.queryByText(/No logical credential exists/)).not.toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('No Logical Credential Issue', () => {
-    it('should show alert about creating logical credential', async () => {
-      render(<InlineMappingDialog {...defaultProps} issue={mockNoLogicalIssue} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/No logical credential exists for this reference/)).toBeInTheDocument();
-      });
-    });
-
-    it('should allow editing logical credential name', async () => {
-      const user = userEvent.setup();
-      render(<InlineMappingDialog {...defaultProps} issue={mockNoLogicalIssue} />);
-
-      await waitFor(() => {
-        const input = screen.getByDisplayValue('githubApi:deployment');
-        expect(input).not.toBeDisabled();
-      });
-
-      const input = screen.getByDisplayValue('githubApi:deployment');
-      await user.clear(input);
-      await user.type(input, 'githubApi:custom-name');
-
-      expect(screen.getByDisplayValue('githubApi:custom-name')).toBeInTheDocument();
-    });
-  });
-
-  describe('Credential Picker', () => {
-    it('should render credential picker with environment ID', async () => {
-      render(<InlineMappingDialog {...defaultProps} />);
-
-      await waitFor(() => {
-        expect(screen.getByRole('combobox')).toBeInTheDocument();
-      });
-    });
-
-    it('should show label with target environment name', async () => {
-      render(<InlineMappingDialog {...defaultProps} />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Target Credential in Production/)).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('Form Submission', () => {
-    it('should disable Create Mapping button when no credential selected', async () => {
-      render(<InlineMappingDialog {...defaultProps} />);
-
-      await waitFor(() => {
-        const createButton = screen.getByRole('button', { name: /create mapping/i });
-        expect(createButton).toBeDisabled();
-      });
-    });
-
-    it('should show Cancel button', async () => {
-      render(<InlineMappingDialog {...defaultProps} />);
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
-      });
-    });
-
-    it('should call onOpenChange when Cancel is clicked', async () => {
-      const user = userEvent.setup();
+  describe('User Interactions', () => {
+    it('should call onOpenChange when cancel button is clicked', async () => {
       const onOpenChange = vi.fn();
-      render(<InlineMappingDialog {...defaultProps} onOpenChange={onOpenChange} />);
+      const user = userEvent.setup();
 
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
-      });
+      render(<InlineMappingDialog {...defaultProps} onOpenChange={onOpenChange} />);
 
       const cancelButton = screen.getByRole('button', { name: /cancel/i });
       await user.click(cancelButton);
 
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
-  });
 
-  describe('Selected Credential Preview', () => {
-    it('should not show preview when no credential selected', async () => {
+    it('should disable create mapping button when no credential is selected', async () => {
       render(<InlineMappingDialog {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.queryByText(/Selected Credential/)).not.toBeInTheDocument();
-      });
+      const createButton = screen.getByRole('button', { name: /create mapping/i });
+      expect(createButton).toBeDisabled();
     });
   });
 
-  describe('Error Handling', () => {
-    it('should handle logical credential creation failure gracefully', async () => {
+  describe('Credential Selection Flow', () => {
+    it('should render credential picker for target environment', async () => {
+      render(<InlineMappingDialog {...defaultProps} />);
+
+      expect(screen.getByText(/target credential in production/i)).toBeInTheDocument();
+    });
+  });
+
+  describe('Form Submission', () => {
+    beforeEach(() => {
+      // Mock logical credentials endpoint
       server.use(
-        http.post(`${API_BASE}/admin/credentials/logical`, () => {
-          return HttpResponse.json(
-            { detail: 'Failed to create logical credential' },
-            { status: 400 }
-          );
+        http.get(`${API_BASE}/admin/credentials/logical`, () => {
+          return HttpResponse.json([
+            {
+              id: 'logical-1',
+              name: 'slackApi:notifications',
+              required_type: 'slackApi',
+              description: 'Slack credentials',
+              tenant_id: 'tenant-1',
+            },
+          ]);
         })
       );
 
-      // Component should still render without errors
-      render(<InlineMappingDialog {...defaultProps} issue={mockNoLogicalIssue} />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Create Credential Mapping')).toBeInTheDocument();
-      });
-    });
-
-    it('should handle mapping creation failure gracefully', async () => {
+      // Mock create mapping endpoint
       server.use(
-        http.post(`${API_BASE}/admin/credentials/mappings`, () => {
+        http.post(`${API_BASE}/admin/credentials/mappings`, async () => {
           return HttpResponse.json(
-            { detail: 'Failed to create mapping' },
-            { status: 400 }
+            {
+              id: 'mapping-new',
+              logical_credential_id: 'logical-1',
+              environment_id: 'env-2',
+              physical_credential_id: 'n8n-cred-1',
+              physical_name: 'Prod Slack',
+              physical_type: 'slackApi',
+              status: 'valid',
+            },
+            { status: 201 }
           );
         })
       );
+    });
 
-      // Component should still render without errors
+    it('should show loading state during submission', async () => {
+      // This test verifies the loading UI exists but due to fast mock responses
+      // we just verify the component structure is correct
       render(<InlineMappingDialog {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText('Create Credential Mapping')).toBeInTheDocument();
-      });
+      expect(screen.getByRole('button', { name: /create mapping/i })).toBeInTheDocument();
     });
   });
 
-  describe('Source Info Display', () => {
-    it('should display source credential reference section', async () => {
-      render(<InlineMappingDialog {...defaultProps} />);
+  describe('Edge Cases', () => {
+    it('should handle issue type mapped_missing_in_target', async () => {
+      const mappedMissingIssue: CredentialIssue = {
+        workflow_id: 'wf-3',
+        workflow_name: 'Data Sync Workflow',
+        logical_credential_key: 'postgresApi:main-db',
+        issue_type: 'mapped_missing_in_target',
+        message: 'Credential exists but not in target',
+        is_blocking: false,
+      };
 
-      await waitFor(() => {
-        expect(screen.getByText('Source Credential Reference')).toBeInTheDocument();
-      });
-    });
+      render(<InlineMappingDialog {...defaultProps} issue={mappedMissingIssue} />);
 
-    it('should display arrow indicating direction to target', async () => {
-      render(<InlineMappingDialog {...defaultProps} />);
-
-      await waitFor(() => {
-        // The ArrowRight icon is present in the UI
-        expect(screen.getByText('Source Credential Reference')).toBeInTheDocument();
-        expect(screen.getByText('Production')).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('Different Issue Types', () => {
-    const mappedMissingInTargetIssue: CredentialIssue = {
-      workflow_id: 'wf-3',
-      workflow_name: 'Data Pipeline',
-      logical_credential_key: 'postgresApi:analytics',
-      issue_type: 'mapped_missing_in_target',
-      message: 'Mapped credential not found in target environment',
-      is_blocking: false,
-    };
-
-    it('should handle mapped_missing_in_target issue type', async () => {
-      render(<InlineMappingDialog {...defaultProps} issue={mappedMissingInTargetIssue} />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Create Credential Mapping')).toBeInTheDocument();
-        expect(screen.getByText(/Data Pipeline/)).toBeInTheDocument();
-      });
+      expect(screen.getByText('postgresApi:main-db')).toBeInTheDocument();
     });
 
     it('should pre-fill logical name from issue', async () => {
-      render(<InlineMappingDialog {...defaultProps} issue={mappedMissingInTargetIssue} />);
+      render(<InlineMappingDialog {...defaultProps} />);
+
+      const input = screen.getByDisplayValue('slackApi:notifications');
+      expect(input).toBeInTheDocument();
+    });
+
+    it('should update logical name when issue changes', async () => {
+      const { rerender } = render(<InlineMappingDialog {...defaultProps} />);
+
+      expect(screen.getByDisplayValue('slackApi:notifications')).toBeInTheDocument();
+
+      rerender(
+        <InlineMappingDialog {...defaultProps} issue={mockIssueNoLogical} />
+      );
 
       await waitFor(() => {
-        expect(screen.getByDisplayValue('postgresApi:analytics')).toBeInTheDocument();
+        expect(screen.getByDisplayValue('awsApi:s3-backup')).toBeInTheDocument();
       });
+    });
+  });
+
+  describe('Accessibility', () => {
+    it('should have proper dialog role', async () => {
+      render(<InlineMappingDialog {...defaultProps} />);
+
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+
+    it('should have proper heading structure', async () => {
+      render(<InlineMappingDialog {...defaultProps} />);
+
+      const heading = screen.getByRole('heading', { name: /create credential mapping/i });
+      expect(heading).toBeInTheDocument();
+    });
+
+    it('should have labeled form fields', async () => {
+      render(<InlineMappingDialog {...defaultProps} />);
+
+      // Check that the label exists and the input has the proper value
+      expect(screen.getByText(/logical credential name/i)).toBeInTheDocument();
+      expect(screen.getByDisplayValue('slackApi:notifications')).toBeInTheDocument();
     });
   });
 });

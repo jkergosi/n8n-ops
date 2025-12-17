@@ -122,7 +122,7 @@ export function SnapshotsPage() {
   // Create snapshot mutation
   const createMutation = useMutation({
     mutationFn: (data: { environment_id: string; reason?: string; notes?: string }) =>
-      apiClient.createSnapshot(data),
+      apiClient.createEnvironmentSnapshot(data),
     onSuccess: (response) => {
       toast.success('Snapshot created successfully');
       queryClient.invalidateQueries({ queryKey: ['snapshots'] });

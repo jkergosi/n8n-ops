@@ -93,8 +93,10 @@ class TestEnvironmentsAPICreate:
 
         with patch("app.api.endpoints.environments.db_service") as mock_db:
             mock_db.create_environment = AsyncMock(return_value=created_env)
-            with patch("app.core.feature_gate.feature_service") as mock_feature:
-                mock_feature.can_add_environment = AsyncMock(return_value=(True, "", 1, 10))
+            with patch("app.core.entitlements_gate.entitlements_service") as mock_ent:
+                mock_ent.can_add_environment = AsyncMock(return_value=(True, "", 1, 10))
+                mock_ent.enforce_flag = AsyncMock(return_value=None)
+                mock_ent.has_flag = AsyncMock(return_value=True)
                 with patch("app.api.endpoints.environments.create_audit_log") as mock_audit:
                     mock_audit.return_value = None
 
@@ -268,8 +270,8 @@ class TestEnvironmentsAPILimits:
     @pytest.mark.api
     def test_get_environment_limits(self, client: TestClient, auth_headers):
         """GET /environments/limits should return limits info."""
-        with patch("app.api.endpoints.environments.feature_service") as mock_feature:
-            mock_feature.can_add_environment = AsyncMock(return_value=(True, "OK", 2, 5))
+        with patch("app.api.endpoints.environments.entitlements_service") as mock_ent:
+            mock_ent.can_add_environment = AsyncMock(return_value=(True, "OK", 2, 5))
 
             response = client.get("/api/v1/environments/limits", headers=auth_headers)
 

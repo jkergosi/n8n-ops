@@ -645,11 +645,16 @@ class TestPhase2Features:
             service, "_get_tenant_plan", new_callable=AsyncMock
         ) as mock_get_plan, patch.object(
             service, "_get_plan_features", new_callable=AsyncMock
-        ) as mock_get_features:
+        ) as mock_get_features, patch.object(
+            service, "_get_tenant_overrides", new_callable=AsyncMock
+        ) as mock_get_overrides:
             mock_get_plan.return_value = mock_tenant_plan_pro
             mock_get_features.return_value = mock_pro_plan_phase2
+            mock_get_overrides.return_value = []
 
-            assert await service.get_limit("tenant-123", "environment_limits") == 10
+            # environment_limits is always overridden by PLAN_ENVIRONMENT_LIMITS based on plan name
+            # Pro plan has limit of 3
+            assert await service.get_limit("tenant-123", "environment_limits") == 3
             assert await service.get_limit("tenant-123", "snapshots_history") == 30
             assert await service.get_limit("tenant-123", "observability_limits") == 30
 

@@ -1,14 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { PromotionPage } from './PromotionPage';
 import { render } from '@/test/test-utils';
 import { server } from '@/test/mocks/server';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = 'http://localhost:3000/api/v1';
 
-// API returns array directly, api-client wraps it with { data: ... }
 const mockPipelines = [
   {
     id: 'pipeline-1',
@@ -38,14 +36,12 @@ const mockPipelines = [
   },
 ];
 
-// API returns array directly for environments
 const mockEnvironments = [
   { id: 'env-dev', name: 'Development', type: 'dev', provider: 'n8n' },
   { id: 'env-staging', name: 'Staging', type: 'staging', provider: 'n8n' },
   { id: 'env-prod', name: 'Production', type: 'production', provider: 'n8n' },
 ];
 
-// Mock useSearchParams
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
@@ -74,7 +70,7 @@ describe('PromotionPage', () => {
     it('should display page heading', async () => {
       render(<PromotionPage />);
 
-      expect(screen.getByRole('heading', { level: 1, name: /promote workflows/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: /new deployment/i })).toBeInTheDocument();
     });
 
     it('should display back button', async () => {
@@ -86,7 +82,7 @@ describe('PromotionPage', () => {
     it('should display pipeline selection card', async () => {
       render(<PromotionPage />);
 
-      expect(screen.getByText(/pipeline selection/i)).toBeInTheDocument();
+      expect(screen.getByText(/pipeline.*stage selection/i)).toBeInTheDocument();
     });
   });
 
@@ -95,7 +91,7 @@ describe('PromotionPage', () => {
       render(<PromotionPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/select a pipeline/i)).toBeInTheDocument();
+        expect(screen.getByRole('combobox', { name: /pipeline/i })).toBeInTheDocument();
       });
     });
 
@@ -103,18 +99,17 @@ describe('PromotionPage', () => {
       render(<PromotionPage />);
 
       await waitFor(() => {
-        // Pipeline selection should be available
         expect(screen.getByRole('combobox')).toBeInTheDocument();
       });
     });
   });
 
   describe('Environment Display', () => {
-    it('should show source and target environment names', async () => {
+    it('should show source and target placeholder text', async () => {
       render(<PromotionPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/development/i)).toBeInTheDocument();
+        expect(screen.getByText(/source/i)).toBeInTheDocument();
       });
     });
   });
@@ -123,7 +118,6 @@ describe('PromotionPage', () => {
     it('should show cancel button when pipeline is selected', async () => {
       render(<PromotionPage />);
 
-      // Select a pipeline first
       await waitFor(() => {
         const combobox = screen.getByRole('combobox');
         expect(combobox).toBeInTheDocument();
@@ -143,9 +137,8 @@ describe('PromotionPage', () => {
 
       render(<PromotionPage />);
 
-      // Should still render the page structure
       await waitFor(() => {
-        expect(screen.getByText(/pipeline selection/i)).toBeInTheDocument();
+        expect(screen.getByText(/pipeline.*stage selection/i)).toBeInTheDocument();
       });
     });
   });
@@ -154,7 +147,6 @@ describe('PromotionPage', () => {
     it('should show workflow selection after pipeline is selected', async () => {
       render(<PromotionPage />);
 
-      // Wait for pipeline data to load
       await waitFor(() => {
         expect(screen.getByRole('combobox')).toBeInTheDocument();
       });

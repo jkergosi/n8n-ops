@@ -235,7 +235,10 @@ class TestUpdateWorkflow:
             await client.update_workflow("wf-1", workflow_data)
 
             call_args = mock_client.put.call_args
-            sent_data = call_args.kwargs["json"]
+            # The method sends content as bytes, not json
+            sent_content = call_args.kwargs["content"]
+            import json
+            sent_data = json.loads(sent_content.decode('utf-8'))
 
             assert "name" in sent_data
             assert "nodes" in sent_data

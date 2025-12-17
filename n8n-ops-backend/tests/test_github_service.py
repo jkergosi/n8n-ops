@@ -462,34 +462,37 @@ class TestGetAllWorkflowsFromGitHub:
 
     @pytest.mark.asyncio
     @pytest.mark.unit
-    async def test_get_all_returns_list_of_workflows(self, configured_service):
-        """Should return list of all workflow data."""
+    async def test_get_all_returns_dict_of_workflows(self, configured_service):
+        """Should return dict mapping workflow_id to workflow data."""
         workflow1 = {"name": "Workflow 1", "id": "1"}
         workflow2 = {"name": "Workflow 2", "id": "2"}
 
-        # Mock directory contents
+        # Mock directory contents - need to include type attribute and base64-encoded content
         mock_file1 = MagicMock()
         mock_file1.name = "workflow1.json"
         mock_file1.path = "workflows/workflow1.json"
+        mock_file1.type = "file"
+        mock_file1.content = base64.b64encode(json.dumps(workflow1).encode()).decode()
 
         mock_file2 = MagicMock()
         mock_file2.name = "workflow2.json"
         mock_file2.path = "workflows/workflow2.json"
+        mock_file2.type = "file"
+        mock_file2.content = base64.b64encode(json.dumps(workflow2).encode()).decode()
 
         mock_readme = MagicMock()
         mock_readme.name = "README.md"
+        mock_readme.type = "file"
 
-        configured_service._repo.get_contents.side_effect = [
-            [mock_file1, mock_file2, mock_readme],  # Directory listing
-            MagicMock(content=base64.b64encode(json.dumps(workflow1).encode()).decode()),  # File 1
-            MagicMock(content=base64.b64encode(json.dumps(workflow2).encode()).decode()),  # File 2
-        ]
+        configured_service._repo.get_contents.return_value = [mock_file1, mock_file2, mock_readme]
 
         result = await configured_service.get_all_workflows_from_github()
 
         assert len(result) == 2
-        assert workflow1 in result
-        assert workflow2 in result
+        assert "1" in result
+        assert "2" in result
+        assert result["1"]["name"] == "Workflow 1"
+        assert result["2"]["name"] == "Workflow 2"
 
     @pytest.mark.asyncio
     @pytest.mark.unit
@@ -500,38 +503,39 @@ class TestGetAllWorkflowsFromGitHub:
         mock_json = MagicMock()
         mock_json.name = "workflow.json"
         mock_json.path = "workflows/workflow.json"
+        mock_json.type = "file"
+        mock_json.content = base64.b64encode(json.dumps(workflow).encode()).decode()
 
         mock_md = MagicMock()
         mock_md.name = "README.md"
+        mock_md.type = "file"
 
-        configured_service._repo.get_contents.side_effect = [
-            [mock_json, mock_md],
-            MagicMock(content=base64.b64encode(json.dumps(workflow).encode()).decode()),
-        ]
+        configured_service._repo.get_contents.return_value = [mock_json, mock_md]
 
         result = await configured_service.get_all_workflows_from_github()
 
         assert len(result) == 1
+        assert "1" in result
 
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_get_all_returns_empty_when_not_configured(self):
-        """Should return empty list when not configured."""
+        """Should return empty dict when not configured."""
         service = GitHubService(token=None, repo_owner="o", repo_name="r", branch="b")
 
         result = await service.get_all_workflows_from_github()
 
-        assert result == []
+        assert result == {}
 
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_get_all_returns_empty_on_github_error(self, configured_service):
-        """Should return empty list on GitHub error."""
+        """Should return empty dict on GitHub error."""
         configured_service._repo.get_contents.side_effect = GithubException(404, {}, {})
 
         result = await configured_service.get_all_workflows_from_github()
 
-        assert result == []
+        assert result == {}
 
 
 class TestGetWorkflowByName:

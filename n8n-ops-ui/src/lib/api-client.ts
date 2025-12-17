@@ -935,7 +935,7 @@ class ApiClient {
     return { data: response.data };
   }
 
-  async createSnapshot(request: {
+  async createEnvironmentSnapshot(request: {
     environment_id: string;
     reason?: string;
     notes?: string;

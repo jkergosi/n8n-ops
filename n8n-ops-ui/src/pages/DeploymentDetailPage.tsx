@@ -14,8 +14,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { apiClient } from '@/lib/api-client';
+import { useDeploymentsSSE } from '@/lib/use-deployments-sse';
 import { ArrowLeft, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Rocket, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import type { DeploymentWorkflow } from '@/types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -28,24 +30,36 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 
 export function DeploymentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [errorSheetOpen, setErrorSheetOpen] = useState(false);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<DeploymentWorkflow | null>(null);
 
   const { data: deploymentData, isLoading, error } = useQuery({
     queryKey: ['deployment', id],
     queryFn: () => apiClient.getDeployment(id!),
     enabled: !!id,
-    refetchInterval: (data) => {
-      // Keep refetching if deployment is still running
-      if (data?.data?.status === 'running') {
-        return 2000; // Refetch every 2 seconds while running
-      }
-      return false;
-    },
+    // SSE handles real-time updates, so we can use longer stale time
+    staleTime: 30000, // 30 seconds
+    // Only refetch on window focus as a fallback
+    refetchOnWindowFocus: true,
+  });
+
+  // Use SSE for real-time updates (replaces polling)
+  const { isConnected: sseConnected } = useDeploymentsSSE({
+    enabled: !isLoading && !!id,
+    deploymentId: id,
   });
 
   const { data: environments } = useQuery({
@@ -63,7 +77,7 @@ export function DeploymentDetailPage() {
   const getStatusVariant = (status: string) => {
     switch (status) {
       case 'success':
-        return 'default';
+        return 'success';
       case 'failed':
         return 'destructive';
       case 'running':
@@ -256,11 +270,14 @@ export function DeploymentDetailPage() {
 
       {/* Progress Section - Show when running */}
       {deployment.status === 'running' && (
-        <Card className="border-blue-200 bg-blue-50/50">
+        <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/30">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
               Deployment in Progress
+              {sseConnected && (
+                <span className="text-xs text-green-500 font-normal ml-2">&#8226; Live</span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -269,7 +286,7 @@ export function DeploymentDetailPage() {
               return (
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">
-                    Workflows are being transferred to the target environment. This page will automatically update when complete.
+                    Workflows are being transferred to the target environment. This page updates in real-time.
                   </p>
                   <p className="text-sm font-medium">
                     Progress: {current} of {total || '—'}
@@ -285,30 +302,30 @@ export function DeploymentDetailPage() {
       {/* Summary Section */}
       {deployment.summaryJson && (
         <Card>
-          <CardHeader>
-            <CardTitle>Summary</CardTitle>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-lg">Deployment Summary</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-              <div className="text-center p-4 bg-muted rounded-lg">
-                <p className="text-2xl font-bold">{deployment.summaryJson.total}</p>
-                <p className="text-sm text-muted-foreground">Total</p>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="flex flex-col items-center justify-center p-5 border rounded-md bg-background hover:bg-muted/50 transition-colors">
+                <p className="text-3xl font-bold mb-2 text-foreground">{deployment.summaryJson.total}</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Workflows</p>
               </div>
-              <div className="text-center p-4 bg-green-50 rounded-lg">
-                <p className="text-2xl font-bold text-green-600">{deployment.summaryJson.created}</p>
-                <p className="text-sm text-muted-foreground">Created</p>
+              <div className="flex flex-col items-center justify-center p-5 border rounded-md bg-background border-green-500/30 dark:border-green-500/20 hover:bg-green-500/5 dark:hover:bg-green-500/10 transition-colors">
+                <p className="text-3xl font-bold mb-2 text-green-700 dark:text-green-400">{deployment.summaryJson.created}</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Created</p>
               </div>
-              <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <p className="text-2xl font-bold text-blue-600">{deployment.summaryJson.updated}</p>
-                <p className="text-sm text-muted-foreground">Updated</p>
+              <div className="flex flex-col items-center justify-center p-5 border rounded-md bg-background border-blue-500/30 dark:border-blue-500/20 hover:bg-blue-500/5 dark:hover:bg-blue-500/10 transition-colors">
+                <p className="text-3xl font-bold mb-2 text-blue-700 dark:text-blue-400">{deployment.summaryJson.updated}</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Updated</p>
               </div>
-              <div className="text-center p-4 bg-amber-50 rounded-lg">
-                <p className="text-2xl font-bold text-amber-600">{deployment.summaryJson.skipped || 0}</p>
-                <p className="text-sm text-muted-foreground">Skipped</p>
+              <div className="flex flex-col items-center justify-center p-5 border rounded-md bg-background border-amber-500/30 dark:border-amber-500/20 hover:bg-amber-500/5 dark:hover:bg-amber-500/10 transition-colors">
+                <p className="text-3xl font-bold mb-2 text-amber-700 dark:text-amber-400">{deployment.summaryJson.skipped || 0}</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Skipped</p>
               </div>
-              <div className="text-center p-4 bg-red-50 rounded-lg">
-                <p className="text-2xl font-bold text-red-600">{deployment.summaryJson.failed}</p>
-                <p className="text-sm text-muted-foreground">Failed</p>
+              <div className="flex flex-col items-center justify-center p-5 border rounded-md bg-background border-red-500/30 dark:border-red-500/20 hover:bg-red-500/5 dark:hover:bg-red-500/10 transition-colors">
+                <p className="text-3xl font-bold mb-2 text-red-700 dark:text-red-400">{deployment.summaryJson.failed}</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Failed</p>
               </div>
             </div>
           </CardContent>
@@ -377,28 +394,36 @@ export function DeploymentDetailPage() {
                       {workflow.workflowNameAtTime}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{workflow.changeType}</Badge>
+                      {workflow.changeType}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        {workflow.status === 'success' && <CheckCircle className="h-4 w-4 text-green-500" />}
-                        {workflow.status === 'failed' && <XCircle className="h-4 w-4 text-red-500" />}
-                        {workflow.status === 'pending' && <Clock className="h-4 w-4 text-amber-500" />}
-                        <Badge
-                          variant={
-                            workflow.status === 'success'
-                              ? 'default'
-                              : workflow.status === 'failed'
-                              ? 'destructive'
-                              : 'outline'
-                          }
-                        >
-                          {workflow.status}
-                        </Badge>
-                      </div>
+                      <Badge
+                        variant={
+                          workflow.status === 'success'
+                            ? 'success'
+                            : workflow.status === 'failed'
+                            ? 'destructive'
+                            : 'outline'
+                        }
+                      >
+                        {workflow.status}
+                      </Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
-                      {workflow.errorMessage || '-'}
+                    <TableCell className="text-sm text-muted-foreground max-w-xs">
+                      {workflow.errorMessage ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedWorkflow(workflow);
+                            setErrorSheetOpen(true);
+                          }}
+                          className="text-primary hover:underline truncate block w-full text-left"
+                        >
+                          {workflow.errorMessage}
+                        </button>
+                      ) : (
+                        '-'
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -461,6 +486,90 @@ export function DeploymentDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Error Details Sheet */}
+      <Sheet open={errorSheetOpen} onOpenChange={setErrorSheetOpen}>
+        <SheetContent side="right" className="sm:max-w-2xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Error Details</SheetTitle>
+            <SheetDescription>
+              Full error information for workflow deployment
+            </SheetDescription>
+          </SheetHeader>
+          {selectedWorkflow && (
+            <div className="mt-6 space-y-6">
+              {/* Workflow Information */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold">Workflow Information</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Name:</span>
+                    <p className="font-medium">{selectedWorkflow.workflowNameAtTime}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Workflow ID:</span>
+                    <p className="font-mono text-xs">{selectedWorkflow.workflowId}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Change Type:</span>
+                    <p className="font-medium capitalize">{selectedWorkflow.changeType}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Status:</span>
+                    <Badge
+                      variant={
+                        selectedWorkflow.status === 'success'
+                          ? 'success'
+                          : selectedWorkflow.status === 'failed'
+                          ? 'destructive'
+                          : 'outline'
+                      }
+                      className="ml-2"
+                    >
+                      {selectedWorkflow.status}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              {/* Error Message */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold">Error Message</h3>
+                <div className="rounded-lg bg-muted p-4">
+                  <pre className="whitespace-pre-wrap break-words text-sm font-mono">
+                    {selectedWorkflow.errorMessage || 'No error message available'}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Additional Context */}
+              {deployment && (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-semibold">Deployment Context</h3>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Source Environment:</span>
+                      <p className="font-medium">{getEnvironmentName(deployment.sourceEnvironmentId)}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Target Environment:</span>
+                      <p className="font-medium">{getEnvironmentName(deployment.targetEnvironmentId)}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Deployment ID:</span>
+                      <p className="font-mono text-xs">{deployment.id}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Started:</span>
+                      <p className="font-medium">{new Date(deployment.startedAt).toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -162,7 +162,8 @@ export function AuditLogsPage() {
 
   const hasActiveFilters = searchTerm || actionTypeFilter !== 'all' || presetFilter !== 'all';
 
-  const getActionIcon = (actionType: string) => {
+  const getActionIcon = (actionType: string | undefined) => {
+    if (!actionType) return <FileText className="h-4 w-4" />;
     if (actionType.startsWith('tenant')) return <Building2 className="h-4 w-4" />;
     if (actionType.startsWith('user')) return <User className="h-4 w-4" />;
     if (actionType.startsWith('plan')) return <CreditCard className="h-4 w-4" />;
@@ -174,7 +175,10 @@ export function AuditLogsPage() {
     return <FileText className="h-4 w-4" />;
   };
 
-  const getActionBadgeVariant = (actionType: string) => {
+  const getActionBadgeVariant = (actionType: string | undefined) => {
+    if (!actionType) {
+      return 'outline';
+    }
     if (actionType.includes('suspended') || actionType.includes('deleted') || actionType.includes('error')) {
       return 'destructive';
     }
@@ -187,27 +191,49 @@ export function AuditLogsPage() {
     return 'outline';
   };
 
-  const formatActionType = (actionType: string) => {
+  const formatActionType = (actionType: string | undefined) => {
+    if (!actionType) return 'Unknown';
     return actionType
       .split('_')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
   };
 
-  const formatTimestamp = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return {
-      date: date.toLocaleDateString(),
-      time: date.toLocaleTimeString(),
-    };
+  const formatTimestamp = (timestamp: string | undefined) => {
+    if (!timestamp) {
+      return {
+        date: 'Unknown',
+        time: '',
+      };
+    }
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        return {
+          date: 'Invalid',
+          time: '',
+        };
+      }
+      return {
+        date: date.toLocaleDateString(),
+        time: date.toLocaleTimeString(),
+      };
+    } catch (error) {
+      return {
+        date: 'Invalid',
+        time: '',
+      };
+    }
   };
 
   // Calculate stats from logs
-  const actionTypes = logs.reduce((acc, log) => {
-    const type = log.actionType?.split('_')[0] || 'other';
-    acc[type] = (acc[type] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  const actionTypes = logs
+    .filter((log) => log && log.actionType)
+    .reduce((acc, log) => {
+      const type = log.actionType?.split('_')[0] || 'other';
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
 
   const actionTypeOptions = [
     { value: 'all', label: 'All Actions' },
@@ -393,16 +419,18 @@ export function AuditLogsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {logs.map((log) => {
-                    const { date, time } = formatTimestamp(log.timestamp);
-                    return (
-                      <TableRow key={log.id}>
+                  {logs
+                    .filter((log) => log && log.id)
+                    .map((log, index) => {
+                      const { date, time } = formatTimestamp(log.timestamp);
+                      return (
+                        <TableRow key={log.id || `log-${index}`}>
                         <TableCell>
                           <div className="flex items-center gap-1 text-sm">
                             <Clock className="h-3 w-3 text-muted-foreground" />
                             <div>
                               <p>{date}</p>
-                              <p className="text-xs text-muted-foreground">{time}</p>
+                              {time && <p className="text-xs text-muted-foreground">{time}</p>}
                             </div>
                           </div>
                         </TableCell>

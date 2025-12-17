@@ -1,7 +1,7 @@
 // @ts-nocheck
 // TODO: Fix TypeScript errors in this file
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,10 +15,12 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { apiClient } from '@/lib/api-client';
-import { Rocket, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Trash2 } from 'lucide-react';
+import { useDeploymentsSSE } from '@/lib/use-deployments-sse';
+import { Rocket, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Trash2, Radio } from 'lucide-react';
 import type { Deployment } from '@/types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,20 +34,27 @@ import {
 
 export function DeploymentsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deploymentToDelete, setDeploymentToDelete] = useState<Deployment | null>(null);
 
+  // Force refetch when navigating to this page (e.g., after creating a deployment)
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ['deployments'] });
+  }, [location.key, queryClient]);
+
   const { data: deploymentsData, isLoading } = useQuery({
     queryKey: ['deployments'],
     queryFn: () => apiClient.getDeployments(),
-    refetchInterval: (query) => {
-      // Check if any deployment is running
-      const deployments = query.state.data?.data?.deployments || [];
-      const hasRunning = deployments.some((d: Deployment) => d.status === 'running');
-      return hasRunning ? 2000 : false; // Poll every 2 seconds if any are running
-    },
+    // SSE handles real-time updates, so we can use longer stale time
+    staleTime: 30000, // 30 seconds
+    // Only refetch on window focus as a fallback
+    refetchOnWindowFocus: true,
   });
+
+  // Use SSE for real-time updates (replaces polling)
+  const { isConnected: sseConnected } = useDeploymentsSSE({ enabled: !isLoading });
 
   const { data: environments } = useQuery({
     queryKey: ['environments'],
@@ -61,12 +70,13 @@ export function DeploymentsPage() {
   const summary = deploymentsData?.data || {
     thisWeekSuccessCount: 0,
     pendingApprovalsCount: 0,
+    runningCount: 0,
   };
 
   const getStatusVariant = (status: string) => {
     switch (status) {
       case 'success':
-        return 'default';
+        return 'success';
       case 'failed':
         return 'destructive';
       case 'running':
@@ -105,10 +115,29 @@ export function DeploymentsPage() {
   };
 
   const getProgress = (deployment: Deployment) => {
+    // Use backend-calculated progress fields if available
+    // For completed deployments, backend calculates successful (created + updated)
+    // For running deployments, backend calculates processed count
     const total = deployment.progressTotal ?? deployment.summaryJson?.total ?? 0;
-    const processed = deployment.progressCurrent ?? deployment.summaryJson?.processed ?? 0;
-    const current =
-      deployment.status === 'running' && total ? Math.min(processed + 1, total) : processed || total;
+    let current = deployment.progressCurrent;
+    
+    // Fallback to calculating from summary_json if backend fields not available
+    if (current === undefined) {
+      const summary = deployment.summaryJson || {};
+      if (deployment.status === 'success' || deployment.status === 'failed') {
+        // For completed: successful = created + updated
+        current = (summary.created || 0) + (summary.updated || 0);
+      } else if (deployment.status === 'running') {
+        // For running: use processed count
+        current = summary.processed || 0;
+        if (total) {
+          current = Math.min(current + 1, total);
+        }
+      } else {
+        current = 0;
+      }
+    }
+    
     return { current, total };
   };
 
@@ -120,10 +149,6 @@ export function DeploymentsPage() {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}m ${remainingSeconds}s`;
-  };
-
-  const handleRowClick = (deployment: Deployment) => {
-    navigate(`/deployments/${deployment.id}`);
   };
 
   const handlePromoteWorkflows = () => {
@@ -171,18 +196,38 @@ export function DeploymentsPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Promotion Mode</CardTitle>
+            <CardTitle className="text-sm font-medium">Running Now</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <Rocket className="h-5 w-5 text-blue-500" />
-              <span className="text-lg font-semibold">Manual</span>
+              {summary.runningCount > 0 ? (
+                <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
+              ) : (
+                <Radio className="h-5 w-5 text-muted-foreground" />
+              )}
+              <span className="text-2xl font-bold">{summary.runningCount || 0}</span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              One-click promotion between environments
+              Active deployments
+              {sseConnected && <span className="ml-1 text-green-500">&#8226; Live</span>}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">This Week</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              <span className="text-2xl font-bold">{summary.thisWeekSuccessCount}</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Successful deployments
             </p>
           </CardContent>
         </Card>
@@ -204,15 +249,15 @@ export function DeploymentsPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">This Week</CardTitle>
+            <CardTitle className="text-sm font-medium">Promotion Mode</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              <span className="text-2xl font-bold">{summary.thisWeekSuccessCount}</span>
+              <Rocket className="h-5 w-5 text-blue-500" />
+              <span className="text-lg font-semibold">Manual</span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Successful deployments
+              One-click promotion
             </p>
           </CardContent>
         </Card>
@@ -239,7 +284,6 @@ export function DeploymentsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Workflow(s)</TableHead>
                   <TableHead>Pipeline</TableHead>
                   <TableHead>Stage</TableHead>
                   <TableHead>Status</TableHead>
@@ -250,37 +294,18 @@ export function DeploymentsPage() {
               </TableHeader>
               <TableBody>
                 {deployments.map((deployment) => {
-                  const workflowCount = deployment.summaryJson?.total || 0;
-                  const workflowName = deployment.summaryJson?.total === 1 
-                    ? 'Single workflow' // Would need to fetch workflow name
-                    : `${workflowCount} workflows`;
                   const { current: progressCurrent, total: progressTotal } = getProgress(deployment);
-                  let statusText = deployment.status;
-                  if (progressTotal > 0) {
-                    if (deployment.status === 'running') {
-                      statusText = `${progressCurrent} of ${progressTotal}`;
-                    } else if (deployment.status === 'success') {
-                      statusText = `${progressTotal}/${progressTotal} deployed`;
-                    } else if (deployment.status === 'failed') {
-                      statusText = `${progressCurrent}/${progressTotal} deployed`;
-                    }
-                  }
+                  const progressText = progressTotal > 0 ? `${progressCurrent} of ${progressTotal}` : null;
 
                   return (
-                    <TableRow
-                      key={deployment.id}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleRowClick(deployment)}
-                    >
-                      <TableCell className="font-medium">
-                        <span className="text-primary hover:underline">
-                          {workflowName}
-                        </span>
-                      </TableCell>
+                    <TableRow key={deployment.id}>
                       <TableCell>
-                        <span className="text-primary hover:underline">
+                        <Link
+                          to={`/deployments/${deployment.id}`}
+                          className="text-primary hover:underline"
+                        >
                           {getPipelineName(deployment.pipelineId)}
-                        </span>
+                        </Link>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -294,11 +319,15 @@ export function DeploymentsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(deployment.status)}
+                        <div className="flex flex-col items-center gap-1">
                           <Badge variant={getStatusVariant(deployment.status)}>
-                            {statusText}
+                            {deployment.status}
                           </Badge>
+                          {progressText && (
+                            <span className="text-xs text-muted-foreground">
+                              {progressText}
+                            </span>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
@@ -307,15 +336,12 @@ export function DeploymentsPage() {
                       <TableCell className="text-sm text-muted-foreground">
                         {formatDuration(deployment.startedAt, deployment.finishedAt)}
                       </TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
+                      <TableCell>
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteClick(e, deployment);
-                          }}
+                          onClick={(e) => handleDeleteClick(e, deployment)}
                           disabled={deployment.status === 'running'}
                           className="h-8 w-8"
                         >

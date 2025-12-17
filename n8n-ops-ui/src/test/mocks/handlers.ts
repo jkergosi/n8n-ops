@@ -1102,6 +1102,120 @@ export const handlers = [
     ]);
   }),
 
+  // Credentials by environment endpoint
+  http.get(`${API_BASE}/credentials/by-environment/:environmentId`, () => {
+    return HttpResponse.json([
+      { id: 'n8n-cred-1', name: 'Dev Slack', type: 'slackApi', createdAt: '2024-01-01T00:00:00Z' },
+      { id: 'n8n-cred-2', name: 'Dev GitHub', type: 'githubApi', createdAt: '2024-01-02T00:00:00Z' },
+      { id: 'n8n-cred-3', name: 'Dev PostgreSQL', type: 'postgresApi', createdAt: '2024-01-03T00:00:00Z' },
+    ]);
+  }),
+
+  // Credential matrix endpoint
+  http.get(`${API_BASE}/admin/credentials/matrix`, () => {
+    return HttpResponse.json({
+      logical_credentials: [
+        { id: 'logical-1', name: 'slackApi:prod-slack', required_type: 'slackApi', description: 'Slack credentials' },
+        { id: 'logical-2', name: 'githubApi:gh-token', required_type: 'githubApi', description: 'GitHub credentials' },
+      ],
+      environments: [
+        { id: 'env-1', name: 'Development', type: 'development' },
+        { id: 'env-2', name: 'Production', type: 'production' },
+      ],
+      matrix: {
+        'logical-1': {
+          'env-1': { mapping_id: 'mapping-1', physical_credential_id: 'n8n-cred-1', physical_name: 'Dev Slack', physical_type: 'slackApi', status: 'valid' },
+          'env-2': { mapping_id: 'mapping-2', physical_credential_id: 'n8n-cred-2', physical_name: 'Prod Slack', physical_type: 'slackApi', status: 'valid' },
+        },
+        'logical-2': {
+          'env-1': { mapping_id: 'mapping-3', physical_credential_id: 'n8n-cred-3', physical_name: 'Dev GitHub', physical_type: 'githubApi', status: 'valid' },
+          'env-2': null,
+        },
+      },
+    });
+  }),
+
+  // Credential discovery endpoint
+  http.post(`${API_BASE}/admin/credentials/discover/:environmentId`, () => {
+    return HttpResponse.json([
+      { type: 'slackApi', name: 'prod-slack', logical_key: 'slackApi:prod-slack', workflow_count: 3, workflows: [{ id: 'wf-1', name: 'Workflow 1' }], existing_logical_id: 'logical-1', mapping_status: 'mapped' },
+      { type: 'githubApi', name: 'gh-token', logical_key: 'githubApi:gh-token', workflow_count: 2, workflows: [{ id: 'wf-2', name: 'Workflow 2' }], existing_logical_id: null, mapping_status: 'unmapped' },
+      { type: 'postgresApi', name: 'main-db', logical_key: 'postgresApi:main-db', workflow_count: 1, workflows: [{ id: 'wf-3', name: 'Workflow 3' }], existing_logical_id: null, mapping_status: 'unmapped' },
+    ]);
+  }),
+
+  // Credential mapping validation endpoint
+  http.post(`${API_BASE}/admin/credentials/mappings/validate`, () => {
+    return HttpResponse.json({
+      total: 5,
+      valid: 4,
+      invalid: 1,
+      stale: 0,
+      issues: [
+        { mapping_id: 'mapping-5', logical_name: 'awsApi:s3-bucket', environment_id: 'env-2', environment_name: 'Production', issue: 'credential_not_found', message: 'Physical credential not found in N8N' },
+      ],
+    });
+  }),
+
+  // Admin logical credentials CRUD
+  http.get(`${API_BASE}/admin/credentials/logical`, () => {
+    return HttpResponse.json([
+      { id: 'logical-1', name: 'slackApi:prod-slack', required_type: 'slackApi', description: 'Slack credentials', tenant_id: 'tenant-1' },
+      { id: 'logical-2', name: 'githubApi:gh-token', required_type: 'githubApi', description: 'GitHub credentials', tenant_id: 'tenant-1' },
+    ]);
+  }),
+
+  http.post(`${API_BASE}/admin/credentials/logical`, async ({ request }) => {
+    const body = await request.json();
+    return HttpResponse.json({
+      id: `logical-${Date.now()}`,
+      ...body,
+      created_at: new Date().toISOString(),
+    }, { status: 201 });
+  }),
+
+  http.patch(`${API_BASE}/admin/credentials/logical/:id`, async ({ params, request }) => {
+    const body = await request.json();
+    return HttpResponse.json({
+      id: params.id,
+      ...body,
+      updated_at: new Date().toISOString(),
+    });
+  }),
+
+  http.delete(`${API_BASE}/admin/credentials/logical/:id`, () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Admin credential mappings CRUD
+  http.get(`${API_BASE}/admin/credentials/mappings`, () => {
+    return HttpResponse.json([
+      { id: 'mapping-1', logical_credential_id: 'logical-1', environment_id: 'env-1', physical_credential_id: 'n8n-cred-1', physical_name: 'Dev Slack', physical_type: 'slackApi', status: 'valid', provider: 'n8n' },
+    ]);
+  }),
+
+  http.post(`${API_BASE}/admin/credentials/mappings`, async ({ request }) => {
+    const body = await request.json();
+    return HttpResponse.json({
+      id: `mapping-${Date.now()}`,
+      ...body,
+      created_at: new Date().toISOString(),
+    }, { status: 201 });
+  }),
+
+  http.patch(`${API_BASE}/admin/credentials/mappings/:id`, async ({ params, request }) => {
+    const body = await request.json();
+    return HttpResponse.json({
+      id: params.id,
+      ...body,
+      updated_at: new Date().toISOString(),
+    });
+  }),
+
+  http.delete(`${API_BASE}/admin/credentials/mappings/:id`, () => {
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   // Support endpoints
   http.post(`${API_BASE}/support/requests`, async () => {
     return HttpResponse.json({

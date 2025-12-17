@@ -1104,6 +1104,30 @@ class ApiClient {
     return { data: response.data };
   }
 
+  async getCredentialsByEnvironment(environmentId: string): Promise<{ data: any[] }> {
+    const response = await this.client.get(`/credentials/by-environment/${environmentId}`);
+    return { data: response.data };
+  }
+
+  async getCredentialMatrix(): Promise<{ data: any }> {
+    const response = await this.client.get('/admin/credentials/matrix');
+    return { data: response.data };
+  }
+
+  async discoverCredentials(environmentId: string, provider: string = 'n8n'): Promise<{ data: any[] }> {
+    const response = await this.client.post(`/admin/credentials/discover/${environmentId}`, null, {
+      params: { provider },
+    });
+    return { data: response.data };
+  }
+
+  async validateCredentialMappings(environmentId?: string): Promise<{ data: any }> {
+    const response = await this.client.post('/admin/credentials/mappings/validate', null, {
+      params: environmentId ? { environment_id: environmentId } : {},
+    });
+    return { data: response.data };
+  }
+
   // Provider User endpoints (previously N8N Users)
   async getN8NUsers(environmentType?: string): Promise<{ data: N8NUser[] }> {
     const params = environmentType ? { environment_type: environmentType } : {};

@@ -124,7 +124,7 @@ class N8NClient:
                 raise
 
     async def update_workflow(self, workflow_id: str, workflow_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Update an existing workflow - only sends required fields: name, nodes, connections, settings"""
+        """Update an existing workflow - only sends required fields: name, nodes, connections, settings, staticData"""
         import json
 
         # ONLY include these fields - nothing else! Remove ALL other fields including 'shared'
@@ -139,12 +139,43 @@ class N8NClient:
             cleaned_data["connections"] = workflow_data["connections"]
         if "settings" in workflow_data:
             cleaned_data["settings"] = workflow_data["settings"]
+        # Optional: staticData if provided (same as create_workflow)
+        if "staticData" in workflow_data and workflow_data["staticData"]:
+            cleaned_data["staticData"] = workflow_data["staticData"]
 
         # DO NOT include 'shared' field - it contains read-only nested objects that n8n rejects
 
         # Validate and clean the data before sending (same as create_workflow)
         try:
-            # Test JSON serialization first
+            # Deep clean nodes to remove any problematic fields that might cause errno 22
+            # Some nodes may contain fields that cause Windows errno 22 when serialized
+            if "nodes" in cleaned_data and isinstance(cleaned_data["nodes"], list):
+                cleaned_nodes = []
+                for node in cleaned_data["nodes"]:
+                    if isinstance(node, dict):
+                        # Keep only essential node fields to avoid errno 22 issues
+                        clean_node = {}
+                        essential_fields = ["id", "name", "type", "typeVersion", "position", "parameters", 
+                                          "credentials", "notes", "notesInFlow", "disabled", "webhookId",
+                                          "continueOnFail", "alwaysOutputData", "executeOnce"]
+                        for key in essential_fields:
+                            if key in node:
+                                clean_node[key] = node[key]
+                        # Also preserve any other standard fields but skip complex nested objects
+                        for key, value in node.items():
+                            if key not in essential_fields:
+                                # Only include simple types, skip complex nested structures
+                                if isinstance(value, (str, int, float, bool, type(None))):
+                                    clean_node[key] = value
+                                elif isinstance(value, (list, dict)) and len(str(value)) < 1000:
+                                    # Include small lists/dicts but skip very large ones that might cause issues
+                                    clean_node[key] = value
+                        cleaned_nodes.append(clean_node)
+                    else:
+                        cleaned_nodes.append(node)
+                cleaned_data["nodes"] = cleaned_nodes
+            
+            # Test JSON serialization first with better error handling
             json_str = json.dumps(cleaned_data, default=str, ensure_ascii=False)
         except (TypeError, ValueError) as json_error:
             error_msg = f"Workflow data is not JSON serializable: {str(json_error)}"
@@ -156,10 +187,20 @@ class N8NClient:
             try:
                 # Use pre-serialized JSON content to avoid Windows errno 22 issues
                 # This bypasses httpx's internal JSON serialization which can fail on Windows
+                # Encode with 'utf-8' and handle any encoding errors
+                try:
+                    json_bytes = json_str.encode('utf-8', errors='replace')
+                except UnicodeEncodeError as encode_error:
+                    # Try to identify problematic characters
+                    error_msg = f"Failed to encode workflow data as UTF-8: {str(encode_error)}"
+                    print(f"ERROR: {error_msg}")
+                    print(f"ERROR: Workflow name: {cleaned_data.get('name', 'unknown')}")
+                    raise ValueError(error_msg) from encode_error
+                
                 response = await client.put(
                     f"{self.base_url}/api/v1/workflows/{workflow_id}",
                     headers=self.headers,
-                    content=json_str.encode('utf-8'),
+                    content=json_bytes,
                     timeout=30.0
                 )
                 response.raise_for_status()

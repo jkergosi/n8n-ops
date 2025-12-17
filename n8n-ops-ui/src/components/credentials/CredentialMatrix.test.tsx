@@ -1,0 +1,176 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@/test/test-utils';
+import { server } from '@/test/mocks/server';
+import { http, HttpResponse } from 'msw';
+import { CredentialMatrix } from './CredentialMatrix';
+
+const API_BASE = 'http://localhost:4000/api/v1';
+
+const mockMatrixData = {
+  logical_credentials: [
+    { id: 'logical-1', name: 'slackApi:prod-slack', required_type: 'slackApi', description: 'Slack credentials' },
+    { id: 'logical-2', name: 'githubApi:gh-token', required_type: 'githubApi', description: 'GitHub credentials' },
+  ],
+  environments: [
+    { id: 'env-1', name: 'Development', type: 'development' },
+    { id: 'env-2', name: 'Production', type: 'production' },
+  ],
+  matrix: {
+    'logical-1': {
+      'env-1': { mapping_id: 'mapping-1', physical_credential_id: 'n8n-cred-1', physical_name: 'Dev Slack', physical_type: 'slackApi', status: 'valid' },
+      'env-2': { mapping_id: 'mapping-2', physical_credential_id: 'n8n-cred-2', physical_name: 'Prod Slack', physical_type: 'slackApi', status: 'valid' },
+    },
+    'logical-2': {
+      'env-1': { mapping_id: 'mapping-3', physical_credential_id: 'n8n-cred-3', physical_name: 'Dev GitHub', physical_type: 'githubApi', status: 'valid' },
+      'env-2': null,
+    },
+  },
+};
+
+describe('CredentialMatrix', () => {
+  beforeEach(() => {
+    server.resetHandlers();
+
+    server.use(
+      http.get(`${API_BASE}/admin/credentials/matrix`, () => {
+        return HttpResponse.json(mockMatrixData);
+      }),
+      http.get(`${API_BASE}/auth/status`, () => {
+        return HttpResponse.json({
+          authenticated: true,
+          onboarding_required: false,
+          has_environment: true,
+          user: { id: 'user-1', email: 'admin@test.com', name: 'Admin', role: 'admin' },
+          tenant: { id: 'tenant-1', name: 'Test Org', subscription_tier: 'pro' },
+          entitlements: { plan_name: 'pro', features: {} },
+        });
+      })
+    );
+  });
+
+  describe('Rendering', () => {
+    it('should display the credential matrix title', async () => {
+      render(<CredentialMatrix />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Credential Matrix')).toBeInTheDocument();
+      });
+    });
+
+    it('should display environment column headers', async () => {
+      render(<CredentialMatrix />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Development')).toBeInTheDocument();
+        expect(screen.getByText('Production')).toBeInTheDocument();
+      });
+    });
+
+    it('should display logical credential rows', async () => {
+      render(<CredentialMatrix />);
+
+      await waitFor(() => {
+        expect(screen.getByText('slackApi:prod-slack')).toBeInTheDocument();
+        expect(screen.getByText('githubApi:gh-token')).toBeInTheDocument();
+      });
+    });
+
+    it('should display mapped credentials with their names', async () => {
+      render(<CredentialMatrix />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Dev Slack')).toBeInTheDocument();
+        expect(screen.getByText('Prod Slack')).toBeInTheDocument();
+        expect(screen.getByText('Dev GitHub')).toBeInTheDocument();
+      });
+    });
+
+    it('should display environment type badges', async () => {
+      render(<CredentialMatrix />);
+
+      await waitFor(() => {
+        expect(screen.getByText('development')).toBeInTheDocument();
+        expect(screen.getByText('production')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Status Indicators', () => {
+    it('should display Map button for unmapped cells', async () => {
+      render(<CredentialMatrix />);
+
+      await waitFor(() => {
+        // logical-2 has no mapping for env-2 (production)
+        const mapButtons = screen.getAllByRole('button', { name: /map/i });
+        expect(mapButtons.length).toBeGreaterThan(0);
+      });
+    });
+
+    it('should display legend with status indicators', async () => {
+      render(<CredentialMatrix />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Valid')).toBeInTheDocument();
+        expect(screen.getByText('Invalid')).toBeInTheDocument();
+        expect(screen.getByText('Stale')).toBeInTheDocument();
+        expect(screen.getByText('Not Mapped')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Empty State', () => {
+    it('should show empty state when no logical credentials exist', async () => {
+      server.use(
+        http.get(`${API_BASE}/admin/credentials/matrix`, () => {
+          return HttpResponse.json({
+            logical_credentials: [],
+            environments: [],
+            matrix: {},
+          });
+        })
+      );
+
+      render(<CredentialMatrix />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/no logical credentials defined/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Loading State', () => {
+    it('should show loading state while fetching matrix', async () => {
+      server.use(
+        http.get(`${API_BASE}/admin/credentials/matrix`, async () => {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return HttpResponse.json(mockMatrixData);
+        })
+      );
+
+      render(<CredentialMatrix />);
+
+      // Should show loading spinner initially
+      expect(document.querySelector('.animate-spin')).toBeInTheDocument();
+    });
+  });
+
+  describe('Callbacks', () => {
+    it('should call onCreateMapping when Map button is clicked', async () => {
+      const onCreateMapping = vi.fn();
+      const user = (await import('@testing-library/user-event')).default.setup();
+
+      render(<CredentialMatrix onCreateMapping={onCreateMapping} />);
+
+      await waitFor(() => {
+        expect(screen.getAllByRole('button', { name: /map/i }).length).toBeGreaterThan(0);
+      });
+
+      const mapButtons = screen.getAllByRole('button', { name: /map/i });
+      await user.click(mapButtons[0]);
+
+      expect(onCreateMapping).toHaveBeenCalled();
+    });
+  });
+});
+
+import { vi } from 'vitest';

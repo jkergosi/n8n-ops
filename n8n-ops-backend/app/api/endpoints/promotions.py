@@ -38,6 +38,7 @@ from app.schemas.promotion import (
 )
 from app.core.provider import Provider, DEFAULT_PROVIDER
 from app.schemas.pipeline import PipelineResponse
+from app.api.endpoints.sse import emit_deployment_upsert, emit_deployment_progress, emit_counts_update
 
 router = APIRouter()
 
@@ -317,6 +318,18 @@ async def _execute_promotion_background(
                 }
             })
 
+            # Emit SSE progress event
+            try:
+                await emit_deployment_progress(
+                    deployment_id=deployment_id,
+                    progress_current=idx,
+                    progress_total=total_workflows,
+                    current_workflow_name=workflow_name,
+                    tenant_id=MOCK_TENANT_ID
+                )
+            except Exception as sse_error:
+                logger.warning(f"Failed to emit SSE progress event: {str(sse_error)}")
+
         # Calculate final summary
         summary_json = {
             "total": total_workflows,
@@ -337,6 +350,16 @@ async def _execute_promotion_background(
             "finished_at": datetime.utcnow().isoformat(),
             "summary_json": summary_json,
         })
+
+        # Emit SSE events for deployment completion
+        try:
+            # Fetch updated deployment for full data
+            updated_deployment = await db_service.get_deployment(deployment_id, MOCK_TENANT_ID)
+            if updated_deployment:
+                await emit_deployment_upsert(updated_deployment, MOCK_TENANT_ID)
+            await emit_counts_update(MOCK_TENANT_ID)
+        except Exception as sse_error:
+            logger.warning(f"Failed to emit SSE event for deployment completion: {str(sse_error)}")
 
         # Update promotion as completed
         promotion_status = "completed" if failed_count == 0 else "failed"
@@ -391,6 +414,14 @@ async def _execute_promotion_background(
                     "error": error_msg
                 },
             })
+            # Emit SSE events for deployment failure
+            try:
+                updated_deployment = await db_service.get_deployment(deployment_id, MOCK_TENANT_ID)
+                if updated_deployment:
+                    await emit_deployment_upsert(updated_deployment, MOCK_TENANT_ID)
+                await emit_counts_update(MOCK_TENANT_ID)
+            except Exception as sse_error:
+                logger.warning(f"Failed to emit SSE event for deployment failure: {str(sse_error)}")
         except Exception as update_error:
             logger.error(f"Failed to update promotion/deployment status: {str(update_error)}")
 
@@ -480,7 +511,14 @@ async def execute_promotion(
             "summary_json": {"total": len(selected_workflows), "created": 0, "updated": 0, "deleted": 0, "failed": 0, "skipped": 0},
         }
         await db_service.create_deployment(deployment_data)
-        
+
+        # Emit SSE events for new deployment
+        try:
+            await emit_deployment_upsert(deployment_data, MOCK_TENANT_ID)
+            await emit_counts_update(MOCK_TENANT_ID)
+        except Exception as sse_error:
+            logger.warning(f"Failed to emit SSE event for deployment creation: {str(sse_error)}")
+
         # Create audit log for deployment creation
         try:
             provider = source_env.get("provider", "n8n") or "n8n"

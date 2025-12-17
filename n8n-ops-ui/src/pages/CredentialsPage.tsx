@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -51,12 +52,13 @@ import { api } from '@/lib/api';
 import { useAppStore } from '@/store/use-app-store';
 import {
   Search, AlertCircle, RefreshCw, Key, Download, ArrowUpDown, ArrowUp, ArrowDown,
-  ExternalLink, Plus, MoreHorizontal, Pencil, Trash2, Eye, EyeOff, Info
+  ExternalLink, Plus, MoreHorizontal, Pencil, Trash2, Eye, EyeOff, Info, Grid3X3, ShieldCheck
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { EnvironmentType, Credential, Environment } from '@/types';
 import { toast } from 'sonner';
 import { formatNodeType } from '@/lib/workflow-analysis';
+import { CredentialMatrix, CredentialDiscovery, MappingHealthCheck } from '@/components/credentials';
 
 type SortField = 'name' | 'type' | 'environment' | 'workflows';
 type SortDirection = 'asc' | 'desc';
@@ -475,17 +477,38 @@ export function CredentialsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Key className="h-5 w-5" />
-            N8N Credentials
-          </CardTitle>
-          <CardDescription>
-            Credentials used by workflows in your N8N environments.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <Tabs defaultValue="credentials" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="credentials" className="gap-2">
+            <Key className="h-4 w-4" />
+            Physical Credentials
+          </TabsTrigger>
+          <TabsTrigger value="matrix" className="gap-2">
+            <Grid3X3 className="h-4 w-4" />
+            Credential Matrix
+          </TabsTrigger>
+          <TabsTrigger value="discover" className="gap-2">
+            <Search className="h-4 w-4" />
+            Discover
+          </TabsTrigger>
+          <TabsTrigger value="health" className="gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            Health Check
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="credentials">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Key className="h-5 w-5" />
+                N8N Credentials
+              </CardTitle>
+              <CardDescription>
+                Credentials used by workflows in your N8N environments.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
           {/* Filters */}
           <div className="flex gap-4 mb-4">
             <div className="flex-1">
@@ -676,6 +699,20 @@ export function CredentialsPage() {
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="matrix">
+          <CredentialMatrix />
+        </TabsContent>
+
+        <TabsContent value="discover">
+          <CredentialDiscovery />
+        </TabsContent>
+
+        <TabsContent value="health">
+          <MappingHealthCheck />
+        </TabsContent>
+      </Tabs>
 
       {/* Create Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>

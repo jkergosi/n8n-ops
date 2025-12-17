@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Depends
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import logging
 
 from app.services.database import db_service
@@ -16,6 +16,10 @@ from app.schemas.credential import (
     ResolvedMapping,
     CredentialDetail,
     WorkflowCredentialDependencyResponse,
+    DiscoveredCredential,
+    CredentialMatrixResponse,
+    MappingValidationReport,
+    MappingIssue,
 )
 from app.api.endpoints.auth import get_current_user
 
@@ -336,4 +340,196 @@ async def refresh_workflow_dependencies(
     )
 
     return {"success": True, "logical_credential_ids": logical_keys}
+
+
+@router.get("/matrix", response_model=CredentialMatrixResponse)
+async def get_credential_matrix(user_info: dict = Depends(get_current_user)):
+    """Get a matrix view of all logical credentials and their mappings across environments."""
+    tenant_id = get_current_tenant_id(user_info)
+
+    environments = await db_service.get_environments(tenant_id)
+    logical_creds = await db_service.list_logical_credentials(tenant_id)
+    all_mappings = await db_service.list_credential_mappings(tenant_id)
+
+    matrix: Dict[str, Dict[str, Any]] = {}
+    for lc in logical_creds:
+        lc_id = lc.get("id")
+        matrix[lc_id] = {}
+        for env in environments:
+            env_id = env.get("id")
+            mapping = next(
+                (m for m in all_mappings
+                 if m.get("logical_credential_id") == lc_id and m.get("environment_id") == env_id),
+                None
+            )
+            if mapping:
+                matrix[lc_id][env_id] = {
+                    "mapping_id": mapping.get("id"),
+                    "physical_credential_id": mapping.get("physical_credential_id"),
+                    "physical_name": mapping.get("physical_name"),
+                    "physical_type": mapping.get("physical_type"),
+                    "status": mapping.get("status"),
+                }
+            else:
+                matrix[lc_id][env_id] = None
+
+    env_list = [
+        {"id": e.get("id"), "name": e.get("n8n_name"), "type": e.get("n8n_type")}
+        for e in environments
+    ]
+
+    return CredentialMatrixResponse(
+        logical_credentials=logical_creds,
+        environments=env_list,
+        matrix=matrix
+    )
+
+
+@router.post("/discover/{environment_id}")
+async def discover_credentials_from_workflows(
+    environment_id: str,
+    provider: str = "n8n",
+    user_info: dict = Depends(get_current_user)
+):
+    """Scan all workflows in environment and return unique credential references."""
+    tenant_id = get_current_tenant_id(user_info)
+
+    env = await db_service.get_environment(environment_id, tenant_id)
+    if not env:
+        raise HTTPException(status_code=404, detail="Environment not found")
+
+    workflows = await db_service.get_workflows(tenant_id, environment_id)
+    logical_creds = await db_service.list_logical_credentials(tenant_id)
+    all_mappings = await db_service.list_credential_mappings(tenant_id, environment_id=environment_id, provider=provider)
+
+    logical_by_name = {lc.get("name"): lc for lc in logical_creds}
+    adapter_class = ProviderRegistry.get_adapter_class(provider)
+
+    discovered: Dict[str, Dict[str, Any]] = {}
+
+    for wf in workflows:
+        wf_data = wf.get("workflow_data") or {}
+        wf_id = str(wf.get("n8n_workflow_id") or wf.get("id"))
+        wf_name = wf.get("name", "Unknown")
+
+        keys = adapter_class.extract_logical_credentials(wf_data)
+        for key in keys:
+            parts = key.split(":", 1)
+            cred_type = parts[0] if len(parts) > 0 else ""
+            cred_name = parts[1] if len(parts) > 1 else key
+
+            if key not in discovered:
+                existing_logical = logical_by_name.get(key)
+                mapping_status = "unmapped"
+                if existing_logical:
+                    has_mapping = any(
+                        m.get("logical_credential_id") == existing_logical.get("id")
+                        for m in all_mappings
+                    )
+                    mapping_status = "mapped" if has_mapping else "unmapped"
+
+                discovered[key] = {
+                    "type": cred_type,
+                    "name": cred_name,
+                    "logical_key": key,
+                    "workflow_count": 0,
+                    "workflows": [],
+                    "existing_logical_id": existing_logical.get("id") if existing_logical else None,
+                    "mapping_status": mapping_status,
+                }
+
+            discovered[key]["workflow_count"] += 1
+            if {"id": wf_id, "name": wf_name} not in discovered[key]["workflows"]:
+                discovered[key]["workflows"].append({"id": wf_id, "name": wf_name})
+
+    return list(discovered.values())
+
+
+@router.post("/mappings/validate", response_model=MappingValidationReport)
+async def validate_credential_mappings(
+    environment_id: Optional[str] = None,
+    user_info: dict = Depends(get_current_user)
+):
+    """Validate that all credential mappings still resolve to valid N8N credentials."""
+    tenant_id = get_current_tenant_id(user_info)
+
+    mappings = await db_service.list_credential_mappings(tenant_id, environment_id=environment_id)
+    logical_creds = await db_service.list_logical_credentials(tenant_id)
+    environments = await db_service.get_environments(tenant_id)
+
+    logical_by_id = {lc.get("id"): lc for lc in logical_creds}
+    env_by_id = {e.get("id"): e for e in environments}
+
+    env_credentials_cache: Dict[str, Dict[str, Any]] = {}
+
+    total = len(mappings)
+    valid_count = 0
+    invalid_count = 0
+    stale_count = 0
+    issues: List[MappingIssue] = []
+
+    for mapping in mappings:
+        mapping_id = mapping.get("id")
+        env_id = mapping.get("environment_id")
+        logical_id = mapping.get("logical_credential_id")
+        physical_id = mapping.get("physical_credential_id")
+
+        logical = logical_by_id.get(logical_id, {})
+        env = env_by_id.get(env_id, {})
+        logical_name = logical.get("name", logical_id)
+        env_name = env.get("n8n_name", env_id)
+
+        if env_id not in env_credentials_cache:
+            try:
+                adapter = ProviderRegistry.get_adapter_for_environment(env)
+                creds = await adapter.get_credentials()
+                env_credentials_cache[env_id] = {c.get("id"): c for c in creds}
+            except Exception as e:
+                logger.warning(f"Failed to fetch credentials for env {env_id}: {e}")
+                env_credentials_cache[env_id] = {}
+
+        n8n_creds = env_credentials_cache.get(env_id, {})
+        n8n_cred = n8n_creds.get(physical_id)
+
+        new_status = mapping.get("status", "valid")
+        issue_type = None
+        issue_msg = None
+
+        if not n8n_cred:
+            new_status = "invalid"
+            issue_type = "credential_not_found"
+            issue_msg = f"Physical credential '{physical_id}' not found in N8N"
+            invalid_count += 1
+        else:
+            expected_name = mapping.get("physical_name")
+            actual_name = n8n_cred.get("name")
+            if expected_name and actual_name and expected_name != actual_name:
+                new_status = "stale"
+                issue_type = "name_changed"
+                issue_msg = f"Credential name changed from '{expected_name}' to '{actual_name}'"
+                stale_count += 1
+            else:
+                new_status = "valid"
+                valid_count += 1
+
+        if mapping.get("status") != new_status:
+            await db_service.update_credential_mapping(tenant_id, mapping_id, {"status": new_status})
+
+        if issue_type:
+            issues.append(MappingIssue(
+                mapping_id=mapping_id,
+                logical_name=logical_name,
+                environment_id=env_id,
+                environment_name=env_name,
+                issue=issue_type,
+                message=issue_msg,
+            ))
+
+    return MappingValidationReport(
+        total=total,
+        valid=valid_count,
+        invalid=invalid_count,
+        stale=stale_count,
+        issues=issues,
+    )
 

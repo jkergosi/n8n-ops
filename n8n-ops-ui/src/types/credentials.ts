@@ -72,3 +72,63 @@ export interface WorkflowCredentialDependencyResponse {
   updated_at?: string;
 }
 
+export interface DiscoveredCredentialWorkflow {
+  id: string;
+  name: string;
+}
+
+export interface DiscoveredCredential {
+  type: string;
+  name: string;
+  logicalKey: string;
+  workflowCount: number;
+  workflows: DiscoveredCredentialWorkflow[];
+  existingLogicalId?: string;
+  mappingStatus: 'mapped' | 'unmapped' | 'partial';
+}
+
+export interface CredentialMatrixCell {
+  mappingId?: string;
+  physicalCredentialId?: string;
+  physicalName?: string;
+  physicalType?: string;
+  status?: string;
+}
+
+export interface CredentialMatrixEnvironment {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface CredentialMatrixData {
+  logicalCredentials: LogicalCredential[];
+  environments: CredentialMatrixEnvironment[];
+  matrix: Record<string, Record<string, CredentialMatrixCell | null>>;
+}
+
+export interface MappingIssue {
+  mappingId: string;
+  logicalName: string;
+  environmentId: string;
+  environmentName: string;
+  issue: 'credential_not_found' | 'type_mismatch' | 'name_changed';
+  message: string;
+}
+
+export interface MappingValidationReport {
+  total: number;
+  valid: number;
+  invalid: number;
+  stale: number;
+  issues: MappingIssue[];
+}
+
+export interface N8NCredentialRef {
+  id: string;
+  name: string;
+  type: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+

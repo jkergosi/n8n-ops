@@ -183,3 +183,55 @@ class WorkflowCredentialDependencyResponse(BaseModel):
     logical_credential_ids: List[str]
     credentials: List[CredentialDetail] = []
     updated_at: Optional[datetime] = None
+
+
+class DiscoveredCredentialWorkflow(BaseModel):
+    """Workflow reference for discovered credentials"""
+    id: str
+    name: str
+
+
+class DiscoveredCredential(BaseModel):
+    """Credential discovered from workflow scanning"""
+    type: str
+    name: str
+    logical_key: str
+    workflow_count: int
+    workflows: List[DiscoveredCredentialWorkflow] = []
+    existing_logical_id: Optional[str] = None
+    mapping_status: str = "unmapped"
+
+
+class CredentialMatrixCell(BaseModel):
+    """Single cell in the credential matrix"""
+    mapping_id: Optional[str] = None
+    physical_credential_id: Optional[str] = None
+    physical_name: Optional[str] = None
+    physical_type: Optional[str] = None
+    status: Optional[str] = None
+
+
+class CredentialMatrixResponse(BaseModel):
+    """Cross-environment credential matrix"""
+    logical_credentials: List[LogicalCredentialResponse]
+    environments: List[Dict[str, Any]]
+    matrix: Dict[str, Dict[str, Optional[CredentialMatrixCell]]]
+
+
+class MappingIssue(BaseModel):
+    """Issue found during mapping validation"""
+    mapping_id: str
+    logical_name: str
+    environment_id: str
+    environment_name: str
+    issue: str
+    message: str
+
+
+class MappingValidationReport(BaseModel):
+    """Result of validating credential mappings"""
+    total: int
+    valid: int
+    invalid: int
+    stale: int
+    issues: List[MappingIssue] = []

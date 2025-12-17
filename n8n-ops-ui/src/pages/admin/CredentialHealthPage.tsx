@@ -33,6 +33,8 @@ import type { Environment } from '@/types';
 import type { LogicalCredential, CredentialMapping } from '@/types/credentials';
 import { Shield, Server, Globe, Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { CredentialPicker } from '@/components/credentials/CredentialPicker';
+import type { N8NCredentialRef } from '@/types/credentials';
 
 export function CredentialHealthPage() {
   const queryClient = useQueryClient();
@@ -600,31 +602,24 @@ export function CredentialHealthPage() {
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="physicalId">Physical Credential ID *</Label>
-              <Input
-                id="physicalId"
+              <Label>Physical Credential *</Label>
+              <CredentialPicker
+                environmentId={mappingEnvId}
+                filterType={logicalCreds.find((c: any) => c.id === mappingLogicalId)?.required_type}
                 value={mappingPhysicalId}
-                onChange={(e) => setMappingPhysicalId(e.target.value)}
-                placeholder="ID from n8n"
+                onChange={(id: string, cred: N8NCredentialRef | null) => {
+                  setMappingPhysicalId(id);
+                  if (cred) {
+                    setMappingPhysicalName(cred.name);
+                    setMappingPhysicalType(cred.type);
+                  }
+                }}
+                placeholder="Select credential from N8N..."
+                disabled={!mappingEnvId}
               />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="physicalName">Physical Credential Name</Label>
-              <Input
-                id="physicalName"
-                value={mappingPhysicalName}
-                onChange={(e) => setMappingPhysicalName(e.target.value)}
-                placeholder="Name in n8n"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="physicalType">Physical Credential Type</Label>
-              <Input
-                id="physicalType"
-                value={mappingPhysicalType}
-                onChange={(e) => setMappingPhysicalType(e.target.value)}
-                placeholder="e.g., slackApi"
-              />
+              <p className="text-xs text-muted-foreground">
+                Select a credential from the N8N environment
+              </p>
             </div>
           </div>
           <DialogFooter>

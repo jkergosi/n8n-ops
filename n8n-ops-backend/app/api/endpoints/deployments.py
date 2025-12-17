@@ -31,6 +31,7 @@ MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
 def _attach_progress_fields(deployment: dict, workflows: Optional[List[dict]] = None) -> dict:
     """
     Attach progress fields derived from summary_json/workflows so UI can display counts.
+    For completed deployments, shows successful deployments (created + updated) out of total.
     """
     summary = deployment.get("summary_json") or {}
     total = summary.get("total")
@@ -39,20 +40,29 @@ def _attach_progress_fields(deployment: dict, workflows: Optional[List[dict]] = 
     if total is None:
         total = 0
 
-    processed = summary.get("processed")
-    if processed is None and workflows is not None:
-        processed = sum(1 for wf in workflows if wf.get("status") in ["success", "failed", "skipped"])
-    if processed is None:
-        processed = 0
-
-    current = processed
-    if deployment.get("status") == DeploymentStatus.RUNNING.value and total:
-        current = min(processed + 1, total)
-    if deployment.get("status") in [DeploymentStatus.SUCCESS.value, DeploymentStatus.FAILED.value] and total:
-        current = total
-
-    deployment["progress_current"] = current
-    deployment["progress_total"] = total
+    status = deployment.get("status")
+    
+    # For completed deployments (success/failed), show successful deployments
+    if status in [DeploymentStatus.SUCCESS.value, DeploymentStatus.FAILED.value]:
+        created = summary.get("created", 0)
+        updated = summary.get("updated", 0)
+        successful = created + updated
+        deployment["progress_current"] = successful
+        deployment["progress_total"] = total
+    # For running deployments, show processed count
+    elif status == DeploymentStatus.RUNNING.value:
+        processed = summary.get("processed", 0)
+        if processed is None and workflows is not None:
+            processed = sum(1 for wf in workflows if wf.get("status") in ["success", "failed", "skipped"])
+        if processed is None:
+            processed = 0
+        deployment["progress_current"] = min(processed + 1, total) if total else processed
+        deployment["progress_total"] = total
+    else:
+        # For pending/canceled, show 0
+        deployment["progress_current"] = 0
+        deployment["progress_total"] = total
+    
     deployment["current_workflow_name"] = summary.get("current_workflow")
     return deployment
 

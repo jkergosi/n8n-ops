@@ -1128,6 +1128,46 @@ class ApiClient {
     return { data: response.data };
   }
 
+  async getLogicalCredentials(): Promise<{ data: any[] }> {
+    const response = await this.client.get('/admin/credentials/logical');
+    return { data: response.data };
+  }
+
+  async createLogicalCredential(data: {
+    name: string;
+    required_type: string;
+    description?: string;
+    tenant_id: string;
+  }): Promise<{ data: any }> {
+    const response = await this.client.post('/admin/credentials/logical', data);
+    return { data: response.data };
+  }
+
+  async createCredentialMapping(data: {
+    logical_credential_id: string;
+    environment_id: string;
+    physical_credential_id: string;
+    physical_name: string;
+    physical_type: string;
+  }): Promise<{ data: any }> {
+    const response = await this.client.post('/admin/credentials/mappings', {
+      ...data,
+      provider: 'n8n',
+      status: 'valid',
+    });
+    return { data: response.data };
+  }
+
+  async credentialPreflightCheck(data: {
+    source_environment_id: string;
+    target_environment_id: string;
+    workflow_ids: string[];
+    provider?: string;
+  }): Promise<{ data: any }> {
+    const response = await this.client.post('/admin/credentials/preflight', data);
+    return { data: response.data };
+  }
+
   // Provider User endpoints (previously N8N Users)
   async getN8NUsers(environmentType?: string): Promise<{ data: N8NUser[] }> {
     const params = environmentType ? { environment_type: environmentType } : {};

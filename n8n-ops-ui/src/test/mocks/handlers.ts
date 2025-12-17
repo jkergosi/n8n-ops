@@ -1,6 +1,6 @@
 import { http, HttpResponse } from 'msw';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = 'http://localhost:3000/api/v1';
 
 // Default fixtures
 export const mockUsers = [
@@ -1115,8 +1115,8 @@ export const handlers = [
   http.get(`${API_BASE}/admin/credentials/matrix`, () => {
     return HttpResponse.json({
       logical_credentials: [
-        { id: 'logical-1', name: 'slackApi:prod-slack', required_type: 'slackApi', description: 'Slack credentials' },
-        { id: 'logical-2', name: 'githubApi:gh-token', required_type: 'githubApi', description: 'GitHub credentials' },
+        { id: 'logical-1', name: 'slackApi:prod-slack', requiredType: 'slackApi', description: 'Slack credentials' },
+        { id: 'logical-2', name: 'githubApi:gh-token', requiredType: 'githubApi', description: 'GitHub credentials' },
       ],
       environments: [
         { id: 'env-1', name: 'Development', type: 'development' },
@@ -1124,11 +1124,11 @@ export const handlers = [
       ],
       matrix: {
         'logical-1': {
-          'env-1': { mapping_id: 'mapping-1', physical_credential_id: 'n8n-cred-1', physical_name: 'Dev Slack', physical_type: 'slackApi', status: 'valid' },
-          'env-2': { mapping_id: 'mapping-2', physical_credential_id: 'n8n-cred-2', physical_name: 'Prod Slack', physical_type: 'slackApi', status: 'valid' },
+          'env-1': { mappingId: 'mapping-1', physicalCredentialId: 'n8n-cred-1', physicalName: 'Dev Slack', physicalType: 'slackApi', status: 'valid' },
+          'env-2': { mappingId: 'mapping-2', physicalCredentialId: 'n8n-cred-2', physicalName: 'Prod Slack', physicalType: 'slackApi', status: 'valid' },
         },
         'logical-2': {
-          'env-1': { mapping_id: 'mapping-3', physical_credential_id: 'n8n-cred-3', physical_name: 'Dev GitHub', physical_type: 'githubApi', status: 'valid' },
+          'env-1': { mappingId: 'mapping-3', physicalCredentialId: 'n8n-cred-3', physicalName: 'Dev GitHub', physicalType: 'githubApi', status: 'valid' },
           'env-2': null,
         },
       },
@@ -1138,9 +1138,9 @@ export const handlers = [
   // Credential discovery endpoint
   http.post(`${API_BASE}/admin/credentials/discover/:environmentId`, () => {
     return HttpResponse.json([
-      { type: 'slackApi', name: 'prod-slack', logical_key: 'slackApi:prod-slack', workflow_count: 3, workflows: [{ id: 'wf-1', name: 'Workflow 1' }], existing_logical_id: 'logical-1', mapping_status: 'mapped' },
-      { type: 'githubApi', name: 'gh-token', logical_key: 'githubApi:gh-token', workflow_count: 2, workflows: [{ id: 'wf-2', name: 'Workflow 2' }], existing_logical_id: null, mapping_status: 'unmapped' },
-      { type: 'postgresApi', name: 'main-db', logical_key: 'postgresApi:main-db', workflow_count: 1, workflows: [{ id: 'wf-3', name: 'Workflow 3' }], existing_logical_id: null, mapping_status: 'unmapped' },
+      { type: 'slackApi', name: 'prod-slack', logicalKey: 'slackApi:prod-slack', workflowCount: 3, workflows: [{ id: 'wf-1', name: 'Workflow 1' }], existingLogicalId: 'logical-1', mappingStatus: 'mapped' },
+      { type: 'githubApi', name: 'gh-token', logicalKey: 'githubApi:gh-token', workflowCount: 2, workflows: [{ id: 'wf-2', name: 'Workflow 2' }], existingLogicalId: null, mappingStatus: 'unmapped' },
+      { type: 'postgresApi', name: 'main-db', logicalKey: 'postgresApi:main-db', workflowCount: 1, workflows: [{ id: 'wf-3', name: 'Workflow 3' }], existingLogicalId: null, mappingStatus: 'unmapped' },
     ]);
   }),
 
@@ -1152,7 +1152,7 @@ export const handlers = [
       invalid: 1,
       stale: 0,
       issues: [
-        { mapping_id: 'mapping-5', logical_name: 'awsApi:s3-bucket', environment_id: 'env-2', environment_name: 'Production', issue: 'credential_not_found', message: 'Physical credential not found in N8N' },
+        { mappingId: 'mapping-5', logicalName: 'awsApi:s3-bucket', environmentId: 'env-2', environmentName: 'Production', issue: 'credential_not_found', message: 'Physical credential not found in N8N' },
       ],
     });
   }),
@@ -1214,6 +1214,23 @@ export const handlers = [
 
   http.delete(`${API_BASE}/admin/credentials/mappings/:id`, () => {
     return new HttpResponse(null, { status: 204 });
+  }),
+
+  // Credential preflight check endpoint
+  http.post(`${API_BASE}/admin/credentials/preflight`, async ({ request }) => {
+    return HttpResponse.json({
+      valid: true,
+      blocking_issues: [],
+      warnings: [],
+      resolved_mappings: [
+        {
+          logical_key: 'slackApi:notifications',
+          source_physical_name: 'Dev Slack',
+          target_physical_name: 'Prod Slack',
+          target_physical_id: 'n8n-cred-prod-1',
+        },
+      ],
+    });
   }),
 
   // Support endpoints

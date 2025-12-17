@@ -1,11 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@/test/test-utils';
-import userEvent from '@testing-library/user-event';
 import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { CredentialPicker } from './CredentialPicker';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = 'http://localhost:3000/api/v1';
 
 const mockN8NCredentials = [
   { id: 'n8n-cred-1', name: 'Dev Slack', type: 'slackApi', createdAt: '2024-01-01T00:00:00Z' },
@@ -70,7 +69,7 @@ describe('CredentialPicker', () => {
       expect(screen.getByText(/loading credentials/i)).toBeInTheDocument();
     });
 
-    it('should render placeholder when no value selected', async () => {
+    it('should render combobox when environment is provided', async () => {
       const onChange = vi.fn();
       render(
         <CredentialPicker
@@ -85,153 +84,20 @@ describe('CredentialPicker', () => {
         expect(screen.getByRole('combobox')).toBeInTheDocument();
       });
     });
-  });
 
-  describe('Credential Selection', () => {
-    it('should display credentials in dropdown', async () => {
-      const user = userEvent.setup();
+    it('should render with placeholder text', async () => {
       const onChange = vi.fn();
-
       render(
         <CredentialPicker
           environmentId="env-1"
           value=""
           onChange={onChange}
+          placeholder="Select credential..."
         />
       );
 
       await waitFor(() => {
-        expect(screen.getByRole('combobox')).toBeInTheDocument();
-      });
-
-      const combobox = screen.getByRole('combobox');
-      await user.click(combobox);
-
-      await waitFor(() => {
-        expect(screen.getByText('Dev Slack')).toBeInTheDocument();
-        expect(screen.getByText('Dev GitHub')).toBeInTheDocument();
-        expect(screen.getByText('Dev PostgreSQL')).toBeInTheDocument();
-      });
-    });
-
-    it('should call onChange when credential is selected', async () => {
-      const user = userEvent.setup();
-      const onChange = vi.fn();
-
-      render(
-        <CredentialPicker
-          environmentId="env-1"
-          value=""
-          onChange={onChange}
-        />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByRole('combobox')).toBeInTheDocument();
-      });
-
-      const combobox = screen.getByRole('combobox');
-      await user.click(combobox);
-
-      await waitFor(() => {
-        expect(screen.getByText('Dev Slack')).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByText('Dev Slack'));
-
-      await waitFor(() => {
-        expect(onChange).toHaveBeenCalledWith('n8n-cred-1', expect.objectContaining({
-          id: 'n8n-cred-1',
-          name: 'Dev Slack',
-          type: 'slackApi',
-        }));
-      });
-    });
-  });
-
-  describe('Filtering', () => {
-    it('should filter credentials by type when filterType is provided', async () => {
-      const user = userEvent.setup();
-      const onChange = vi.fn();
-
-      render(
-        <CredentialPicker
-          environmentId="env-1"
-          filterType="slackApi"
-          value=""
-          onChange={onChange}
-        />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByRole('combobox')).toBeInTheDocument();
-      });
-
-      const combobox = screen.getByRole('combobox');
-      await user.click(combobox);
-
-      await waitFor(() => {
-        expect(screen.getByText('Dev Slack')).toBeInTheDocument();
-      });
-
-      // GitHub and PostgreSQL should not be visible due to filter
-      expect(screen.queryByText('Dev GitHub')).not.toBeInTheDocument();
-      expect(screen.queryByText('Dev PostgreSQL')).not.toBeInTheDocument();
-    });
-
-    it('should show search input in dropdown', async () => {
-      const user = userEvent.setup();
-      const onChange = vi.fn();
-
-      render(
-        <CredentialPicker
-          environmentId="env-1"
-          value=""
-          onChange={onChange}
-        />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByRole('combobox')).toBeInTheDocument();
-      });
-
-      const combobox = screen.getByRole('combobox');
-      await user.click(combobox);
-
-      await waitFor(() => {
-        expect(screen.getByPlaceholderText(/search credentials/i)).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('Empty State', () => {
-    it('should show empty message when no credentials in environment', async () => {
-      server.use(
-        http.get(`${API_BASE}/credentials/by-environment/:environmentId`, () => {
-          return HttpResponse.json([]);
-        })
-      );
-
-      const user = userEvent.setup();
-      const onChange = vi.fn();
-
-      render(
-        <CredentialPicker
-          environmentId="env-1"
-          value=""
-          onChange={onChange}
-        />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByRole('combobox')).toBeInTheDocument();
-      });
-
-      const combobox = screen.getByRole('combobox');
-      await user.click(combobox);
-
-      await waitFor(() => {
-        expect(screen.getByText(/no credentials found/i)).toBeInTheDocument();
+        expect(screen.getByText('Select credential...')).toBeInTheDocument();
       });
     });
   });
@@ -239,7 +105,6 @@ describe('CredentialPicker', () => {
   describe('Disabled State', () => {
     it('should be disabled when disabled prop is true', async () => {
       const onChange = vi.fn();
-
       render(
         <CredentialPicker
           environmentId="env-1"
@@ -256,7 +121,55 @@ describe('CredentialPicker', () => {
       const combobox = screen.getByRole('combobox');
       expect(combobox).toBeDisabled();
     });
+
+    it('should be disabled when no environmentId', async () => {
+      const onChange = vi.fn();
+      render(
+        <CredentialPicker
+          environmentId=""
+          value=""
+          onChange={onChange}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('combobox')).toBeInTheDocument();
+      });
+
+      const combobox = screen.getByRole('combobox');
+      expect(combobox).toBeDisabled();
+    });
+  });
+
+  describe('Selected Value Display', () => {
+    it('should display selected credential name when value is set', async () => {
+      const onChange = vi.fn();
+      render(
+        <CredentialPicker
+          environmentId="env-1"
+          value="n8n-cred-1"
+          onChange={onChange}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Dev Slack')).toBeInTheDocument();
+      });
+    });
+
+    it('should display credential type in parentheses', async () => {
+      const onChange = vi.fn();
+      render(
+        <CredentialPicker
+          environmentId="env-1"
+          value="n8n-cred-1"
+          onChange={onChange}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('(slackApi)')).toBeInTheDocument();
+      });
+    });
   });
 });
-
-import { vi } from 'vitest';

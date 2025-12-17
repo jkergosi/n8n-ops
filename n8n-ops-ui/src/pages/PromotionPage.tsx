@@ -36,8 +36,9 @@ import { apiClient } from '@/lib/api-client';
 import { ArrowLeft, Play, AlertTriangle, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Pipeline, Environment, WorkflowSelection, WorkflowChangeType } from '@/types';
-import type { CredentialPreflightResult } from '@/types/credentials';
+import type { CredentialPreflightResult, CredentialIssue } from '@/types/credentials';
 import { CredentialPreflightDialog } from '@/components/promotion/CredentialPreflightDialog';
+import { InlineMappingDialog } from '@/components/promotion/InlineMappingDialog';
 
 export function PromotionPage() {
   const navigate = useNavigate();
@@ -54,6 +55,8 @@ export function PromotionPage() {
   // Credential preflight state
   const [showPreflightDialog, setShowPreflightDialog] = useState(false);
   const [preflightResult, setPreflightResult] = useState<CredentialPreflightResult | null>(null);
+  const [showMappingDialog, setShowMappingDialog] = useState(false);
+  const [selectedIssue, setSelectedIssue] = useState<CredentialIssue | null>(null);
 
   const { data: pipelines } = useQuery({
     queryKey: ['pipelines'],
@@ -318,10 +321,18 @@ export function PromotionPage() {
       return;
     }
 
-    // Skip preflight for now and go straight to initiation
-    // TODO: Re-enable preflight check once endpoint is working
-    // preflightMutation.mutate();
-    initiateMutation.mutate();
+    // Run credential preflight check before proceeding
+    preflightMutation.mutate();
+  };
+
+  const handleMapCredential = (issue: CredentialIssue) => {
+    setSelectedIssue(issue);
+    setShowMappingDialog(true);
+  };
+
+  const handleMappingCreated = () => {
+    // Re-run preflight to check if the issue is resolved
+    preflightMutation.mutate();
   };
 
   const handleExecute = (promotionId: string) => {
@@ -758,7 +769,19 @@ export function PromotionPage() {
         preflightResult={preflightResult}
         onProceed={handlePreflightProceed}
         onCancel={handlePreflightCancel}
+        onMapCredential={handleMapCredential}
         isLoading={initiateMutation.isPending}
+        targetEnvironmentName={targetEnv?.name}
+      />
+
+      {/* Inline Mapping Dialog */}
+      <InlineMappingDialog
+        open={showMappingDialog}
+        onOpenChange={setShowMappingDialog}
+        issue={selectedIssue}
+        targetEnvironmentId={targetEnvId || ''}
+        targetEnvironmentName={targetEnv?.name || 'Target'}
+        onMappingCreated={handleMappingCreated}
       />
     </div>
   );

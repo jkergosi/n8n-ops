@@ -51,9 +51,9 @@ import type { Snapshot, SnapshotComparison } from '@/types';
 
 export function SnapshotsPage() {
   useEffect(() => {
-    document.title = 'Snapshots - n8n Ops';
+    document.title = 'Snapshots - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const queryClient = useQueryClient();

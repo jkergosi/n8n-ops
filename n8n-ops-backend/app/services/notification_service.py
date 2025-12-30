@@ -371,7 +371,7 @@ class NotificationService:
             "title": display_name,
             "text": metadata.get("message", "") if metadata else "",
             "fields": fields,
-            "footer": "N8N Ops",
+            "footer": "WorkflowOps",
             "ts": int(datetime.utcnow().timestamp())
         }
 
@@ -422,7 +422,7 @@ class NotificationService:
             return False
 
         # Build email content
-        subject = f"[N8N Ops] {display_name}"
+        subject = f"[WorkflowOps] {display_name}"
 
         # HTML body
         body_html = f"""
@@ -449,7 +449,7 @@ class NotificationService:
         body_html += f"""
             <hr style="border: 1px solid #eee;">
             <p style="color: #666; font-size: 12px;">
-                Sent by N8N Ops at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC
+                Sent by WorkflowOps at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC
             </p>
         </body>
         </html>

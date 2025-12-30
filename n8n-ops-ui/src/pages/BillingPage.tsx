@@ -21,9 +21,9 @@ import { Label } from '@/components/ui/label';
 
 export function BillingPage() {
   useEffect(() => {
-    document.title = 'Billing - n8n Ops';
+    document.title = 'Billing - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

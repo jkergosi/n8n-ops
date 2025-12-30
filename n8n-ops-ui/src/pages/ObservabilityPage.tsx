@@ -169,9 +169,9 @@ function formatRelativeTime(dateString: string | undefined): string {
 
 export function ObservabilityPage() {
   useEffect(() => {
-    document.title = 'Observability - n8n Ops';
+    document.title = 'Observability - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

@@ -44,6 +44,8 @@ class EnvironmentUpdate(BaseModel):
 
 class EnvironmentResponse(BaseModel):
     """Response model for environments with n8n_ prefixed field names"""
+    # Migration: 53259882566d - add_drift_fields_and_incidents
+    # See: alembic/versions/53259882566d_add_drift_fields_and_incidents.py
     id: str
     tenant_id: str
     n8n_name: str
@@ -58,6 +60,9 @@ class EnvironmentResponse(BaseModel):
     git_pat: Optional[str] = None
     last_connected: Optional[datetime] = None
     last_backup: Optional[datetime] = None
+    drift_status: str = "IN_SYNC"
+    last_drift_detected_at: Optional[datetime] = None
+    active_drift_incident_id: Optional[str] = None
     workflow_count: int = 0
     created_at: datetime
     updated_at: datetime

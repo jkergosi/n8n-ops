@@ -32,7 +32,6 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { ThemeToggle } from '@/components/ThemeToggle';
 import { useTheme } from '@/components/ThemeProvider';
 import {
   LayoutDashboard,
@@ -89,7 +88,7 @@ interface NavSection {
 
 const navigationSections: NavSection[] = [
   {
-    title: 'N8N Ops',
+    title: 'WorkflowOps',
     items: [
       { id: 'dashboard', name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { id: 'environments', name: 'Environments', href: '/environments', icon: Server },
@@ -117,12 +116,6 @@ const navigationSections: NavSection[] = [
     items: [
       { id: 'credentials', name: 'Credentials', href: '/credentials', icon: Key },
       { id: 'users', name: 'n8n Users', href: '/n8n-users', icon: UserCog },
-    ],
-  },
-  {
-    title: 'Support',
-    items: [
-      { id: 'support', name: 'Support', href: '/support', icon: HelpCircle },
     ],
   },
   {
@@ -236,7 +229,7 @@ export function AppLayout() {
               <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-sm">
                 <Workflow className="h-5 w-5 text-primary-foreground" />
               </div>
-              {sidebarOpen && <span className="text-lg font-semibold tracking-tight">N8N Ops</span>}
+              {sidebarOpen && <span className="text-lg font-semibold tracking-tight">WorkflowOps</span>}
             </div>
             <Button
               variant="ghost"
@@ -313,117 +306,6 @@ export function AppLayout() {
               );
             })}
           </nav>
-
-          {/* User Info & Menu */}
-          {sidebarOpen && (
-            <div className="p-3 border-t">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-accent transition-colors text-left">
-                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold shadow-sm">
-                      {user?.name?.charAt(0).toUpperCase() || 'U'}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{user?.name}</p>
-                      <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-                    </div>
-                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56" side="right" sideOffset={8}>
-                {/* Account Section */}
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Account</DropdownMenuLabel>
-                  <DropdownMenuItem asChild>
-                    <Link to="/profile" className="cursor-pointer">
-                      <UserCircle className="mr-2 h-4 w-4" />
-                      Profile
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to="/billing" className="cursor-pointer">
-                      <CreditCard className="mr-2 h-4 w-4" />
-                      Subscription
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link to="/team" className="cursor-pointer">
-                      <Users className="mr-2 h-4 w-4" />
-                      Team
-                    </Link>
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                
-                <DropdownMenuSeparator />
-                
-                {/* Preferences Section */}
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Preferences</DropdownMenuLabel>
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <Palette className="mr-2 h-4 w-4" />
-                      Appearance
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem onClick={() => setTheme('light')}>
-                        Light
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setTheme('dark')}>
-                        Dark
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setTheme('system')}>
-                        System
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                </DropdownMenuGroup>
-                
-                <DropdownMenuSeparator />
-                
-                {/* Help Section */}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <HelpCircle className="mr-2 h-4 w-4" />
-                    Help
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    <DropdownMenuItem asChild>
-                      <Link to="/help" className="cursor-pointer">
-                        Help Center
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <a href="https://docs.n8n-ops.com" target="_blank" rel="noopener noreferrer" className="cursor-pointer">
-                        Documentation
-                      </a>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link to="/report-bug" className="cursor-pointer">
-                        Report Bug
-                      </Link>
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-                
-                <DropdownMenuSeparator />
-                
-                {/* Account Actions */}
-                {planName !== 'enterprise' && (
-                  <DropdownMenuItem asChild>
-                    <Link to="/billing" className="cursor-pointer">
-                      <Sparkles className="mr-2 h-4 w-4" />
-                      Upgrade Plan
-                    </Link>
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-          )}
         </div>
       </div>
 
@@ -494,17 +376,11 @@ export function AppLayout() {
                 </div>
               )}
 
-              <Badge variant="outline" className="hidden sm:flex text-xs h-7">
-                Environment: <span className="ml-1 font-semibold">dev</span>
-              </Badge>
-              
               {/* Notifications */}
               <Button variant="ghost" size="icon" className="h-8 w-8 relative">
                 <Bell className="h-4 w-4" />
                 <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-primary"></span>
               </Button>
-              
-              <ThemeToggle />
               
               {/* User Menu */}
               <DropdownMenu>
@@ -572,30 +448,12 @@ export function AppLayout() {
                   
                   <DropdownMenuSeparator />
                   
-                  {/* Help Section */}
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
+                  <DropdownMenuItem asChild>
+                    <Link to="/support" className="cursor-pointer">
                       <HelpCircle className="mr-2 h-4 w-4" />
-                      Help
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem asChild>
-                        <Link to="/help" className="cursor-pointer">
-                          Help Center
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <a href="https://docs.n8n-ops.com" target="_blank" rel="noopener noreferrer" className="cursor-pointer">
-                          Documentation
-                        </a>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link to="/report-bug" className="cursor-pointer">
-                          Report Bug
-                        </Link>
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
+                      Support Center
+                    </Link>
+                  </DropdownMenuItem>
                   
                   <DropdownMenuSeparator />
                   

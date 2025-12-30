@@ -85,9 +85,9 @@ const planColors: Record<string, string> = {
 
 export function TenantDetailPage() {
   useEffect(() => {
-    document.title = 'Tenant Details - n8n Ops';
+    document.title = 'Tenant Details - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const { tenantId } = useParams<{ tenantId: string }>();

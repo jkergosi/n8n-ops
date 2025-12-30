@@ -26,9 +26,9 @@ interface SupportConfigFormData {
 
 export function SupportConfigPage() {
   useEffect(() => {
-    document.title = 'Support Config - n8n Ops';
+    document.title = 'Support Config - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

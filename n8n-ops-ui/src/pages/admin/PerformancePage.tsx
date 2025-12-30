@@ -114,9 +114,9 @@ const recentAlerts = [
 
 export function PerformancePage() {
   useEffect(() => {
-    document.title = 'Performance - n8n Ops';
+    document.title = 'Performance - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const getStatusColor = (status: string) => {

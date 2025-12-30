@@ -102,7 +102,7 @@ describe('DashboardPage', () => {
       render(<DashboardPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/get started with n8n ops/i)).toBeInTheDocument();
+        expect(screen.getByText(/get started with workflowops/i)).toBeInTheDocument();
       });
 
       expect(screen.getByText(/create your first environment/i)).toBeInTheDocument();

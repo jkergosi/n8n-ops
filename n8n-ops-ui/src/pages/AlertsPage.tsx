@@ -83,9 +83,9 @@ const defaultWebhookConfig: WebhookConfig = {
 
 export function AlertsPage() {
   useEffect(() => {
-    document.title = 'Alerts - n8n Ops';
+    document.title = 'Alerts - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const queryClient = useQueryClient();
@@ -819,7 +819,7 @@ export function AlertsPage() {
                   <div className="space-y-2">
                     <Label>Username</Label>
                     <Input
-                      placeholder="N8N Ops"
+                      placeholder="WorkflowOps"
                       value={channelForm.slackConfig.username || ''}
                       onChange={(e) => setChannelForm({
                         ...channelForm,
@@ -1057,7 +1057,7 @@ export function AlertsPage() {
                   <div className="space-y-2">
                     <Label>Username</Label>
                     <Input
-                      placeholder="N8N Ops"
+                      placeholder="WorkflowOps"
                       value={channelForm.slackConfig.username || ''}
                       onChange={(e) => setChannelForm({
                         ...channelForm,

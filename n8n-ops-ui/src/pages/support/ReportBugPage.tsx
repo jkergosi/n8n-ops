@@ -26,9 +26,9 @@ interface BugFormData {
 
 export function ReportBugPage() {
   useEffect(() => {
-    document.title = 'Report Bug - n8n Ops';
+    document.title = 'Report Bug - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

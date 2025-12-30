@@ -30,9 +30,9 @@ import type { TeamMember } from '@/types';
 
 export function TeamPage() {
   useEffect(() => {
-    document.title = 'Team - n8n Ops';
+    document.title = 'Team - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const queryClient = useQueryClient();

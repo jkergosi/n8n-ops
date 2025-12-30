@@ -172,9 +172,9 @@ const planPricing = {
 
 export function PlansPage() {
   useEffect(() => {
-    document.title = 'Plans - n8n Ops';
+    document.title = 'Plans - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const [editDialogOpen, setEditDialogOpen] = useState(false);

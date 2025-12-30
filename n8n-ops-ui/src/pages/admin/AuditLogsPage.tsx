@@ -68,9 +68,9 @@ const ACTION_PRESETS = [
 
 export function AuditLogsPage() {
   useEffect(() => {
-    document.title = 'Audit Logs - n8n Ops';
+    document.title = 'Audit Logs - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   // Filter state

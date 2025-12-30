@@ -42,9 +42,9 @@ export function EnvironmentSetupPage() {
   const [environmentTypes, setEnvironmentTypes] = useState<EnvironmentTypeConfig[]>([]);
 
   useEffect(() => {
-    document.title = isEditMode ? 'Edit Environment - n8n Ops' : 'New Environment - n8n Ops';
+    document.title = isEditMode ? 'Edit Environment - WorkflowOps' : 'New Environment - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, [isEditMode]);
 

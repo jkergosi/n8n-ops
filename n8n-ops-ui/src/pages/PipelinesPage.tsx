@@ -31,9 +31,9 @@ import type { Pipeline } from '@/types';
 
 export function PipelinesPage() {
   useEffect(() => {
-    document.title = 'Pipelines - n8n Ops';
+    document.title = 'Pipelines - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

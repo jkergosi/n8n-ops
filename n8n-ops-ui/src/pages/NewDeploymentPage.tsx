@@ -44,9 +44,9 @@ import { WorkflowDiffDialog } from '@/components/promotion/WorkflowDiffDialog';
 
 export function NewDeploymentPage() {
   useEffect(() => {
-    document.title = 'New Deployment - n8n Ops';
+    document.title = 'New Deployment - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

@@ -27,9 +27,9 @@ type SortDirection = 'asc' | 'desc';
 
 export function ExecutionsPage() {
   useEffect(() => {
-    document.title = 'Executions - n8n Ops';
+    document.title = 'Executions - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

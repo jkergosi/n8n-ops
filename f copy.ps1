@@ -30,11 +30,8 @@ function Show-Menu {
     Write-Host "  f3          3        F3       D3       (localhost:3003/4003)"
     Write-Host "  f4          4        F4       D4       (localhost:3004/4004)"
     Write-Host ""
-    Write-Host "  MAIN" -ForegroundColor Magenta
+    Write-Host "  OTHER" -ForegroundColor Magenta
     Write-Host "    M   Open main (localhost:3000/4000)"
-    Write-Host "    CM  Commit & push main"
-    Write-Host ""
-    Write-Host "  OTHER" -ForegroundColor Gray
     Write-Host "    L   List worktrees"
     Write-Host "    Q   Quit"
     Write-Host ""
@@ -256,62 +253,6 @@ function List-Worktrees {
     Pop-Location
 }
 
-function Commit-Main {
-    if (-not (Test-Path $MainPath)) {
-        Write-Host "Main worktree not found at $MainPath" -ForegroundColor Red
-        return
-    }
-
-    Push-Location $MainPath
-
-    Write-Host ""
-    Write-Host "Checking main branch status..." -ForegroundColor Cyan
-    $status = git status --porcelain
-
-    if (-not $status) {
-        Write-Host "No changes to commit" -ForegroundColor Yellow
-        Pop-Location
-        return
-    }
-
-    Write-Host ""
-    Write-Host "Changed files:" -ForegroundColor White
-    git status --short
-    Write-Host ""
-
-    Write-Host "Enter commit message (or press Enter to cancel): " -NoNewline -ForegroundColor White
-    $CommitMessage = Read-Host
-
-    if ([string]::IsNullOrEmpty($CommitMessage)) {
-        Write-Host "Cancelled" -ForegroundColor Gray
-        Pop-Location
-        return
-    }
-
-    Write-Host "`n[1/3] Staging changes..." -ForegroundColor Cyan
-    git add .
-
-    Write-Host "`n[2/3] Committing..." -ForegroundColor Cyan
-    git commit -m $CommitMessage
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Commit failed" -ForegroundColor Red
-        Pop-Location
-        return
-    }
-
-    Write-Host "`n[3/3] Pushing to origin..." -ForegroundColor Cyan
-    git push
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "`nDone! Changes committed and pushed to main." -ForegroundColor Green
-    } else {
-        Write-Host "`nPush failed. You may need to pull first." -ForegroundColor Red
-    }
-
-    Pop-Location
-}
-
 # Main loop
 do {
     Show-Menu
@@ -334,10 +275,8 @@ do {
         "D2" { Destroy-Feature "f2"; pause }
         "D3" { Destroy-Feature "f3"; pause }
         "D4" { Destroy-Feature "f4"; pause }
-        # Main
-        "M"  { Start-Feature "main"; pause }
-        "CM" { Commit-Main; pause }
         # Other
+        "M"  { Start-Feature "main"; pause }
         "L"  { List-Worktrees; pause }
         "Q"  { exit }
         default { Write-Host "Invalid choice" -ForegroundColor Red; Start-Sleep -Seconds 1 }

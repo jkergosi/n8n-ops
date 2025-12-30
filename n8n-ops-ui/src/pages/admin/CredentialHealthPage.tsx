@@ -39,9 +39,9 @@ import type { N8NCredentialRef } from '@/types/credentials';
 
 export function CredentialHealthPage() {
   useEffect(() => {
-    document.title = 'Credential Health - n8n Ops';
+    document.title = 'Credential Health - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

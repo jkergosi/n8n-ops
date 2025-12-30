@@ -23,9 +23,9 @@ interface FeatureFormData {
 
 export function RequestFeaturePage() {
   useEffect(() => {
-    document.title = 'Request Feature - n8n Ops';
+    document.title = 'Request Feature - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

@@ -25,11 +25,24 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { useAppStore } from '@/store/use-app-store';
 import { useAuth } from '@/lib/auth';
-import { Plus, Server, RefreshCw, Edit, Database, Download, Trash2, RefreshCcw, RotateCcw, CheckCircle2, AlertCircle, Loader2, XCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Plus, Server, RefreshCw, Edit, RefreshCcw, CheckCircle2, AlertCircle, Loader2, XCircle, MoreVertical, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Environment, EnvironmentType } from '@/types';
 import { useFeatures } from '@/lib/features';
@@ -50,15 +63,13 @@ export function EnvironmentsPage() {
   }, [refreshEntitlements]);
 
   useEffect(() => {
-    document.title = 'Environments - n8n Ops';
+    document.title = 'Environments - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const [testingInDialog, setTestingInDialog] = useState(false);
-  const [backupDialogOpen, setBackupDialogOpen] = useState(false);
-  const [forceBackup, setForceBackup] = useState(false);
-  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [syncConfirmDialogOpen, setSyncConfirmDialogOpen] = useState(false);
 
   const { data: environmentTypesData } = useQuery({
     queryKey: ['environment-types'],
@@ -66,12 +77,11 @@ export function EnvironmentsPage() {
   });
 
   const environmentTypes = (environmentTypesData?.data || []).filter((t) => t.isActive);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedEnvForAction, setSelectedEnvForAction] = useState<Environment | null>(null);
   const [syncingEnvId, setSyncingEnvId] = useState<string | null>(null);
   const [activeJobs, setActiveJobs] = useState<Record<string, {
     jobId: string;
-    jobType: 'sync' | 'backup' | 'restore';
+    jobType: 'sync';
     status: 'running' | 'completed' | 'failed';
     currentStep?: string;
     current: number;
@@ -106,6 +116,13 @@ export function EnvironmentsPage() {
     queryFn: () => api.getEnvironments(),
   });
 
+  // Fetch environment health data for status and drift
+  const { data: healthData } = useQuery({
+    queryKey: ['environment-health'],
+    queryFn: () => apiClient.getEnvironmentHealthData(),
+    enabled: !isLoading && !!environments?.data?.length,
+  });
+
   // Subscribe to background job updates for all environments
   useBackgroundJobsSSE({
     enabled: !isLoading && !!environments?.data?.length,
@@ -123,11 +140,10 @@ export function EnvironmentsPage() {
           const runningJob = jobs.data?.find((j: any) => 
             j.status === 'running' || j.status === 'pending'
           );
-          if (runningJob) {
+          if (runningJob && runningJob.job_type === 'environment_sync') {
             jobsMap[envId] = {
               jobId: runningJob.id,
-              jobType: runningJob.job_type === 'environment_sync' ? 'sync' : 
-                       runningJob.job_type === 'github_sync_to' ? 'backup' : 'restore',
+              jobType: 'sync',
               status: runningJob.status === 'pending' ? 'running' : runningJob.status,
               current: runningJob.progress?.current || 0,
               total: runningJob.progress?.total || 1,
@@ -257,72 +273,6 @@ export function EnvironmentsPage() {
     },
   });
 
-  const backupMutation = useMutation({
-    mutationFn: ({ environment, force }: { environment: string; force: boolean }) =>
-      api.syncWorkflowsToGithub(environment as any, force),
-    onSuccess: (result) => {
-      const { job_id, status, message } = result.data;
-      if (job_id && status === 'running') {
-        toast.success('Backup started in background');
-        // Job progress will be updated via SSE
-        if (selectedEnvForAction) {
-          setActiveJobs((prev) => ({
-            ...prev,
-            [selectedEnvForAction.id]: {
-              jobId: job_id,
-              jobType: 'backup',
-              status: 'running',
-              current: 0,
-              total: 1,
-              message: 'Initializing backup...',
-            },
-          }));
-        }
-      } else {
-        toast.error(message || 'Failed to start backup');
-      }
-      setBackupDialogOpen(false);
-      setForceBackup(false);
-    },
-    onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to start backup');
-      setBackupDialogOpen(false);
-      setForceBackup(false);
-    },
-  });
-
-  const downloadMutation = useMutation({
-    mutationFn: async (environment: Environment) => {
-      // Call our backend API to download all workflows as zip
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
-      const response = await fetch(`${API_BASE_URL}/api/v1/workflows/download?environment_id=${environment.id}`, {
-        method: 'GET',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to download workflows');
-      }
-
-      return response.blob();
-    },
-    onSuccess: (blob, environment) => {
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${environment.name}-workflows-${new Date().toISOString().split('T')[0]}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      toast.success('Workflows downloaded successfully');
-      setDownloadDialogOpen(false);
-    },
-    onError: () => {
-      toast.error('Failed to download workflows');
-      setDownloadDialogOpen(false);
-    },
-  });
 
   const updateMutation = useMutation({
     mutationFn: (data: { id: string; updates: { name?: string; type?: string; base_url?: string; api_key?: string; git_repo_url?: string; git_branch?: string; git_pat?: string } }) =>
@@ -348,20 +298,6 @@ export function EnvironmentsPage() {
     },
     onError: (error: any) => {
       const message = error.response?.data?.detail || 'Failed to create environment';
-      toast.error(message);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.deleteEnvironment(id),
-    onSuccess: () => {
-      toast.success('Environment deleted successfully');
-      queryClient.invalidateQueries({ queryKey: ['environments'] });
-      setDeleteDialogOpen(false);
-      setSelectedEnvForAction(null);
-    },
-    onError: (error: any) => {
-      const message = error.response?.data?.detail || 'Failed to delete environment';
       toast.error(message);
     },
   });
@@ -517,8 +453,17 @@ export function EnvironmentsPage() {
       toast.info('Sync already in progress for this environment');
       return;
     }
-    setSyncingEnvId(env.id);
-    syncMutation.mutate(env.id);
+    setSelectedEnvForAction(env);
+    setSyncConfirmDialogOpen(true);
+  };
+
+  const handleSyncConfirm = () => {
+    if (selectedEnvForAction) {
+      setSyncingEnvId(selectedEnvForAction.id);
+      syncMutation.mutate(selectedEnvForAction.id);
+      setSyncConfirmDialogOpen(false);
+      setSelectedEnvForAction(null);
+    }
   };
 
   const handleSave = () => {
@@ -566,9 +511,79 @@ export function EnvironmentsPage() {
     }
   };
 
-  const handleWorkflowClick = (env: Environment) => {
-    setSelectedEnvironment(env.type);
-    navigate('/workflows');
+
+  // Helper function to format relative time
+  const formatRelativeTime = (dateString?: string): string => {
+    if (!dateString) return 'Never';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  // Helper function to get environment status
+  const getEnvironmentStatus = (env: Environment): { status: 'connected' | 'degraded' | 'offline'; lastHeartbeat?: string } => {
+    const health = healthData?.data?.find(h => h.environmentId === env.id);
+    if (!health) {
+      // If no health data, check lastConnected
+      if (env.lastConnected) {
+        const lastConnected = new Date(env.lastConnected);
+        const now = new Date();
+        const diffMins = Math.floor((now.getTime() - lastConnected.getTime()) / 60000);
+        if (diffMins < 5) return { status: 'connected', lastHeartbeat: env.lastConnected };
+        if (diffMins < 30) return { status: 'degraded', lastHeartbeat: env.lastConnected };
+        return { status: 'offline', lastHeartbeat: env.lastConnected };
+      }
+      return { status: 'offline' };
+    }
+
+    const statusMap: Record<string, 'connected' | 'degraded' | 'offline'> = {
+      'healthy': 'connected',
+      'degraded': 'degraded',
+      'unreachable': 'offline',
+    };
+
+    return {
+      status: statusMap[health.status] || 'offline',
+      lastHeartbeat: health.lastCheckedAt || env.lastConnected,
+    };
+  };
+
+  // Helper function to get drift information
+  const getDriftInfo = (env: Environment): string => {
+    const health = healthData?.data?.find(h => h.environmentId === env.id);
+    if (!health || health.driftState === 'unknown') return '—';
+    if (health.driftState === 'in_sync') return 'In sync';
+
+    // Compare workflow counts with other environments
+    const otherEnvs = environments?.data?.filter(e => e.id !== env.id) || [];
+    if (otherEnvs.length === 0) {
+      return health.driftWorkflowCount ? `+${health.driftWorkflowCount} vs source` : 'Drift detected';
+    }
+
+    // Find the most similar environment (usually staging for prod, dev for staging)
+    const currentWorkflowCount = env.workflowCount || 0;
+    const comparisons = otherEnvs.map(e => {
+      const diff = currentWorkflowCount - (e.workflowCount || 0);
+      return { env: e, diff };
+    });
+
+    // Find the closest match (smallest absolute difference)
+    const closest = comparisons.reduce((prev, curr) => 
+      Math.abs(curr.diff) < Math.abs(prev.diff) ? curr : prev
+    );
+
+    if (Math.abs(closest.diff) === 0) return 'In sync';
+    const sign = closest.diff > 0 ? '+' : '';
+    return `${sign}${closest.diff} vs ${closest.env.type || closest.env.name}`;
   };
 
   // Use the new features system for limits
@@ -576,12 +591,6 @@ export function EnvironmentsPage() {
   const environmentCount = environments?.data?.length || 0;
   const maxEnvironments = features?.max_environments;
   const atLimit = maxEnvironments !== 'unlimited' && environmentCount >= (maxEnvironments || 1);
-  
-  // Debug logging
-  console.log('[EnvironmentsPage] environmentCount:', environmentCount);
-  console.log('[EnvironmentsPage] maxEnvironments:', maxEnvironments);
-  console.log('[EnvironmentsPage] features:', features);
-  console.log('[EnvironmentsPage] atLimit:', atLimit);
 
   return (
     <div className="space-y-6">
@@ -589,14 +598,16 @@ export function EnvironmentsPage() {
         <div>
           <h1 className="text-3xl font-bold">Environments</h1>
           <p className="text-muted-foreground">
-            Manage your n8n instances across different environments
+            Manage and monitor connected workflow environments
           </p>
         </div>
         <div className="flex items-center gap-4">
           {/* Environment count indicator */}
-          <div className="text-sm text-muted-foreground">
-            {environmentCount} / {maxEnvironments === 'unlimited' ? 'Unlimited' : maxEnvironments} environments
-          </div>
+          {maxEnvironments !== 'unlimited' && (
+            <div className="text-sm text-muted-foreground">
+              {environmentCount} / {maxEnvironments} environments
+            </div>
+          )}
           <Button onClick={handleAddClick} disabled={atLimit}>
             <Plus className="h-4 w-4 mr-2" />
             Add Environment
@@ -606,53 +617,100 @@ export function EnvironmentsPage() {
 
 
       <Card>
-        <CardHeader>
-          <CardTitle>Connected Environments</CardTitle>
-          <CardDescription>
-            View and manage your n8n instance connections
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {isLoading ? (
             <div className="text-center py-8">Loading environments...</div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
+                  <TableHead>Environment</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Drift</TableHead>
                   <TableHead>Workflows</TableHead>
-                  <TableHead>Last Connected</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>Last Sync</TableHead>
+                  <TableHead className="sticky right-0 bg-background">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {environments?.data?.map((env) => (
-                  <>
-                    <TableRow key={env.id}>
+                {environments?.data?.map((env) => {
+                  const envStatus = getEnvironmentStatus(env);
+                  const driftInfo = getDriftInfo(env);
+                  const isProduction = env.type?.toLowerCase() === 'production';
+                  
+                  return (
+                    <TableRow
+                      key={env.id}
+                      className={cn(
+                        isProduction && 'border-l-4 border-l-red-500'
+                      )}
+                    >
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           <Server className="h-4 w-4" />
-                          {env.name}
+                          <Link
+                            to={`/environments/${env.id}`}
+                            className="text-primary hover:underline"
+                          >
+                            {env.name}
+                          </Link>
+                          {env.type && (
+                            <Badge
+                              variant={isProduction ? 'destructive' : env.type.toLowerCase() === 'staging' ? 'secondary' : 'outline'}
+                              className="ml-1"
+                            >
+                              {env.type}
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{env.type}</Badge>
+                        <div className="space-y-0.5">
+                          <Badge 
+                            variant={
+                              envStatus.status === 'connected' ? 'default' : 
+                              envStatus.status === 'degraded' ? 'secondary' : 
+                              'destructive'
+                            }
+                            className="text-xs"
+                          >
+                            {envStatus.status === 'connected' ? 'Connected' : 
+                             envStatus.status === 'degraded' ? 'Degraded' : 
+                             'Offline'}
+                          </Badge>
+                          {envStatus.lastHeartbeat && (
+                            <p className="text-xs text-muted-foreground">
+                              Last heartbeat: {formatRelativeTime(envStatus.lastHeartbeat)}
+                            </p>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <button
-                          onClick={() => handleWorkflowClick(env)}
+                        <span className="text-sm">{driftInfo}</span>
+                      </TableCell>
+                      <TableCell>
+                        <Link
+                          to={`/environments/${env.id}`}
                           className="text-primary hover:underline font-medium"
                         >
                           {env.workflowCount || 0}
-                        </button>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {env.lastConnected
-                          ? new Date(env.lastConnected).toLocaleDateString()
-                          : 'Never'}
+                        </Link>
                       </TableCell>
                       <TableCell>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="text-sm text-muted-foreground cursor-help">
+                                {formatRelativeTime(env.lastConnected)}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>{env.lastConnected ? new Date(env.lastConnected).toLocaleString() : 'Never synced'}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </TableCell>
+                      <TableCell className="sticky right-0 bg-background">
                         <div className="flex gap-2 items-center">
                           <Button
                             size="sm"
@@ -666,51 +724,19 @@ export function EnvironmentsPage() {
                             />
                             Sync
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleBackupClick(env)}
-                            disabled={activeJobs[env.id]?.jobType === 'backup' && activeJobs[env.id]?.status === 'running'}
-                            title="Backup workflows to GitHub"
-                          >
-                            <Database className={`h-3 w-3 mr-1 ${activeJobs[env.id]?.jobType === 'backup' && activeJobs[env.id]?.status === 'running' ? 'animate-spin' : ''}`} />
-                            Backup
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => navigate(`/environments/${env.id}/restore`)}
-                            title="Restore workflows from GitHub"
-                          >
-                            <RotateCcw className="h-3 w-3 mr-1" />
-                            Restore
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDownloadClick(env)}
-                            title="Download all workflows as ZIP"
-                          >
-                            <Download className="h-3 w-3 mr-1" />
-                            Download
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleEdit(env)}
-                          >
-                            <Edit className="h-3 w-3 mr-1" />
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDeleteClick(env)}
-                            title="Delete environment"
-                          >
-                            <Trash2 className="h-3 w-3 mr-1" />
-                            Delete
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleEdit(env)}>
+                                <Edit className="h-4 w-4 mr-2" />
+                                Edit environment
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                           {activeJobs[env.id] && (
                             <Link
                               to={`/activity/${activeJobs[env.id].jobId}`}
@@ -729,9 +755,7 @@ export function EnvironmentsPage() {
                                 {activeJobs[env.id].status === 'failed' && (
                                   <XCircle className="h-3 w-3" />
                                 )}
-                                {activeJobs[env.id].jobType === 'sync' ? 'Syncing' : 
-                                 activeJobs[env.id].jobType === 'backup' ? 'Backing up' : 
-                                 activeJobs[env.id].jobType === 'restore' ? 'Restoring' : 'Running'}
+                                Syncing
                                 {activeJobs[env.id].current > 0 && activeJobs[env.id].total > 0 && (
                                   <span className="text-xs">
                                     ({activeJobs[env.id].current}/{activeJobs[env.id].total})
@@ -743,8 +767,8 @@ export function EnvironmentsPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  </>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -941,98 +965,32 @@ export function EnvironmentsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Backup Confirmation Dialog */}
-      <Dialog open={backupDialogOpen} onOpenChange={setBackupDialogOpen}>
+      {/* Sync Confirmation Dialog */}
+      <Dialog open={syncConfirmDialogOpen} onOpenChange={setSyncConfirmDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Backup Workflows to GitHub</DialogTitle>
+            <DialogTitle>Sync Environment</DialogTitle>
             <DialogDescription>
-              This will push workflows from {selectedEnvForAction?.name} environment to your configured GitHub repository.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4 space-y-4">
-            <p className="text-sm text-muted-foreground">
-              By default, only workflows changed since the last backup will be pushed.
-            </p>
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="forceBackup"
-                checked={forceBackup}
-                onChange={(e) => setForceBackup(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300"
-              />
-              <Label htmlFor="forceBackup" className="cursor-pointer text-sm">
-                Force full backup (re-upload all workflows)
-              </Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBackupDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleBackupConfirm}
-              disabled={backupMutation.isPending}
-            >
-              {backupMutation.isPending ? 'Backing up...' : 'Backup'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Download Confirmation Dialog */}
-      <Dialog open={downloadDialogOpen} onOpenChange={setDownloadDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Download All Workflows</DialogTitle>
-            <DialogDescription>
-              This will download all workflows from {selectedEnvForAction?.name} environment as a ZIP file.
+              Sync workflows, executions, and credentials from {selectedEnvForAction?.name}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <p className="text-sm text-muted-foreground">
-              Are you sure you want to download all workflows?
+              This will pull the latest data from the n8n instance. The sync will run in the background and you can track progress in the Activity Center.
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDownloadDialogOpen(false)}>
+            <Button variant="outline" onClick={() => {
+              setSyncConfirmDialogOpen(false);
+              setSelectedEnvForAction(null);
+            }}>
               Cancel
             </Button>
             <Button
-              onClick={handleDownloadConfirm}
-              disabled={downloadMutation.isPending}
+              onClick={handleSyncConfirm}
+              disabled={syncMutation.isPending}
             >
-              {downloadMutation.isPending ? 'Downloading...' : 'Yes, Download'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Environment</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete {selectedEnvForAction?.name} environment? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              All environment configuration and connection details will be permanently removed.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteConfirm}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? 'Deleting...' : 'Yes, Delete'}
+              {syncMutation.isPending ? 'Starting...' : 'Start Sync'}
             </Button>
           </DialogFooter>
         </DialogContent>

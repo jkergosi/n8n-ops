@@ -65,9 +65,9 @@ export function DeploymentsPage() {
   }, [location.key, queryClient]);
 
   useEffect(() => {
-    document.title = 'Deployments - n8n Ops';
+    document.title = 'Deployments - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

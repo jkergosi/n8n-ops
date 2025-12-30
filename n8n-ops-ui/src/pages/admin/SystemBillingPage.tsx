@@ -44,9 +44,9 @@ import type { BillingMetrics, PlanDistributionItem, RecentCharge, FailedPayment,
 
 export function SystemBillingPage() {
   useEffect(() => {
-    document.title = 'System Billing - n8n Ops';
+    document.title = 'System Billing - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

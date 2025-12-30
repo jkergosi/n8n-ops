@@ -36,9 +36,9 @@ const STEPS = [
 
 export function OnboardingPage() {
   useEffect(() => {
-    document.title = 'Onboarding - n8n Ops';
+    document.title = 'Onboarding - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 
@@ -161,7 +161,7 @@ export function OnboardingPage() {
         // Completion step
         await apiClient.onboardingComplete();
         localStorage.removeItem('onboarding_progress');
-        toast.success('Welcome to N8N Ops!');
+        toast.success('Welcome to WorkflowOps!');
         setTimeout(() => {
           navigate('/');
         }, 2000);
@@ -213,7 +213,7 @@ export function OnboardingPage() {
           <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
             <Sparkles className="h-6 w-6 text-primary" />
           </div>
-          <CardTitle className="text-2xl">Welcome to N8N Ops</CardTitle>
+          <CardTitle className="text-2xl">Welcome to WorkflowOps</CardTitle>
           <CardDescription>
             Let's get your workspace set up. This will only take a moment.
           </CardDescription>

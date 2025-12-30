@@ -134,9 +134,9 @@ const recentNotifications = [
 
 export function NotificationsPage() {
   useEffect(() => {
-    document.title = 'Notifications - n8n Ops';
+    document.title = 'Notifications - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);

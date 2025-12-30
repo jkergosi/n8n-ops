@@ -21,9 +21,9 @@ interface HelpFormData {
 
 export function GetHelpPage() {
   useEffect(() => {
-    document.title = 'Get Help - n8n Ops';
+    document.title = 'Get Help - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

@@ -64,6 +64,9 @@ export interface PlanFeatures {
   support_priority?: boolean;
   data_residency?: boolean;
   enterprise_limits?: number;
+
+  // Drift
+  drift_incidents?: boolean;
 }
 
 // Default plan configurations - Phase 2 Full Feature Catalog

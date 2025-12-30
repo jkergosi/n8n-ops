@@ -132,9 +132,9 @@ const securitySettings = {
 
 export function SecurityPage() {
   useEffect(() => {
-    document.title = 'Security - n8n Ops';
+    document.title = 'Security - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const [createKeyOpen, setCreateKeyOpen] = useState(false);

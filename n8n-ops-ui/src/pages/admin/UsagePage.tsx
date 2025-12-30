@@ -71,9 +71,9 @@ function UsageHistoryChart({ data, label }: { data: number[]; label: string }) {
 
 export function UsagePage() {
   useEffect(() => {
-    document.title = 'Usage - n8n Ops';
+    document.title = 'Usage - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const [topMetric, setTopMetric] = useState('workflows');

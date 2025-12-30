@@ -38,7 +38,7 @@ describe('LoginPage', () => {
     it('should display the app title', async () => {
       render(<LoginPage />);
 
-      expect(screen.getByText('N8N Ops')).toBeInTheDocument();
+      expect(screen.getByText('WorkflowOps')).toBeInTheDocument();
     });
 
     it('should display the description', async () => {

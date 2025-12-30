@@ -27,9 +27,9 @@ type SortDirection = 'asc' | 'desc';
 
 export function TagsPage() {
   useEffect(() => {
-    document.title = 'Tags - n8n Ops';
+    document.title = 'Tags - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

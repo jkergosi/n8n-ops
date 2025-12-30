@@ -8,9 +8,9 @@ import { apiClient } from '@/lib/api-client';
 
 export function SupportHomePage() {
   useEffect(() => {
-    document.title = 'Support - n8n Ops';
+    document.title = 'Support - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   // Fetch config to get JSM portal URL

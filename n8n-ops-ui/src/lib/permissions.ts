@@ -28,6 +28,7 @@ export const MENU_VISIBILITY: MenuItemVisibility[] = [
   { id: 'auditLogs', roles: ['admin', 'agency', 'superuser'] },
   { id: 'security', roles: ['admin', 'agency', 'superuser'] },
   { id: 'systemSettings', roles: ['admin', 'agency', 'superuser'] },
+  { id: 'supportConfig', roles: ['admin', 'superuser'] },
 ];
 
 // Route to menu item ID mapping
@@ -54,6 +55,7 @@ export const ROUTE_TO_MENU_ID: Record<string, string> = {
   '/admin/audit-logs': 'auditLogs',
   '/admin/security': 'security',
   '/admin/settings': 'systemSettings',
+  '/admin/support-config': 'supportConfig',
 };
 
 // Helper function to check if a route is accessible by a role

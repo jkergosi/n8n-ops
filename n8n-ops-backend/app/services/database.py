@@ -66,6 +66,33 @@ class DatabaseService:
         self.client.table("environments").delete().eq("id", environment_id).eq("tenant_id", tenant_id).execute()
         return True
 
+    # Drift Incidents
+    async def get_drift_incidents(
+        self,
+        tenant_id: str,
+        environment_id: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        query = self.client.table("drift_incidents").select("*").eq("tenant_id", tenant_id)
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+        if status:
+            query = query.eq("status", status)
+        response = query.order("created_at", desc=True).limit(limit).execute()
+        return response.data or []
+
+    async def get_drift_incident(self, tenant_id: str, incident_id: str) -> Optional[Dict[str, Any]]:
+        response = (
+            self.client.table("drift_incidents")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .eq("id", incident_id)
+            .single()
+            .execute()
+        )
+        return response.data
+
     # Environment type operations (system-configurable ordering)
     async def get_environment_types(self, tenant_id: str, ensure_defaults: bool = False) -> List[Dict[str, Any]]:
         """Get environment types for a tenant (sorted by sort_order)."""

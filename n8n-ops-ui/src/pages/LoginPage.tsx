@@ -7,9 +7,9 @@ import { Loader2, Workflow } from 'lucide-react';
 
 export function LoginPage() {
   useEffect(() => {
-    document.title = 'Login - n8n Ops';
+    document.title = 'Login - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 
@@ -53,7 +53,7 @@ export function LoginPage() {
             <Workflow className="h-6 w-6 text-primary" />
           </div>
           <div className="space-y-1">
-            <CardTitle className="text-2xl font-bold">N8N Ops</CardTitle>
+            <CardTitle className="text-2xl font-bold">WorkflowOps</CardTitle>
             <CardDescription>
               Manage your N8N workflows across all environments
             </CardDescription>

@@ -41,9 +41,9 @@ import { apiClient } from '@/lib/api-client';
 
 export function RestorePage() {
   useEffect(() => {
-    document.title = 'Restore - n8n Ops';
+    document.title = 'Restore - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

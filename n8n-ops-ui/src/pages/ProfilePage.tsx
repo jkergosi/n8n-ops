@@ -15,9 +15,9 @@ import { toast } from 'sonner';
 
 export function ProfilePage() {
   useEffect(() => {
-    document.title = 'Profile - n8n Ops';
+    document.title = 'Profile - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

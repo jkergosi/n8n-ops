@@ -72,9 +72,9 @@ export function ActivityCenterPage() {
   const jobIdFromUrl = searchParams.get('jobId') || searchParams.get('job_id');
 
   useEffect(() => {
-    document.title = 'Activity Center - n8n Ops';
+    document.title = 'Activity Center - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

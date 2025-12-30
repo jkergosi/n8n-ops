@@ -20,7 +20,7 @@ class EmailService:
         self.smtp_user = getattr(settings, 'SMTP_USER', None)
         self.smtp_password = getattr(settings, 'SMTP_PASSWORD', None)
         self.from_email = getattr(settings, 'SMTP_FROM_EMAIL', 'noreply@n8nops.com')
-        self.from_name = getattr(settings, 'SMTP_FROM_NAME', 'N8N Ops')
+        self.from_name = getattr(settings, 'SMTP_FROM_NAME', 'WorkflowOps')
 
     def is_configured(self) -> bool:
         """Check if email service is properly configured."""
@@ -118,7 +118,7 @@ class EmailService:
             base_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
             invitation_url = f"{base_url}/accept-invitation?token={invitation_token}"
 
-        subject = f"You've been invited to join {organization_name} on N8N Ops"
+        subject = f"You've been invited to join {organization_name} on WorkflowOps"
 
         html_body = f"""
         <!DOCTYPE html>
@@ -130,12 +130,12 @@ class EmailService:
         </head>
         <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
-                <h1 style="color: white; margin: 0; font-size: 24px;">N8N Ops</h1>
+                <h1 style="color: white; margin: 0; font-size: 24px;">WorkflowOps</h1>
             </div>
             <div style="background: #ffffff; padding: 30px; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px;">
                 <h2 style="color: #333; margin-top: 0;">You've been invited!</h2>
                 <p>Hello{(' ' + to_name) if to_name else ''},</p>
-                <p><strong>{inviter_name}</strong> has invited you to join <strong>{organization_name}</strong> on N8N Ops as a <strong>{role}</strong>.</p>
+                <p><strong>{inviter_name}</strong> has invited you to join <strong>{organization_name}</strong> on WorkflowOps as a <strong>{role}</strong>.</p>
                 
                 <div style="background: #f5f5f5; padding: 20px; border-radius: 6px; margin: 20px 0;">
                     <p style="margin: 0;"><strong>Organization:</strong> {organization_name}</p>
@@ -153,18 +153,18 @@ class EmailService:
                 <p style="color: #666; font-size: 12px; margin: 0;">If you didn't expect this invitation, you can safely ignore this email.</p>
             </div>
             <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
-                <p>© {__import__('datetime').datetime.now().year} N8N Ops. All rights reserved.</p>
+                <p>© {__import__('datetime').datetime.now().year} WorkflowOps. All rights reserved.</p>
             </div>
         </body>
         </html>
         """
 
         text_body = f"""
-You've been invited to join {organization_name} on N8N Ops
+You've been invited to join {organization_name} on WorkflowOps
 
 Hello{(' ' + to_name) if to_name else ''},
 
-{inviter_name} has invited you to join {organization_name} on N8N Ops as a {role}.
+{inviter_name} has invited you to join {organization_name} on WorkflowOps as a {role}.
 
 Organization: {organization_name}
 Role: {role.capitalize()}
@@ -174,7 +174,7 @@ Invited by: {inviter_name}
 
 If you didn't expect this invitation, you can safely ignore this email.
 
-© {__import__('datetime').datetime.now().year} N8N Ops. All rights reserved.
+© {__import__('datetime').datetime.now().year} WorkflowOps. All rights reserved.
         """
 
         return await self.send_email(

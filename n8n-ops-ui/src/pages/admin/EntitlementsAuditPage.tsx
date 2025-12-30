@@ -39,9 +39,9 @@ import type { FeatureConfigAudit, FeatureAccessLog, Tenant } from '@/types';
 
 export function EntitlementsAuditPage() {
   useEffect(() => {
-    document.title = 'Entitlements Audit - n8n Ops';
+    document.title = 'Entitlements Audit - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

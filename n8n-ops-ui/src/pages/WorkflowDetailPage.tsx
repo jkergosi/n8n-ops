@@ -593,7 +593,7 @@ export function WorkflowDetailPage() {
       document.title = `Workflow: ${workflow.name}`;
     }
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, [workflow?.name]);
 

@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health
+from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents
 from app.services.background_job_service import background_job_service
 from datetime import datetime, timedelta
 import logging
@@ -211,11 +211,17 @@ app.include_router(
     tags=["health"]
 )
 
+app.include_router(
+    incidents.router,
+    prefix=f"{settings.API_V1_PREFIX}/incidents",
+    tags=["incidents"]
+)
+
 
 @app.get("/")
 async def root():
     return {
-        "message": "N8N Ops API",
+        "message": "WorkflowOps API",
         "version": "1.0.0",
         "docs": "/docs"
     }

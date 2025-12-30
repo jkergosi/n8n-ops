@@ -43,9 +43,9 @@ import type { FeatureMatrixEntry, AdminPlan } from '@/types';
 
 export function FeatureMatrixPage() {
   useEffect(() => {
-    document.title = 'Feature Matrix - n8n Ops';
+    document.title = 'Feature Matrix - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

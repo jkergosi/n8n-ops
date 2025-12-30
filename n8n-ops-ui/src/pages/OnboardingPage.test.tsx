@@ -53,7 +53,7 @@ describe('OnboardingPage', () => {
     it('should display welcome message', async () => {
       render(<OnboardingPage />);
 
-      expect(screen.getByText(/welcome to n8n ops/i)).toBeInTheDocument();
+      expect(screen.getByText(/welcome to workflowops/i)).toBeInTheDocument();
     });
 
     it('should display step indicator', async () => {

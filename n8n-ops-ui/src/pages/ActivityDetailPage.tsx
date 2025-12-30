@@ -29,9 +29,9 @@ export function ActivityDetailPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    document.title = 'Activity Details - n8n Ops';
+    document.title = 'Activity Details - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

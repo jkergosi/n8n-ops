@@ -17,7 +17,7 @@ export function CompletionStep({ data, onComplete, isLoading }: CompletionStepPr
           <CheckCircle2 className="h-10 w-10 text-primary" />
         </div>
         <div className="text-center space-y-2">
-          <h3 className="text-2xl font-semibold">Welcome to N8N Ops!</h3>
+          <h3 className="text-2xl font-semibold">Welcome to WorkflowOps!</h3>
           <p className="text-muted-foreground">
             Your workspace has been set up successfully.
           </p>

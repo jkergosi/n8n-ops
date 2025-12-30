@@ -43,9 +43,9 @@ export function PipelineEditorPage() {
   const [stages, setStages] = useState<PipelineStage[]>([]);
 
   useEffect(() => {
-    document.title = isNew ? 'New Pipeline - n8n Ops' : 'Edit Pipeline - n8n Ops';
+    document.title = isNew ? 'New Pipeline - WorkflowOps' : 'Edit Pipeline - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, [isNew]);
 

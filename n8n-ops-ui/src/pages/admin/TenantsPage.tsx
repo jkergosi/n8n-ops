@@ -66,9 +66,9 @@ import type { Tenant } from '@/types';
 
 export function TenantsPage() {
   useEffect(() => {
-    document.title = 'Tenants - n8n Ops';
+    document.title = 'Tenants - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

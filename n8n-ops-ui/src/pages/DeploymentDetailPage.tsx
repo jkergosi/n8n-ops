@@ -41,9 +41,9 @@ import {
 
 export function DeploymentDetailPage() {
   useEffect(() => {
-    document.title = 'Deployment Details - n8n Ops';
+    document.title = 'Deployment Details - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const { id } = useParams<{ id: string }>();

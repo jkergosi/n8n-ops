@@ -133,9 +133,9 @@ const CREDENTIAL_TYPE_FIELDS: Record<string, { name: string; fields: { key: stri
 
 export function CredentialsPage() {
   useEffect(() => {
-    document.title = 'Credentials - n8n Ops';
+    document.title = 'Credentials - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const selectedEnvironment = useAppStore((state) => state.selectedEnvironment);

@@ -86,7 +86,7 @@ interface StripeConfig {
 }
 
 const mockSystemConfig: SystemConfig = {
-  appName: 'N8N Ops',
+  appName: 'WorkflowOps',
   appUrl: 'https://app.n8nops.com',
   supportEmail: 'support@n8nops.com',
   defaultTimezone: 'UTC',
@@ -106,7 +106,7 @@ const mockEmailConfig: EmailConfig = {
   smtpHost: 'smtp.sendgrid.net',
   smtpPort: 587,
   smtpUser: 'apikey',
-  fromName: 'N8N Ops',
+  fromName: 'WorkflowOps',
   fromEmail: 'noreply@n8nops.com',
 };
 
@@ -462,9 +462,9 @@ function ProviderPlansManagement() {
 
 export function SettingsPage() {
   useEffect(() => {
-    document.title = 'Settings - n8n Ops';
+    document.title = 'Settings - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

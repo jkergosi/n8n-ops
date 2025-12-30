@@ -12,9 +12,9 @@ import { Activity, Workflow, Server, Plus, Rocket } from 'lucide-react';
 
 export function DashboardPage() {
   useEffect(() => {
-    document.title = 'Dashboard - n8n Ops';
+    document.title = 'Dashboard - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const { user, hasEnvironment } = useAuth();
@@ -71,7 +71,7 @@ export function DashboardPage() {
             <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mb-6">
               <Rocket className="h-8 w-8 text-primary" />
             </div>
-            <h2 className="text-2xl font-semibold mb-2">Get Started with N8N Ops</h2>
+            <h2 className="text-2xl font-semibold mb-2">Get Started with WorkflowOps</h2>
             <p className="text-muted-foreground text-center max-w-md mb-6">
               Connect your first N8N environment to start managing and monitoring your workflows.
             </p>

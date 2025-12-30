@@ -55,9 +55,9 @@ import type { TenantFeatureOverride, Tenant, AdminFeature } from '@/types';
 
 export function TenantOverridesPage() {
   useEffect(() => {
-    document.title = 'Tenant Overrides - n8n Ops';
+    document.title = 'Tenant Overrides - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
   const queryClient = useQueryClient();

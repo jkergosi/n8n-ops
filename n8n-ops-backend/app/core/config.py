@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
-    PROJECT_NAME: str = "N8N Ops"
+    PROJECT_NAME: str = "WorkflowOps"
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     # Security
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = "noreply@n8nops.com"
-    SMTP_FROM_NAME: str = "N8N Ops"
+    SMTP_FROM_NAME: str = "WorkflowOps"
     FRONTEND_URL: str = "http://localhost:5173"
 
     class Config:

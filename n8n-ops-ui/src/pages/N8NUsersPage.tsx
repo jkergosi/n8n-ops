@@ -22,9 +22,9 @@ import { toast } from 'sonner';
 
 export function N8NUsersPage() {
   useEffect(() => {
-    document.title = 'N8N Users - n8n Ops';
+    document.title = 'N8N Users - WorkflowOps';
     return () => {
-      document.title = 'n8n Ops';
+      document.title = 'WorkflowOps';
     };
   }, []);
 

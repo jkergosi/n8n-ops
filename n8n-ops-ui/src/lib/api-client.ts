@@ -371,6 +371,39 @@ class ApiClient {
     return { data };
   }
 
+  async getEnvironmentCapabilities(id: string): Promise<{
+    data: {
+      environmentId: string;
+      environmentClass: string;
+      capabilities: {
+        syncStatus: boolean;
+        backup: boolean;
+        manualSnapshot: boolean;
+        diffCompare: boolean;
+        restoreRollback: boolean;
+        editInN8N: boolean;
+      };
+      policyFlags: Record<string, boolean>;
+    };
+  }> {
+    const response = await this.client.get<any>(`/environments/${id}/capabilities`);
+    return {
+      data: {
+        environmentId: response.data.environment_id,
+        environmentClass: response.data.environment_class,
+        capabilities: {
+          syncStatus: response.data.capabilities.sync_status,
+          backup: response.data.capabilities.backup,
+          manualSnapshot: response.data.capabilities.manual_snapshot,
+          diffCompare: response.data.capabilities.diff_compare,
+          restoreRollback: response.data.capabilities.restore_rollback,
+          editInN8N: response.data.capabilities.edit_in_n8n,
+        },
+        policyFlags: response.data.policy_flags || {},
+      },
+    };
+  }
+
   // Drift Incidents
   async getIncidents(params?: {
     environmentId?: string;
@@ -1852,6 +1885,33 @@ class ApiClient {
     await this.client.delete(`/admin/credentials/mappings/${id}`);
   }
 
+  async getCredentialHealth(environmentId: string, provider?: string): Promise<{
+    data: {
+      status: 'healthy' | 'unhealthy';
+      total_logical_credentials: number;
+      mapped_credentials: number;
+      missing_mappings: number;
+      workflows_affected: number;
+      workflows_with_issues: Array<{
+        workflow_id: string;
+        workflow_name: string;
+        missing_credential_ids: string[];
+      }>;
+    };
+  }> {
+    const params: any = {};
+    if (provider) params.provider = provider;
+    const response = await this.client.get(`/admin/credentials/health/${environmentId}`, { params });
+    return { data: response.data };
+  }
+
+  async refreshEnvironmentDependencies(environmentId: string, provider?: string): Promise<{ data: { message: string } }> {
+    const params: any = {};
+    if (provider) params.provider = provider;
+    const response = await this.client.post(`/admin/credentials/dependencies/refresh/${environmentId}`, {}, { params });
+    return { data: response.data };
+  }
+
   async credentialPreflightCheck(data: {
     source_environment_id: string;
     target_environment_id: string;
@@ -3070,6 +3130,11 @@ class ApiClient {
 
   async applyDriftPolicyTemplate(templateId: string): Promise<{ data: DriftPolicy }> {
     const response = await this.client.post<DriftPolicy>(`/drift-policies/apply-template/${templateId}`);
+    return { data: response.data };
+  }
+
+  async triggerDriftRetentionCleanup(): Promise<{ data: { message: string; results: { closed_incidents_deleted: number; reconciliation_artifacts_deleted: number; approvals_deleted: number } } }> {
+    const response = await this.client.post<{ message: string; results: { closed_incidents_deleted: number; reconciliation_artifacts_deleted: number; approvals_deleted: number } }>('/drift-policies/cleanup');
     return { data: response.data };
   }
 

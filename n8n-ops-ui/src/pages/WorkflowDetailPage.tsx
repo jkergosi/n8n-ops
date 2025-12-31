@@ -2278,28 +2278,6 @@ export function WorkflowDetailPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Link to Drift Incident Workspace for resolution actions */}
-              {driftData?.hasDrift && (
-                <div className="p-4 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="h-5 w-5 text-yellow-600" />
-                      <span className="font-medium text-yellow-800 dark:text-yellow-200">
-                        This workflow has drift from Git
-                      </span>
-                    </div>
-                    <Link to={`/environments/${environment}#drift`}>
-                      <Button variant="outline" size="sm">
-                        View in Environment
-                      </Button>
-                    </Link>
-                  </div>
-                  <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
-                    To create or manage a drift incident, go to the Environment's drift section.
-                  </p>
-                </div>
-              )}
-
               {isLoadingDrift ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="text-center">
@@ -2329,7 +2307,7 @@ export function WorkflowDetailPage() {
                 </div>
               ) : (
                 <>
-                  {/* Sync Status */}
+                  {/* Sync Status - Simplified */}
                   <div className="p-4 rounded-lg bg-muted">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -2355,88 +2333,25 @@ export function WorkflowDetailPage() {
                     </div>
                   </div>
 
-                  {/* Drift Summary */}
-                  {driftData?.hasDrift && driftData.summary && (
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <div className="p-4 rounded-lg border">
-                        <div className="text-2xl font-bold text-green-600">+{driftData.summary.nodesAdded}</div>
-                        <div className="text-sm text-muted-foreground">Nodes Added</div>
+                  {/* Link to Drift Incident Workspace for resolution actions */}
+                  {driftData?.hasDrift && (
+                    <div className="p-4 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="h-5 w-5 text-yellow-600" />
+                          <span className="font-medium text-yellow-800 dark:text-yellow-200">
+                            This workflow has drift from Git
+                          </span>
+                        </div>
+                        <Link to={`/environments/${environment}#drift`}>
+                          <Button variant="outline" size="sm">
+                            View in Environment Drift Incident
+                          </Button>
+                        </Link>
                       </div>
-                      <div className="p-4 rounded-lg border">
-                        <div className="text-2xl font-bold text-red-600">-{driftData.summary.nodesRemoved}</div>
-                        <div className="text-sm text-muted-foreground">Nodes Removed</div>
-                      </div>
-                      <div className="p-4 rounded-lg border">
-                        <div className="text-2xl font-bold text-yellow-600">{driftData.summary.nodesModified}</div>
-                        <div className="text-sm text-muted-foreground">Nodes Modified</div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Differences List */}
-                  {driftData?.hasDrift && driftData.differences && driftData.differences.length > 0 && (
-                    <div className="space-y-2">
-                      <h4 className="font-medium">Changes Detected</h4>
-                      <div className="max-h-[300px] overflow-y-auto border rounded-lg">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Path</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Git Value</TableHead>
-                              <TableHead>Runtime Value</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {driftData.differences.slice(0, 20).map((diff, i) => (
-                              <TableRow key={i}>
-                                <TableCell className="font-mono text-xs">{diff.path}</TableCell>
-                                <TableCell>
-                                  <Badge
-                                    variant={
-                                      diff.type === 'added' ? 'success' :
-                                      diff.type === 'removed' ? 'destructive' : 'warning'
-                                    }
-                                  >
-                                    {diff.type}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-xs max-w-[150px] truncate">
-                                  {diff.gitValue !== null ? String(diff.gitValue) : '-'}
-                                </TableCell>
-                                <TableCell className="text-xs max-w-[150px] truncate">
-                                  {diff.runtimeValue !== null ? String(diff.runtimeValue) : '-'}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                        {driftData.differences.length > 20 && (
-                          <div className="p-2 text-center text-sm text-muted-foreground border-t">
-                            +{driftData.differences.length - 20} more changes
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Connection Changed */}
-                  {driftData?.summary?.connectionsChanged && (
-                    <div className="p-3 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20">
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="h-4 w-4 text-yellow-600" />
-                        <span className="text-sm font-medium">Node connections have changed</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Settings Changed */}
-                  {driftData?.summary?.settingsChanged && (
-                    <div className="p-3 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20">
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="h-4 w-4 text-yellow-600" />
-                        <span className="text-sm font-medium">Workflow settings have changed</span>
-                      </div>
+                      <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
+                        To view detailed diff and manage drift resolution, go to the Environment's drift incident workspace.
+                      </p>
                     </div>
                   )}
                 </>

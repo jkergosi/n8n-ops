@@ -43,6 +43,7 @@ Check port in `../.env.local` (default: 3000 for main worktree).
 ### Drift & Incidents
 | Page | Route | Description |
 |------|-------|-------------|
+| `DriftDashboardPage` | `/drift` | Drift overview, history, and analytics |
 | `IncidentsPage` | `/incidents` | List drift incidents, filter by status |
 | `IncidentDetailPage` | `/incidents/:id` | Incident details, acknowledge, resolve |
 
@@ -115,6 +116,7 @@ import { apiClient } from '@/lib/api-client';
 await apiClient.getEnvironments();
 await apiClient.createEnvironment(data);
 await apiClient.syncEnvironment(id);
+await apiClient.getEnvironmentCapabilities(id);
 
 // Workflows
 await apiClient.getWorkflows(environmentId, forceRefresh);
@@ -204,6 +206,7 @@ shadcn/ui components: `button`, `card`, `dialog`, `table`, `tabs`, `input`, `sel
 | Hook | Purpose |
 |------|---------|
 | `useWorkflowActionPolicy.ts` | Fetches workflow action permissions based on environment class |
+| `useEnvironmentCapabilities.ts` | Fetches environment capabilities and action guards |
 
 ### Workflow Action Policy (`src/lib/workflow-action-policy.ts`)
 ```typescript
@@ -220,15 +223,18 @@ if (policy.canDirectEdit) {
 
 Key interfaces:
 ```typescript
-interface Environment { id, name, type, baseUrl, apiKey, environmentClass, ... }
+interface Environment { id, name, type, baseUrl, apiKey, environmentClass, provider, ... }
 interface Workflow { id, name, active, tags, nodes, ... }
 interface Pipeline { id, name, stages, environmentIds, ... }
 interface PipelineStage { sourceEnvironmentId, targetEnvironmentId, gates, approvals, ... }
 interface Deployment { id, status, sourceEnvironmentId, targetEnvironmentId, ... }
 interface Snapshot { id, environmentId, gitCommitSha, type, ... }
 interface DriftIncident { id, status, severity, workflowId, environmentId, ... }
-interface DriftPolicy { id, tenantId, ttlHours, slaHours, autoResolve, ... }
+interface DriftPolicy { id, tenantId, ttlHours, slaHours, autoResolve, retentionDaysDriftChecks, ... }
 interface WorkflowActionPolicy { canDirectEdit, canDelete, canActivate, requiresApproval, ... }
+interface ProviderInfo { id, name, displayName, isActive, ... }
+interface ProviderPlan { id, providerId, name, priceMonthly, maxEnvironments, ... }
+interface TenantProviderSubscription { id, tenantId, providerId, planId, status, ... }
 ```
 
 ## Environment Variables

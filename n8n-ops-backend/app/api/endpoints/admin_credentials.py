@@ -5,6 +5,7 @@ from functools import wraps
 
 from app.services.database import db_service
 from app.services.provider_registry import ProviderRegistry
+from app.api.endpoints.admin_audit import create_audit_log, AuditActionType
 from app.schemas.credential import (
     LogicalCredentialCreate,
     LogicalCredentialResponse,
@@ -73,25 +74,80 @@ async def list_logical_credentials(user_info: dict = Depends(get_current_user)):
 @router.post("/logical", response_model=LogicalCredentialResponse, status_code=status.HTTP_201_CREATED)
 async def create_logical_credential(body: LogicalCredentialCreate, user_info: dict = Depends(get_current_user)):
     tenant_id = get_current_tenant_id(user_info)
+    user = user_info.get("user", {})
     data = body.model_dump()
     data["tenant_id"] = tenant_id
     created = await db_service.create_logical_credential(data)
+    
+    await create_audit_log(
+        action_type=AuditActionType.LOGICAL_CREDENTIAL_CREATED,
+        action=f"Created logical credential '{created.get('name')}'",
+        actor_id=user.get("id"),
+        actor_email=user.get("email"),
+        actor_name=user.get("name"),
+        tenant_id=tenant_id,
+        resource_type="logical_credential",
+        resource_id=created.get("id"),
+        resource_name=created.get("name"),
+        new_value={"name": created.get("name"), "required_type": created.get("required_type")}
+    )
+    
     return created
 
 
 @router.patch("/logical/{logical_id}", response_model=LogicalCredentialResponse)
 async def update_logical_credential(logical_id: str, body: LogicalCredentialCreate, user_info: dict = Depends(get_current_user)):
     tenant_id = get_current_tenant_id(user_info)
+    user = user_info.get("user", {})
+    
+    existing = await db_service.get_logical_credential(tenant_id, logical_id)
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logical credential not found")
+    
     updated = await db_service.update_logical_credential(tenant_id, logical_id, body.model_dump(exclude_none=True))
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logical credential not found")
+    
+    await create_audit_log(
+        action_type=AuditActionType.LOGICAL_CREDENTIAL_UPDATED,
+        action=f"Updated logical credential '{updated.get('name')}'",
+        actor_id=user.get("id"),
+        actor_email=user.get("email"),
+        actor_name=user.get("name"),
+        tenant_id=tenant_id,
+        resource_type="logical_credential",
+        resource_id=logical_id,
+        resource_name=updated.get("name"),
+        old_value={"name": existing.get("name"), "required_type": existing.get("required_type")},
+        new_value={"name": updated.get("name"), "required_type": updated.get("required_type")}
+    )
+    
     return updated
 
 
 @router.delete("/logical/{logical_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_logical_credential(logical_id: str, user_info: dict = Depends(get_current_user)):
     tenant_id = get_current_tenant_id(user_info)
+    user = user_info.get("user", {})
+    
+    existing = await db_service.get_logical_credential(tenant_id, logical_id)
+    credential_name = existing.get("name") if existing else logical_id
+    
     await db_service.delete_logical_credential(tenant_id, logical_id)
+    
+    await create_audit_log(
+        action_type=AuditActionType.LOGICAL_CREDENTIAL_DELETED,
+        action=f"Deleted logical credential '{credential_name}'",
+        actor_id=user.get("id"),
+        actor_email=user.get("email"),
+        actor_name=user.get("name"),
+        tenant_id=tenant_id,
+        resource_type="logical_credential",
+        resource_id=logical_id,
+        resource_name=credential_name,
+        old_value={"name": existing.get("name"), "required_type": existing.get("required_type")} if existing else None
+    )
+    
     return {}
 
 
@@ -105,9 +161,33 @@ async def list_mappings(environment_id: Optional[str] = None, provider: Optional
 @router.post("/mappings", response_model=CredentialMappingResponse, status_code=status.HTTP_201_CREATED)
 async def create_mapping(body: CredentialMappingCreate, user_info: dict = Depends(get_current_user)):
     tenant_id = get_current_tenant_id(user_info)
+    user = user_info.get("user", {})
     data = body.model_dump()
     data["tenant_id"] = tenant_id
     created = await db_service.create_credential_mapping(data)
+    
+    logical_cred = await db_service.get_logical_credential(tenant_id, created.get("logical_credential_id"))
+    env = await db_service.get_environment(created.get("environment_id"), tenant_id)
+    
+    await create_audit_log(
+        action_type=AuditActionType.CREDENTIAL_MAPPING_CREATED,
+        action=f"Created credential mapping for '{logical_cred.get('name') if logical_cred else 'unknown'}' in {env.get('n8n_name') if env else 'unknown'}",
+        actor_id=user.get("id"),
+        actor_email=user.get("email"),
+        actor_name=user.get("name"),
+        tenant_id=tenant_id,
+        resource_type="credential_mapping",
+        resource_id=created.get("id"),
+        resource_name=f"{logical_cred.get('name') if logical_cred else 'unknown'} -> {created.get('physical_name')}",
+        provider=created.get("provider"),
+        new_value={
+            "logical_credential_id": created.get("logical_credential_id"),
+            "environment_id": created.get("environment_id"),
+            "physical_name": created.get("physical_name"),
+            "physical_type": created.get("physical_type")
+        }
+    )
+    
     return created
 
 
@@ -204,16 +284,78 @@ async def validate_credential_mappings(
 @router.patch("/mappings/{mapping_id}", response_model=CredentialMappingResponse)
 async def update_mapping(mapping_id: str, body: CredentialMappingUpdate, user_info: dict = Depends(get_current_user)):
     tenant_id = get_current_tenant_id(user_info)
+    user = user_info.get("user", {})
+    
+    existing = await db_service.get_credential_mapping(tenant_id, mapping_id)
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mapping not found")
+    
     updated = await db_service.update_credential_mapping(tenant_id, mapping_id, body.model_dump(exclude_none=True))
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mapping not found")
+    
+    logical_cred = await db_service.get_logical_credential(tenant_id, updated.get("logical_credential_id"))
+    env = await db_service.get_environment(updated.get("environment_id"), tenant_id)
+    
+    await create_audit_log(
+        action_type=AuditActionType.CREDENTIAL_MAPPING_UPDATED,
+        action=f"Updated credential mapping for '{logical_cred.get('name') if logical_cred else 'unknown'}' in {env.get('n8n_name') if env else 'unknown'}",
+        actor_id=user.get("id"),
+        actor_email=user.get("email"),
+        actor_name=user.get("name"),
+        tenant_id=tenant_id,
+        resource_type="credential_mapping",
+        resource_id=mapping_id,
+        resource_name=f"{logical_cred.get('name') if logical_cred else 'unknown'} -> {updated.get('physical_name')}",
+        provider=updated.get("provider"),
+        old_value={
+            "physical_name": existing.get("physical_name"),
+            "physical_type": existing.get("physical_type"),
+            "status": existing.get("status")
+        },
+        new_value={
+            "physical_name": updated.get("physical_name"),
+            "physical_type": updated.get("physical_type"),
+            "status": updated.get("status")
+        }
+    )
+    
     return updated
 
 
 @router.delete("/mappings/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_mapping(mapping_id: str, user_info: dict = Depends(get_current_user)):
     tenant_id = get_current_tenant_id(user_info)
+    user = user_info.get("user", {})
+    
+    existing = await db_service.get_credential_mapping(tenant_id, mapping_id)
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mapping not found")
+    
+    logical_cred = await db_service.get_logical_credential(tenant_id, existing.get("logical_credential_id"))
+    env = await db_service.get_environment(existing.get("environment_id"), tenant_id)
+    
     await db_service.delete_credential_mapping(tenant_id, mapping_id)
+    
+    await create_audit_log(
+        action_type=AuditActionType.CREDENTIAL_MAPPING_DELETED,
+        action=f"Deleted credential mapping for '{logical_cred.get('name') if logical_cred else 'unknown'}' in {env.get('n8n_name') if env else 'unknown'}",
+        actor_id=user.get("id"),
+        actor_email=user.get("email"),
+        actor_name=user.get("name"),
+        tenant_id=tenant_id,
+        resource_type="credential_mapping",
+        resource_id=mapping_id,
+        resource_name=f"{logical_cred.get('name') if logical_cred else 'unknown'} -> {existing.get('physical_name')}",
+        provider=existing.get("provider"),
+        old_value={
+            "logical_credential_id": existing.get("logical_credential_id"),
+            "environment_id": existing.get("environment_id"),
+            "physical_name": existing.get("physical_name"),
+            "physical_type": existing.get("physical_type")
+        }
+    )
+    
     return {}
 
 
@@ -390,6 +532,28 @@ async def credential_preflight_check(
             seen_keys.add(mapping.logical_key)
             unique_resolved.append(mapping)
 
+    user = user_info.get("user", {})
+    
+    await create_audit_log(
+        action_type=AuditActionType.CREDENTIAL_PREFLIGHT_CHECKED,
+        action=f"Preflight check for {len(body.workflow_ids)} workflows",
+        actor_id=user.get("id"),
+        actor_email=user.get("email"),
+        actor_name=user.get("name"),
+        tenant_id=tenant_id,
+        resource_type="promotion",
+        provider=body.provider,
+        metadata={
+            "source_environment_id": body.source_environment_id,
+            "target_environment_id": body.target_environment_id,
+            "workflow_ids": body.workflow_ids,
+            "blocking_issues_count": len(blocking_issues),
+            "warnings_count": len(warnings),
+            "resolved_mappings_count": len(unique_resolved),
+            "valid": len(blocking_issues) == 0
+        }
+    )
+
     return CredentialPreflightResult(
         valid=len(blocking_issues) == 0,
         blocking_issues=blocking_issues,
@@ -463,6 +627,32 @@ async def get_workflow_dependencies(
     )
 
 
+@router.post("/dependencies/refresh/{environment_id}")
+async def refresh_environment_dependencies(
+    environment_id: str,
+    provider: Optional[str] = Query(None),
+    user_info: dict = Depends(get_current_user)
+):
+    """Manually refresh workflow credential dependencies for an environment."""
+    tenant_id = get_current_tenant_id(user_info)
+    
+    # Get environment
+    env = await db_service.get_environment(environment_id, tenant_id)
+    if not env:
+        raise HTTPException(status_code=404, detail="Environment not found")
+    
+    provider = provider or env.get("provider", "n8n") or "n8n"
+    
+    # Use existing refresh method
+    await db_service.refresh_workflow_dependencies_for_env(
+        tenant_id=tenant_id,
+        environment_id=environment_id,
+        provider=provider
+    )
+    
+    return {"message": "Dependencies refreshed successfully"}
+
+
 @router.post("/workflows/{workflow_id}/dependencies/refresh")
 async def refresh_workflow_dependencies(
     workflow_id: str,
@@ -493,6 +683,76 @@ async def refresh_workflow_dependencies(
     )
 
     return {"success": True, "logical_credential_ids": logical_keys}
+
+
+@router.get("/health/{environment_id}")
+@handle_db_errors
+async def get_credential_health(
+    environment_id: str,
+    provider: Optional[str] = Query(None),
+    user_info: dict = Depends(get_current_user)
+):
+    """Get credential health summary for an environment."""
+    tenant_id = get_current_tenant_id(user_info)
+    
+    env = await db_service.get_environment(environment_id, tenant_id)
+    if not env:
+        raise HTTPException(status_code=404, detail="Environment not found")
+    
+    provider = provider or env.get("provider", "n8n") or "n8n"
+    
+    # Get all logical credentials
+    logical_creds = await db_service.list_logical_credentials(tenant_id)
+    
+    # Get all mappings for this environment
+    mappings = await db_service.list_credential_mappings(
+        tenant_id=tenant_id,
+        environment_id=environment_id,
+        provider=provider
+    )
+    
+    # Get workflow dependencies
+    workflows = await db_service.get_workflows(tenant_id, environment_id)
+    all_required_logical_ids = set()
+    workflows_with_missing_deps = []
+    
+    for wf in workflows:
+        wf_id = wf.get("n8n_workflow_id") or wf.get("id")
+        deps = await db_service.get_workflow_dependencies(
+            tenant_id=tenant_id,
+            workflow_id=str(wf_id),
+            provider=provider
+        )
+        if deps:
+            required_ids = deps.get("logical_credential_ids", [])
+            all_required_logical_ids.update(required_ids)
+            
+            # Check if any required credentials are missing mappings
+            missing_for_wf = []
+            for logical_id in required_ids:
+                has_mapping = any(m.get("logical_credential_id") == logical_id for m in mappings)
+                if not has_mapping:
+                    missing_for_wf.append(logical_id)
+            
+            if missing_for_wf:
+                workflows_with_missing_deps.append({
+                    "workflow_id": str(wf_id),
+                    "workflow_name": wf.get("name", "Unknown"),
+                    "missing_credential_ids": missing_for_wf
+                })
+    
+    # Find missing mappings
+    mapped_logical_ids = {m.get("logical_credential_id") for m in mappings}
+    missing_mappings = all_required_logical_ids - mapped_logical_ids
+    
+    return {
+        "status": "healthy" if len(missing_mappings) == 0 else "unhealthy",
+        "total_logical_credentials": len(logical_creds),
+        "mapped_credentials": len(mappings),
+        "missing_mappings": len(missing_mappings),
+        "workflows_affected": len(workflows_with_missing_deps),
+        "workflows_with_issues": workflows_with_missing_deps[:10]  # Limit to first 10
+    }
 
 
 @router.get("/matrix", response_model=CredentialMatrixResponse)

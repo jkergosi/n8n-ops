@@ -7,21 +7,36 @@ FastAPI backend for N8N Ops platform.
 ### Quick Start Scripts (Windows PowerShell)
 
 ```powershell
-# Start backend
-.\start-backend.ps1
+# Start backend (automatically runs migrations first)
+.\backend_cycle.ps1 -Action start
 
 # Stop backend
-.\stop-backend.ps1
+.\backend_cycle.ps1 -Action stop
 
 # Restart backend
-.\restart-backend.ps1
+.\backend_cycle.ps1 -Action restart
 ```
 
-### Manual Start
+### Manual Start with Migrations (Recommended)
+
+```bash
+# Automatically runs migrations before starting the app
+python scripts/start_with_migrations.py
+
+# With custom port
+python scripts/start_with_migrations.py --port 4000
+
+# Production mode (no reload)
+python scripts/start_with_migrations.py --no-reload
+```
+
+### Manual Start (Without Migrations - Not Recommended)
 
 ```bash
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port <BACKEND_PORT>
 ```
+
+**Note:** The startup script (`start_with_migrations.py`) automatically runs `alembic upgrade head` before starting the application. This ensures your database schema is always up-to-date. If migrations fail, the application will not start.
 
 Check port in `../.env.local` (default: 4000 for main worktree).
 
@@ -104,7 +119,7 @@ All endpoints prefixed with `/api/v1`.
 | GET | `/{id}` | Get snapshot details |
 | POST | `/{id}/restore` | Restore snapshot |
 
-### Drift & Incidents (`/incidents`, `/drift-policies`, `/drift-approvals`)
+### Drift & Incidents (`/incidents`, `/drift-policies`, `/drift-approvals`, `/drift-reports`)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/incidents` | List drift incidents |
@@ -117,6 +132,13 @@ All endpoints prefixed with `/api/v1`.
 | GET | `/drift-approvals` | List pending approvals |
 | POST | `/drift-approvals/{id}/approve` | Approve drift change |
 | POST | `/drift-approvals/{id}/reject` | Reject drift change |
+| GET | `/drift-reports` | List drift check history |
+| GET | `/drift-reports/{id}` | Get drift report details |
+
+### Environment Capabilities (`/environments/{id}/capabilities`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/{id}/capabilities` | Get environment action capabilities |
 
 ### Workflow Policy (`/workflows/policy`)
 | Method | Endpoint | Description |
@@ -154,6 +176,7 @@ All endpoints prefixed with `/api/v1`.
 | `admin_entitlements` | `/admin/entitlements` | Feature entitlements |
 | `admin_environment_types` | `/admin/environment-types` | Environment type config |
 | `admin_credentials` | `/admin/credentials` | Credential health monitoring |
+| `admin_retention` | `/admin/retention` | Drift data retention management |
 
 ## Services
 
@@ -183,7 +206,9 @@ All endpoints prefixed with `/api/v1`.
 | `drift_incident_service.py` | Drift incident lifecycle management |
 | `reconciliation_service.py` | Drift reconciliation and remediation |
 | `drift_scheduler.py` | Scheduled drift detection jobs |
+| `drift_retention_service.py` | Drift data retention and cleanup |
 | `deployment_scheduler.py` | Scheduled deployment execution |
+| `environment_action_guard.py` | Policy-based action validation per environment |
 
 ## Schemas (Pydantic Models)
 
@@ -233,6 +258,8 @@ All endpoints prefixed with `/api/v1`.
 | `drift_approvals` | Pending approval requests for drift changes |
 | `reconciliation_artifacts` | Artifacts from reconciliation attempts |
 | `workflow_archive` | Archived/deleted workflow history |
+| `drift_check_history` | Historical drift check results per environment |
+| `drift_check_workflow_flags` | Per-workflow status in each drift check |
 
 ## Core Patterns
 

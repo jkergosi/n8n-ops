@@ -1,4 +1,11 @@
-"""Drift Incident Service with full lifecycle management."""
+"""Drift Incident Service with full lifecycle management.
+
+Supports retention and soft-delete:
+- Incidents are never hard-deleted, only payloads are purged
+- is_deleted flag for soft-delete (future use)
+- payload_purged_at tracks when payload was removed
+- payload_available computed field for UI convenience
+"""
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import HTTPException, status
@@ -26,11 +33,33 @@ VALID_TRANSITIONS = {
 class DriftIncidentService:
     """Service for managing drift incident lifecycle."""
 
+    def _enrich_incident(self, incident: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Enrich incident data with computed fields.
+        - payload_available: False if payload_purged_at is set
+        """
+        if not incident:
+            return incident
+
+        # Add payload_available based on whether payload was purged
+        incident["payload_available"] = incident.get("payload_purged_at") is None
+
+        # Ensure is_deleted has a default
+        if "is_deleted" not in incident:
+            incident["is_deleted"] = False
+
+        return incident
+
+    def _enrich_incidents(self, incidents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Enrich multiple incidents."""
+        return [self._enrich_incident(inc) for inc in incidents]
+
     async def get_incidents(
         self,
         tenant_id: str,
         environment_id: Optional[str] = None,
         status_filter: Optional[str] = None,
+        include_deleted: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> Dict[str, Any]:
@@ -39,6 +68,10 @@ class DriftIncidentService:
             query = db_service.client.table("drift_incidents").select(
                 "*", count="exact"
             ).eq("tenant_id", tenant_id)
+
+            # Exclude soft-deleted incidents by default
+            if not include_deleted:
+                query = query.eq("is_deleted", False)
 
             if environment_id:
                 query = query.eq("environment_id", environment_id)
@@ -50,7 +83,7 @@ class DriftIncidentService:
             ).range(offset, offset + limit - 1).execute()
 
             return {
-                "items": response.data or [],
+                "items": self._enrich_incidents(response.data or []),
                 "total": response.count or 0,
                 "has_more": (response.count or 0) > offset + limit,
             }
@@ -68,7 +101,7 @@ class DriftIncidentService:
             response = db_service.client.table("drift_incidents").select(
                 "*"
             ).eq("tenant_id", tenant_id).eq("id", incident_id).single().execute()
-            return response.data
+            return self._enrich_incident(response.data)
         except Exception:
             return None
 
@@ -81,11 +114,11 @@ class DriftIncidentService:
                 "*"
             ).eq("tenant_id", tenant_id).eq(
                 "environment_id", environment_id
-            ).neq("status", "closed").order(
+            ).eq("is_deleted", False).neq("status", "closed").order(
                 "detected_at", desc=True
             ).limit(1).execute()
 
-            return response.data[0] if response.data else None
+            return self._enrich_incident(response.data[0]) if response.data else None
         except Exception:
             return None
 

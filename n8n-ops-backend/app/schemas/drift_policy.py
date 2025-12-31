@@ -39,6 +39,12 @@ class DriftPolicyCreate(BaseModel):
     notify_on_expiration_warning: bool = True
     expiration_warning_hours: int = Field(default=24, ge=1)
 
+    # Retention settings (in days)
+    retention_enabled: bool = Field(default=True)
+    retention_days_closed_incidents: int = Field(default=365, ge=0, description="Days to retain closed incidents (0 = never delete)")
+    retention_days_reconciliation_artifacts: int = Field(default=180, ge=0, description="Days to retain reconciliation artifacts (0 = never delete)")
+    retention_days_approvals: int = Field(default=365, ge=0, description="Days to retain approval records (0 = never delete)")
+
 
 class DriftPolicyUpdate(BaseModel):
     """Update drift policy."""
@@ -57,6 +63,12 @@ class DriftPolicyUpdate(BaseModel):
     notify_on_detection: Optional[bool] = None
     notify_on_expiration_warning: Optional[bool] = None
     expiration_warning_hours: Optional[int] = None
+
+    # Retention settings
+    retention_enabled: Optional[bool] = None
+    retention_days_closed_incidents: Optional[int] = Field(None, ge=0)
+    retention_days_reconciliation_artifacts: Optional[int] = Field(None, ge=0)
+    retention_days_approvals: Optional[int] = Field(None, ge=0)
 
 
 class DriftPolicyResponse(BaseModel):
@@ -79,6 +91,12 @@ class DriftPolicyResponse(BaseModel):
     notify_on_detection: bool
     notify_on_expiration_warning: bool
     expiration_warning_hours: int
+
+    # Retention settings
+    retention_enabled: bool
+    retention_days_closed_incidents: int
+    retention_days_reconciliation_artifacts: int
+    retention_days_approvals: int
 
     created_at: datetime
     updated_at: datetime

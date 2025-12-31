@@ -84,21 +84,22 @@ function Start-Backend {
     Write-Host "API:     http://localhost:$BACKEND_PORT" -ForegroundColor Green
     Write-Host "Swagger: http://localhost:$BACKEND_PORT/api/v1/docs" -ForegroundColor Green
 
-    # Build a single command line (avoid PowerShell parsing issues with --flags)
-    $uvicornCmd = "python -m uvicorn app.main:app --reload --host 0.0.0.0 --port $BACKEND_PORT --access-log --log-level info"
+    # Use the migration script that runs migrations before starting
+    # This ensures database schema is up-to-date before the app starts
+    $startScript = "python scripts\start_with_migrations.py --host 0.0.0.0 --port $BACKEND_PORT"
 
     # New PowerShell window:
     # - Set location
     # - Execute via cmd.exe so --flags are not parsed by PowerShell
     # - Keep window open (-NoExit) to keep logs visible
-    $psCommand = "Set-Location -LiteralPath `"$workDir`"; cmd.exe /c `"$uvicornCmd`""
+    $psCommand = "Set-Location -LiteralPath `"$workDir`"; cmd.exe /c `"$startScript`""
 
     Start-Process `
         -FilePath "powershell.exe" `
         -ArgumentList @("-NoExit", "-Command", $psCommand) `
         -WorkingDirectory $workDir | Out-Null
 
-    Write-Host "Backend started (reload enabled, logs in new window)." -ForegroundColor Green
+    Write-Host "Backend started (migrations run automatically, reload enabled, logs in new window)." -ForegroundColor Green
 }
 
 switch ($Action) {

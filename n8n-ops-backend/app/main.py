@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy
+from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy, environment_capabilities, drift_reports, admin_retention
 from app.services.background_job_service import background_job_service
 from datetime import datetime, timedelta
 import logging
@@ -41,6 +41,12 @@ app.include_router(
     workflow_policy.router,
     prefix=f"{settings.API_V1_PREFIX}/workflows",
     tags=["workflow-policy"]
+)
+
+app.include_router(
+    environment_capabilities.router,
+    prefix=f"{settings.API_V1_PREFIX}/environments",
+    tags=["environment-capabilities"]
 )
 
 app.include_router(
@@ -206,6 +212,12 @@ app.include_router(
 )
 
 app.include_router(
+    admin_retention.router,
+    prefix=f"{settings.API_V1_PREFIX}/admin/retention",
+    tags=["admin-retention"]
+)
+
+app.include_router(
     providers.router,
     prefix=f"{settings.API_V1_PREFIX}/providers",
     tags=["providers"]
@@ -233,6 +245,12 @@ app.include_router(
     drift_approvals.router,
     prefix=f"{settings.API_V1_PREFIX}/drift-approvals",
     tags=["drift-approvals"]
+)
+
+app.include_router(
+    drift_reports.router,
+    prefix=f"{settings.API_V1_PREFIX}/reports",
+    tags=["drift-reports"]
 )
 
 

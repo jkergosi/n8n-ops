@@ -13,9 +13,16 @@ logger = logging.getLogger(__name__)
 from app.services.feature_service import feature_service
 from app.core.feature_gate import require_feature
 from app.core.entitlements_gate import require_entitlement
+from app.services.auth_service import get_current_user
 from app.services.promotion_service import promotion_service
 from app.services.database import db_service
 from app.services.notification_service import notification_service
+from app.services.environment_action_guard import (
+    environment_action_guard,
+    EnvironmentAction,
+    ActionGuardError
+)
+from app.schemas.environment import EnvironmentClass
 from app.services.background_job_service import (
     background_job_service,
     BackgroundJobStatus,
@@ -154,6 +161,7 @@ MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
 @router.post("/initiate", response_model=PromotionInitiateResponse)
 async def initiate_deployment(
     request: PromotionInitiateRequest,
+    user_info: dict = Depends(get_current_user),
     _: None = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
@@ -161,8 +169,12 @@ async def initiate_deployment(
     Heavy operations (snapshots, drift checks) are done during execution.
     """
     try:
+        tenant_id = user_info.get("tenant", {}).get("id", MOCK_TENANT_ID)
+        user = user_info.get("user", {})
+        user_role = user.get("role", "user")
+        
         # Get pipeline
-        pipeline_data = await db_service.get_pipeline(request.pipeline_id, MOCK_TENANT_ID)
+        pipeline_data = await db_service.get_pipeline(request.pipeline_id, tenant_id)
         if not pipeline_data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -182,10 +194,55 @@ async def initiate_deployment(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No stage found for this source -> target environment pair"
             )
+        
+        # Get source and target environments for guard checks
+        source_env = await db_service.get_environment(request.source_environment_id, tenant_id)
+        target_env = await db_service.get_environment(request.target_environment_id, tenant_id)
+        
+        if not source_env or not target_env:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Source or target environment not found"
+            )
+        
+        # Check action guard for deploy outbound (from source)
+        source_env_class_str = source_env.get("environment_class", "dev")
+        try:
+            source_env_class = EnvironmentClass(source_env_class_str)
+        except ValueError:
+            source_env_class = EnvironmentClass.DEV
+        
+        try:
+            environment_action_guard.assert_can_perform_action(
+                env_class=source_env_class,
+                action=EnvironmentAction.DEPLOY_OUTBOUND,
+                user_role=user_role,
+                environment_name=source_env.get("n8n_name", request.source_environment_id)
+            )
+        except ActionGuardError as e:
+            raise e
+        
+        # Check action guard for deploy inbound (to target)
+        target_env_class_str = target_env.get("environment_class", "dev")
+        try:
+            target_env_class = EnvironmentClass(target_env_class_str)
+        except ValueError:
+            target_env_class = EnvironmentClass.DEV
+        
+        try:
+            environment_action_guard.assert_can_perform_action(
+                env_class=source_env_class,
+                action=EnvironmentAction.DEPLOY_INBOUND,
+                user_role=user_role,
+                target_env_class=target_env_class,
+                environment_name=target_env.get("n8n_name", request.target_environment_id)
+            )
+        except ActionGuardError as e:
+            raise e
 
         # Check drift policy blocking for target environment
         drift_block = await check_drift_policy_blocking(
-            tenant_id=MOCK_TENANT_ID,
+            tenant_id=tenant_id,
             target_environment_id=request.target_environment_id
         )
         if drift_block.get("blocked"):
@@ -197,6 +254,44 @@ async def initiate_deployment(
                     **drift_block.get("details", {})
                 }
             )
+
+        # Run credential preflight check
+        preflight_result = None
+        workflow_ids = [ws.workflow_id for ws in request.workflow_selections if ws.selected]
+        provider = source_env.get("provider", "n8n") or "n8n"
+        
+        if workflow_ids:
+            try:
+                from app.api.endpoints.admin_credentials import credential_preflight_check
+                from app.schemas.credential import CredentialPreflightRequest
+                
+                preflight_request = CredentialPreflightRequest(
+                    source_environment_id=request.source_environment_id,
+                    target_environment_id=request.target_environment_id,
+                    workflow_ids=workflow_ids,
+                    provider=provider
+                )
+                preflight_result = await credential_preflight_check(
+                    body=preflight_request,
+                    user_info=user_info
+                )
+                
+                # Block promotion if there are blocking issues
+                if not preflight_result.valid:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "error": "credential_preflight_failed",
+                            "blocking_issues": [issue.dict() for issue in preflight_result.blocking_issues],
+                            "warnings": [issue.dict() for issue in preflight_result.warnings],
+                            "resolved_mappings": [mapping.dict() for mapping in preflight_result.resolved_mappings]
+                        }
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Preflight check failed (non-blocking): {e}")
+                # Don't block promotion if preflight fails, but log it
 
         # Check if approval required
         requires_approval = active_stage.get("approvals", {}).get("require_approval", False)
@@ -222,7 +317,7 @@ async def initiate_deployment(
 
         promotion_data = {
             "id": promotion_id,
-            "tenant_id": MOCK_TENANT_ID,
+            "tenant_id": tenant_id,
             "pipeline_id": request.pipeline_id,
             "source_environment_id": request.source_environment_id,
             "target_environment_id": request.target_environment_id,
@@ -230,7 +325,7 @@ async def initiate_deployment(
             "source_snapshot_id": None,  # Created during execution
             "workflow_selections": [ws.dict() for ws in request.workflow_selections],
             "gate_results": gate_results.dict(),
-            "created_by": None,  # TODO: Get from auth
+            "created_by": user.get("id"),
             "created_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat()
         }
@@ -251,7 +346,15 @@ async def initiate_deployment(
             requires_approval=requires_approval,
             approval_id=str(uuid4()) if requires_approval else None,
             dependency_warnings={},
-            preflight={"credential_issues": [], "dependency_warnings": {}, "drift_detected": False},
+            preflight=preflight_result.dict() if preflight_result else {
+                "credential_issues": [],
+                "dependency_warnings": {},
+                "drift_detected": False,
+                "valid": True,
+                "blocking_issues": [],
+                "warnings": [],
+                "resolved_mappings": []
+            },
             message="Promotion initiated successfully"
         )
 

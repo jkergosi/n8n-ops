@@ -95,15 +95,32 @@ VALUES (
 );
 ```
 
-### 5. Run the Server
+### 5. Run Database Migrations
+
+Before starting the server, ensure your database schema is up-to-date:
 
 ```bash
-# Development mode with auto-reload
+# Run migrations manually
+alembic upgrade head
+
+# Or use the startup script (recommended - runs migrations automatically)
+python scripts/start_with_migrations.py
+```
+
+### 6. Run the Server
+
+```bash
+# Recommended: Automatically runs migrations before starting
+python scripts/start_with_migrations.py
+
+# Or manually (migrations must be run separately)
 uvicorn app.main:app --reload --port 8000
 
 # Or using Python
 python -m uvicorn app.main:app --reload --port 8000
 ```
+
+**Note:** The `start_with_migrations.py` script automatically runs `alembic upgrade head` before starting the application. This ensures your database schema is always up-to-date. If migrations fail, the application will not start.
 
 The API will be available at:
 - **API**: http://localhost:8000

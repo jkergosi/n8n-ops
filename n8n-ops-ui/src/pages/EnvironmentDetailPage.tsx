@@ -126,7 +126,6 @@ export function EnvironmentDetailPage() {
   const [testingConnection, setTestingConnection] = useState(false);
   const [testingInDialog, setTestingInDialog] = useState(false);
   const [testingGitInDialog, setTestingGitInDialog] = useState(false);
-  const [refreshingDrift, setRefreshingDrift] = useState(false);
   const [driftSummary, setDriftSummary] = useState<{
     totalWorkflows: number;
     inSync: number;
@@ -552,24 +551,6 @@ export function EnvironmentDetailPage() {
     }
   };
 
-  const handleRefreshDrift = async () => {
-    if (!id) return;
-    setRefreshingDrift(true);
-    try {
-      const result = await apiClient.refreshEnvironmentDrift(id);
-      const summary = result.data.summary;
-      if (summary) {
-        setDriftSummary(summary);
-      }
-      // Refresh environment data to get updated drift_status
-      queryClient.invalidateQueries({ queryKey: ['environment', id] });
-      toast.success('Drift check completed');
-    } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to refresh drift status');
-    } finally {
-      setRefreshingDrift(false);
-    }
-  };
 
   const handleDelete = () => {
     if (!id) return;
@@ -1030,20 +1011,11 @@ export function EnvironmentDetailPage() {
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-4" id="drift">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader>
               <div>
                 <CardTitle>Drift Summary</CardTitle>
                 <CardDescription>Compare runtime state against Git source of truth</CardDescription>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRefreshDrift}
-                disabled={refreshingDrift || !environment.gitRepoUrl}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${refreshingDrift ? 'animate-spin' : ''}`} />
-                {refreshingDrift ? 'Checking...' : 'Check Drift'}
-              </Button>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Status Row */}
@@ -1372,22 +1344,11 @@ export function EnvironmentDetailPage() {
         <TabsContent value="snapshots" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <CardTitle>Snapshots</CardTitle>
-                  <CardDescription>
-                    Git-backed environment state backups ({snapshots.length} total)
-                  </CardDescription>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBackup}
-                  disabled={activeJob?.jobType === 'backup' && activeJob?.status === 'running'}
-                >
-                  <Database className={`h-4 w-4 mr-2 ${activeJob?.jobType === 'backup' && activeJob?.status === 'running' ? 'animate-spin' : ''}`} />
-                  Create Snapshot
-                </Button>
+              <div>
+                <CardTitle>Snapshots</CardTitle>
+                <CardDescription>
+                  Git-backed environment state backups ({snapshots.length} total)
+                </CardDescription>
               </div>
             </CardHeader>
             <CardContent>
@@ -1624,6 +1585,21 @@ export function EnvironmentDetailPage() {
                   ) : (
                     <p className="text-sm text-muted-foreground">Not configured</p>
                   )}
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold">Snapshots</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Create a Git-backed snapshot of the current environment state. Snapshots can be used in Drift Incidents for recovery operations.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={handleBackup}
+                    disabled={activeJob?.jobType === 'backup' && activeJob?.status === 'running'}
+                  >
+                    <Database className={`h-4 w-4 mr-2 ${activeJob?.jobType === 'backup' && activeJob?.status === 'running' ? 'animate-spin' : ''}`} />
+                    {activeJob?.jobType === 'backup' && activeJob?.status === 'running' ? 'Creating...' : 'Create Snapshot'}
+                  </Button>
                 </div>
               </div>
 

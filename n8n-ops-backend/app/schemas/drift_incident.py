@@ -113,13 +113,21 @@ class DriftIncidentResponse(BaseModel):
     expires_at: Optional[datetime] = None
     severity: Optional[DriftSeverity] = None
 
-    # Drift data
+    # Drift data (may be null if purged per retention policy)
     affected_workflows: List[Dict[str, Any]] = Field(default_factory=list)
     drift_snapshot: Optional[Dict[str, Any]] = None
 
     # Resolution tracking
     resolution_type: Optional[ResolutionType] = None
     resolution_details: Optional[Dict[str, Any]] = None
+
+    # Retention/soft-delete fields
+    payload_purged_at: Optional[datetime] = None
+    is_deleted: bool = False
+    deleted_at: Optional[datetime] = None
+
+    # Computed property-like field for UI convenience
+    payload_available: bool = True
 
     model_config = {"from_attributes": True}
 

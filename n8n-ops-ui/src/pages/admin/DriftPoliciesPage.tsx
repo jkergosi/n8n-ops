@@ -73,6 +73,26 @@ export function DriftPoliciesPage() {
     },
   });
 
+  // Cleanup mutation
+  const cleanupMutation = useMutation({
+    mutationFn: () => apiClient.triggerDriftRetentionCleanup(),
+    onSuccess: (data) => {
+      const results = data.data.results;
+      const total = results.closed_incidents_deleted + results.reconciliation_artifacts_deleted + results.approvals_deleted;
+      if (total > 0) {
+        toast.success(
+          `Cleanup completed: ${results.closed_incidents_deleted} incidents, ` +
+          `${results.reconciliation_artifacts_deleted} artifacts, ${results.approvals_deleted} approvals deleted`
+        );
+      } else {
+        toast.info('No data to clean up based on current retention settings');
+      }
+    },
+    onError: (error: any) => {
+      toast.error(`Failed to run cleanup: ${error.message}`);
+    },
+  });
+
   const handleFieldChange = (field: keyof DriftPolicyUpdate, value: any) => {
     setLocalPolicy(prev => ({
       ...prev,
@@ -174,6 +194,10 @@ export function DriftPoliciesPage() {
           <TabsTrigger value="notifications" className="flex items-center gap-2">
             <Bell className="h-4 w-4" />
             Notifications
+          </TabsTrigger>
+          <TabsTrigger value="retention" className="flex items-center gap-2">
+            <Ban className="h-4 w-4" />
+            Retention
           </TabsTrigger>
           <TabsTrigger value="templates" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
@@ -410,6 +434,118 @@ export function DriftPoliciesPage() {
                   onCheckedChange={(checked) => handleFieldChange('notify_on_expiration_warning', checked)}
                 />
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Retention Tab */}
+        <TabsContent value="retention" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Ban className="h-5 w-5" />
+                Data Retention Settings
+              </CardTitle>
+              <CardDescription>
+                Configure how long drift data is retained before automatic deletion.
+                Retention periods are plan-based with configurable overrides.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Enable Retention Cleanup</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Automatically delete old drift data based on retention periods
+                  </p>
+                </div>
+                <Switch
+                  checked={getValue('retention_enabled') ?? true}
+                  onCheckedChange={(checked) => handleFieldChange('retention_enabled', checked)}
+                />
+              </div>
+
+              {getValue('retention_enabled') && (
+                <div className="border-t pt-6 space-y-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="retention_closed_incidents">Closed Incidents Retention (days)</Label>
+                    <Input
+                      id="retention_closed_incidents"
+                      type="number"
+                      min={0}
+                      value={getValue('retention_days_closed_incidents') ?? 365}
+                      onChange={(e) => handleFieldChange('retention_days_closed_incidents', parseInt(e.target.value) || 0)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Closed incidents older than this will be deleted. Set to 0 to never delete.
+                      <br />
+                      <strong>Plan defaults:</strong> Free: 90 days, Pro: 180 days, Agency: 365 days, Enterprise: 2555 days (7 years)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="retention_artifacts">Reconciliation Artifacts Retention (days)</Label>
+                    <Input
+                      id="retention_artifacts"
+                      type="number"
+                      min={0}
+                      value={getValue('retention_days_reconciliation_artifacts') ?? 180}
+                      onChange={(e) => handleFieldChange('retention_days_reconciliation_artifacts', parseInt(e.target.value) || 0)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Reconciliation artifacts older than this will be deleted. Set to 0 to never delete.
+                      <br />
+                      <strong>Plan defaults:</strong> Free: 30 days, Pro: 90 days, Agency: 180 days, Enterprise: 365 days
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="retention_approvals">Approval Records Retention (days)</Label>
+                    <Input
+                      id="retention_approvals"
+                      type="number"
+                      min={0}
+                      value={getValue('retention_days_approvals') ?? 365}
+                      onChange={(e) => handleFieldChange('retention_days_approvals', parseInt(e.target.value) || 0)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Approval records older than this will be deleted. Set to 0 to never delete.
+                      <br />
+                      <strong>Plan defaults:</strong> Free: 90 days, Pro: 180 days, Agency: 365 days, Enterprise: 2555 days (7 years)
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <p className="text-sm text-blue-900 dark:text-blue-100">
+                      <strong>Note:</strong> Retention cleanup runs daily. Data is permanently deleted and cannot be recovered.
+                      Ensure your retention periods meet compliance requirements.
+                    </p>
+                  </div>
+
+                  <div className="border-t pt-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Manual Cleanup</Label>
+                        <p className="text-sm text-muted-foreground">
+                          Trigger cleanup immediately (runs the same logic as scheduled job)
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => cleanupMutation.mutate()}
+                        disabled={cleanupMutation.isPending}
+                      >
+                        {cleanupMutation.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Ban className="mr-2 h-4 w-4" />
+                        )}
+                        Run Cleanup Now
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

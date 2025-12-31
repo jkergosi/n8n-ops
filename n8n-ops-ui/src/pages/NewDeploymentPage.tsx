@@ -237,31 +237,28 @@ export function NewDeploymentPage() {
       apiClient.executeDeployment(id, scheduledAt),
     onSuccess: (data) => {
       const jobId = data.data.job_id;
-      const deploymentId = data.data.deployment_id || data.data.promotion_id;
+      const promotionId = data.data.promotion_id;
       const scheduledAt = data.data.scheduled_at;
-      
+
       // Reset review dialog state
       setShowReviewDialog(false);
       setExecutionMode('now');
       setScheduledDateTime('');
       setInitiateResponse(null);
-      
+
       if (scheduledAt) {
         const scheduledDate = new Date(scheduledAt);
         toast.success(`Deployment scheduled for ${scheduledDate.toLocaleString()}`);
-        queryClient.invalidateQueries({ queryKey: ['promotions'] });
-        queryClient.invalidateQueries({ queryKey: ['deployments'] });
-        navigate('/deployments');
-      } else if (jobId) {
-        toast.success('Deployment started successfully. Monitoring progress...');
-        // Start polling for job status
-        startJobPolling(deploymentId);
+      } else if (jobId && promotionId) {
+        toast.success('Deployment started successfully');
       } else {
         toast.success('Deployment executed successfully');
-        queryClient.invalidateQueries({ queryKey: ['promotions'] });
-        queryClient.invalidateQueries({ queryKey: ['deployments'] });
-        navigate('/deployments');
       }
+
+      // Always redirect to deployments page - it has working progress tracking
+      queryClient.invalidateQueries({ queryKey: ['promotions'] });
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      navigate('/deployments');
     },
     onError: (error: any) => {
       const detail = error.response?.data?.detail;
@@ -274,51 +271,6 @@ export function NewDeploymentPage() {
     },
   });
 
-  // Job polling state
-  const [pollingDeploymentId, setPollingDeploymentId] = useState<string | null>(null);
-  const [jobStatus, setJobStatus] = useState<any>(null);
-
-  // Poll for job status
-  const startJobPolling = (deploymentId: string) => {
-    setPollingDeploymentId(deploymentId);
-    setJobStatus({ status: 'running', progress: { current: 0, total: 0, percentage: 0 } });
-  };
-
-  // Poll job status
-  useQuery({
-    queryKey: ['deployment-job', pollingDeploymentId],
-    queryFn: () => apiClient.getDeploymentJob(pollingDeploymentId!),
-    enabled: !!pollingDeploymentId,
-    refetchInterval: (query) => {
-      const data = query.state.data?.data;
-      if (data?.status === 'completed' || data?.status === 'failed' || data?.status === 'cancelled') {
-        return false; // Stop polling when done
-      }
-      return 2000; // Poll every 2 seconds
-    },
-    onSuccess: (data) => {
-      const job = data.data;
-      setJobStatus(job);
-
-      if (job.status === 'completed') {
-        toast.success('Deployment completed successfully');
-        queryClient.invalidateQueries({ queryKey: ['promotions'] });
-        queryClient.invalidateQueries({ queryKey: ['deployments'] });
-        setPollingDeploymentId(null);
-        setTimeout(() => navigate('/deployments'), 2000);
-      } else if (job.status === 'failed') {
-        toast.error(`Deployment failed: ${job.error_message || 'Unknown error'}`);
-        setPollingDeploymentId(null);
-        // Navigate to deployments page so user can see details
-        setTimeout(() => navigate('/deployments'), 2000);
-      }
-    },
-    onError: () => {
-      // If polling fails, stop polling and navigate to deployments
-      setPollingDeploymentId(null);
-      navigate('/deployments');
-    }
-  });
 
   // Credential preflight mutation
   const preflightMutation = useMutation({
@@ -655,45 +607,6 @@ export function NewDeploymentPage() {
         </Card>
       )}
 
-      {/* Job Status Display */}
-      {pollingDeploymentId && jobStatus && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Deployment Progress</CardTitle>
-            <CardDescription>Monitoring deployment execution</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Status</span>
-                <Badge variant={jobStatus.status === 'completed' ? 'default' : jobStatus.status === 'failed' ? 'destructive' : 'secondary'}>
-                  {jobStatus.status}
-                </Badge>
-              </div>
-              {jobStatus.progress && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>{jobStatus.progress.message || 'Processing...'}</span>
-                    <span>{jobStatus.progress.current} / {jobStatus.progress.total}</span>
-                  </div>
-                  <div className="w-full bg-secondary rounded-full h-2">
-                    <div
-                      className="bg-primary h-2 rounded-full transition-all"
-                      style={{ width: `${jobStatus.progress.percentage || 0}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-              {jobStatus.error_message && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>{jobStatus.error_message}</AlertDescription>
-                </Alert>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Actions */}
       {selectedPipelineId && activeStage && (

@@ -107,6 +107,7 @@ const navigationSections: NavSection[] = [
     title: 'Incidents',
     items: [
       { id: 'incidents', name: 'Incidents', href: '/incidents', icon: AlertTriangle, requiredPlan: 'agency', feature: 'drift_incidents' },
+      { id: 'drift-dashboard', name: 'Drift Dashboard', href: '/drift-dashboard', icon: BarChart3, requiredPlan: 'agency', feature: 'drift_ttl_sla' },
     ],
   },
   {

@@ -1234,6 +1234,7 @@ class PromotionService:
         # Preload logical credentials and mappings for rewrite
         logical_creds = await self.db.list_logical_credentials(tenant_id)
         logical_name_by_id = {lc.get("id"): lc.get("name") for lc in (logical_creds or [])}
+        logical_creds_by_name = {lc.get("name"): lc for lc in (logical_creds or [])}
 
         target_provider = target_env.get("provider", "n8n") if isinstance(target_env, dict) else "n8n"
         target_mappings = await self.db.list_credential_mappings(
@@ -1247,6 +1248,9 @@ class PromotionService:
             if not logical_name:
                 continue
             mapping_lookup[logical_name] = m
+
+        # Track credential rewrites for audit
+        all_credential_rewrites = []
 
         # Promote each selected workflow
         for selection in workflow_selections:
@@ -1272,12 +1276,52 @@ class PromotionService:
                 # Rewrite credential references using mappings (if any)
                 if mapping_lookup:
                     try:
+                        # Track original credentials before rewrite
+                        original_creds = {}
+                        for node in workflow_data.get("nodes", []):
+                            node_id = node.get("id", "unknown")
+                            if "credentials" in node:
+                                original_creds[node_id] = node["credentials"].copy()
+                        
+                        # Perform rewrite
                         workflow_data = N8NProviderAdapter.rewrite_credentials_with_mappings(
                             workflow_data,
                             mapping_lookup,
                         )
+                        
+                        # Track what changed
+                        for node in workflow_data.get("nodes", []):
+                            node_id = node.get("id", "unknown")
+                            if node_id in original_creds:
+                                original = original_creds[node_id]
+                                current = node.get("credentials", {})
+                                
+                                for cred_type in set(original.keys()) | set(current.keys()):
+                                    orig_val = original.get(cred_type)
+                                    curr_val = current.get(cred_type)
+                                    
+                                    if orig_val != curr_val:
+                                        # Extract logical name if possible
+                                        logical_name = None
+                                        if isinstance(orig_val, dict):
+                                            cred_name = orig_val.get("name", "unknown")
+                                            logical_name = f"{cred_type}:{cred_name}"
+                                        
+                                        all_credential_rewrites.append({
+                                            "workflow_id": selection.workflow_id,
+                                            "workflow_name": selection.workflow_name,
+                                            "node_id": node_id,
+                                            "credential_type": cred_type,
+                                            "logical_name": logical_name,
+                                            "original": orig_val,
+                                            "rewritten_to": curr_val
+                                        })
+                        
+                        if all_credential_rewrites:
+                            logger.info(f"Rewrote {len([r for r in all_credential_rewrites if r['workflow_id'] == selection.workflow_id])} credential references for {selection.workflow_name}")
                     except Exception as e:
                         logger.error(f"Failed to rewrite credentials for {selection.workflow_name}: {e}")
+                        errors.append(f"Credential rewrite failed for {selection.workflow_name}: {str(e)}")
 
                 # Write to target provider - check if workflow exists first
                 workflow_id = workflow_data.get("id")
@@ -1321,7 +1365,8 @@ class PromotionService:
                 "created_placeholders": created_placeholders,
                 "errors": errors,
                 "warnings": warnings
-            }
+            },
+            credential_rewrites=all_credential_rewrites if all_credential_rewrites else None
         )
 
         return PromotionExecutionResult(
@@ -1343,7 +1388,8 @@ class PromotionService:
         tenant_id: str,
         promotion_id: str,
         action: str,
-        result: Dict[str, Any]
+        result: Dict[str, Any],
+        credential_rewrites: Optional[List[Dict[str, Any]]] = None
     ):
         """
         Create audit log entry for promotion action.
@@ -1361,6 +1407,25 @@ class PromotionService:
         # Store audit log (would use database)
         # await self.db.create_audit_log(audit_data)
         logger.info(f"Audit log: {action} for promotion {promotion_id}: {result}")
+        
+        # Add credential rewrite audit if applicable
+        if credential_rewrites and action == "execute":
+            from app.api.endpoints.admin_audit import create_audit_log, AuditActionType
+            try:
+                await create_audit_log(
+                    action_type=AuditActionType.CREDENTIAL_REWRITE_DURING_PROMOTION,
+                    action=f"Credential rewrite during promotion {promotion_id}",
+                    tenant_id=tenant_id,
+                    resource_type="promotion",
+                    resource_id=promotion_id,
+                    metadata={
+                        "rewritten_credentials": credential_rewrites,
+                        "workflows_affected": len(set(r.get("workflow_id") for r in credential_rewrites)),
+                        "total_rewrites": len(credential_rewrites)
+                    }
+                )
+            except Exception as audit_error:
+                logger.warning(f"Failed to create credential rewrite audit log: {audit_error}")
 
 
 promotion_service = PromotionService()

@@ -29,6 +29,7 @@ import { N8NUsersPage } from '@/pages/N8NUsersPage';
 import { CredentialsPage } from '@/pages/CredentialsPage';
 import { IncidentsPage } from '@/pages/IncidentsPage';
 import { IncidentDetailPage } from '@/pages/IncidentDetailPage';
+import { DriftDashboardPage } from '@/pages/DriftDashboardPage';
 import { EnvironmentSetupPage } from '@/pages/EnvironmentSetupPage';
 import { RestorePage } from '@/pages/RestorePage';
 import { ProfilePage } from '@/pages/ProfilePage';
@@ -219,6 +220,7 @@ function App() {
                 <Route path="/credentials" element={<RoleProtectedRoute><CredentialsPage /></RoleProtectedRoute>} />
                 <Route path="/incidents" element={<RoleProtectedRoute><IncidentsPage /></RoleProtectedRoute>} />
                 <Route path="/incidents/:id" element={<RoleProtectedRoute><IncidentDetailPage /></RoleProtectedRoute>} />
+                <Route path="/drift-dashboard" element={<RoleProtectedRoute><DriftDashboardPage /></RoleProtectedRoute>} />
                 <Route path="/team" element={<RoleProtectedRoute><TeamPage /></RoleProtectedRoute>} />
                 <Route path="/billing" element={<RoleProtectedRoute><BillingPage /></RoleProtectedRoute>} />
                 <Route path="/profile" element={<RoleProtectedRoute><ProfilePage /></RoleProtectedRoute>} />

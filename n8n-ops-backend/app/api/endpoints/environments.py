@@ -23,6 +23,12 @@ from app.services.background_job_service import (
     BackgroundJobType
 )
 from app.api.endpoints.sse import emit_sync_progress
+from app.services.environment_action_guard import (
+    environment_action_guard,
+    EnvironmentAction,
+    ActionGuardError
+)
+from app.schemas.environment import EnvironmentClass
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -461,6 +467,39 @@ async def _sync_environment_background(
                 tenant_id,
                 len(synced_workflows)
             )
+            
+            # Refresh workflow credential dependencies
+            try:
+                provider = environment.get("provider", "n8n") or "n8n"
+                for workflow in workflows:
+                    workflow_id = workflow.get("id")
+                    workflow_data = workflow.get("workflow_data") or workflow
+                    
+                    # Extract logical credentials
+                    from app.services.provider_registry import ProviderRegistry
+                    adapter_class = ProviderRegistry.get_adapter_class(provider)
+                    logical_keys = adapter_class.extract_logical_credentials(workflow_data)
+                    
+                    # Convert logical keys to logical credential IDs
+                    logical_cred_ids = []
+                    for key in logical_keys:
+                        logical = await db_service.find_logical_credential_by_name(tenant_id, key)
+                        if logical:
+                            logical_cred_ids.append(logical.get("id"))
+                    
+                    # Upsert dependency record
+                    await db_service.upsert_workflow_dependencies(
+                        tenant_id=tenant_id,
+                        environment_id=environment_id,
+                        workflow_id=workflow_id,
+                        provider=provider,
+                        logical_credential_ids=logical_cred_ids
+                    )
+                
+                logger.info(f"Refreshed credential dependencies for {len(workflows)} workflows")
+            except Exception as dep_error:
+                logger.warning(f"Failed to refresh workflow dependencies: {dep_error}")
+                # Don't fail sync if dependency refresh fails
         except Exception as e:
             logger.error(f"Failed to sync workflows: {str(e)}")
             sync_results["workflows"]["errors"].append(str(e))
@@ -673,6 +712,7 @@ async def sync_environment(
         tenant_id = tenant["id"]
         user = user_info.get("user", {})
         user_id = user.get("id", "00000000-0000-0000-0000-000000000000")
+        user_role = user.get("role", "user")
         
         # Get environment details
         environment = await db_service.get_environment(environment_id, tenant_id)
@@ -681,6 +721,23 @@ async def sync_environment(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Environment not found"
             )
+        
+        # Check action guard
+        env_class_str = environment.get("environment_class", "dev")
+        try:
+            env_class = EnvironmentClass(env_class_str)
+        except ValueError:
+            env_class = EnvironmentClass.DEV
+        
+        try:
+            environment_action_guard.assert_can_perform_action(
+                env_class=env_class,
+                action=EnvironmentAction.SYNC_STATUS,
+                user_role=user_role,
+                environment_name=environment.get("n8n_name", environment_id)
+            )
+        except ActionGuardError as e:
+            raise e
 
         # Create provider adapter for connection test
         adapter = ProviderRegistry.get_adapter_for_environment(environment)

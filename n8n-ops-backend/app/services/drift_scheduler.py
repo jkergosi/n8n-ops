@@ -21,10 +21,13 @@ _drift_scheduler_running = False
 _drift_scheduler_task: Optional[asyncio.Task] = None
 _ttl_checker_running = False
 _ttl_checker_task: Optional[asyncio.Task] = None
+_retention_cleanup_running = False
+_retention_cleanup_task: Optional[asyncio.Task] = None
 
 # Configuration
 DRIFT_CHECK_INTERVAL_SECONDS = 300  # 5 minutes
 TTL_CHECK_INTERVAL_SECONDS = 60  # 1 minute
+RETENTION_CLEANUP_INTERVAL_SECONDS = 86400  # 24 hours (daily)
 
 
 async def _get_environments_for_drift_check() -> List[Dict[str, Any]]:
@@ -514,13 +517,74 @@ async def stop_ttl_checker():
     logger.info("TTL expiration checker stopped")
 
 
+async def _process_retention_cleanup():
+    """
+    Periodically run retention cleanup for all tenants.
+    Runs daily.
+    """
+    global _retention_cleanup_running
+
+    while _retention_cleanup_running:
+        try:
+            logger.debug("Running retention cleanup...")
+            from app.services.drift_retention_service import drift_retention_service
+
+            results = await drift_retention_service.cleanup_all_tenants()
+
+            if results.get("tenants_with_deletions", 0) > 0:
+                logger.info(
+                    f"Retention cleanup completed: {results['closed_incidents_deleted']} incidents, "
+                    f"{results['reconciliation_artifacts_deleted']} artifacts, "
+                    f"{results['approvals_deleted']} approvals deleted"
+                )
+
+            # Wait before next check (daily)
+            await asyncio.sleep(RETENTION_CLEANUP_INTERVAL_SECONDS)
+
+        except Exception as e:
+            logger.error(f"Error in retention cleanup scheduler: {e}", exc_info=True)
+            await asyncio.sleep(RETENTION_CLEANUP_INTERVAL_SECONDS)
+
+
+async def start_retention_cleanup():
+    """Start the retention cleanup scheduler background task."""
+    global _retention_cleanup_running, _retention_cleanup_task
+
+    if _retention_cleanup_running:
+        logger.warning("Retention cleanup scheduler is already running")
+        return
+
+    _retention_cleanup_running = True
+    _retention_cleanup_task = asyncio.create_task(_process_retention_cleanup())
+    logger.info("Retention cleanup scheduler started")
+
+
+async def stop_retention_cleanup():
+    """Stop the retention cleanup scheduler background task."""
+    global _retention_cleanup_running, _retention_cleanup_task
+
+    if not _retention_cleanup_running:
+        return
+
+    _retention_cleanup_running = False
+    if _retention_cleanup_task:
+        _retention_cleanup_task.cancel()
+        try:
+            await _retention_cleanup_task
+        except asyncio.CancelledError:
+            pass
+    logger.info("Retention cleanup scheduler stopped")
+
+
 async def start_all_drift_schedulers():
     """Start all drift-related schedulers."""
     await start_drift_scheduler()
     await start_ttl_checker()
+    await start_retention_cleanup()
 
 
 async def stop_all_drift_schedulers():
     """Stop all drift-related schedulers."""
     await stop_drift_scheduler()
     await stop_ttl_checker()
+    await stop_retention_cleanup()

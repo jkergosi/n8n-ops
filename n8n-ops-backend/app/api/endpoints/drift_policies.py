@@ -43,7 +43,21 @@ async def get_policy(
             return DriftPolicyResponse(**response.data[0])
 
         # Create default policy if none exists
-        default_policy = DriftPolicyCreate()
+        # Get plan to set plan-based retention defaults
+        from app.services.feature_service import feature_service
+        subscription = await feature_service.get_tenant_subscription(tenant_id)
+        plan = subscription.get("plan", {}).get("name", "free").lower() if subscription else "free"
+        
+        # Get plan-based retention defaults
+        from app.services.drift_retention_service import drift_retention_service
+        retention_defaults = drift_retention_service.RETENTION_DEFAULTS.get(plan, drift_retention_service.RETENTION_DEFAULTS["free"])
+        
+        default_policy = DriftPolicyCreate(
+            retention_enabled=True,
+            retention_days_closed_incidents=retention_defaults["closed_incidents"],
+            retention_days_reconciliation_artifacts=retention_defaults["reconciliation_artifacts"],
+            retention_days_approvals=retention_defaults["approvals"],
+        )
         new_policy = {
             "tenant_id": tenant_id,
             **default_policy.model_dump(),
@@ -208,6 +222,47 @@ async def list_templates(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list templates: {str(e)}",
+        )
+
+
+@router.post("/cleanup", status_code=status.HTTP_200_OK)
+async def trigger_cleanup(
+    user_info: dict = Depends(get_current_user),
+):
+    """
+    Manually trigger retention cleanup for the tenant.
+    
+    This runs the same cleanup logic as the scheduled job.
+    Useful for testing or immediate cleanup.
+    """
+    tenant_id = user_info["tenant"]["id"]
+
+    # Check feature access
+    can_use, message = await feature_service.can_use_feature(tenant_id, "drift_policies")
+    if not can_use:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "feature_not_available",
+                "feature": "drift_policies",
+                "message": message,
+            },
+        )
+
+    try:
+        from app.services.drift_retention_service import drift_retention_service
+
+        results = await drift_retention_service.cleanup_tenant_data(tenant_id)
+
+        return {
+            "message": "Cleanup completed",
+            "results": results,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to run cleanup: {str(e)}",
         )
 
 

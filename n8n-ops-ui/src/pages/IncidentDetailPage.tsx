@@ -32,7 +32,10 @@ import {
   Timer,
   FileText,
   Loader2,
+  Archive,
+  Info,
 } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import type { DriftIncident, DriftIncidentStatus, DriftApproval } from '@/types';
 
 const STATUS_CONFIG: Record<DriftIncidentStatus, {
@@ -569,17 +572,34 @@ export function IncidentDetailPage() {
               <CardDescription>Detected differences between runtime and Git source</CardDescription>
             </CardHeader>
             <CardContent>
-              {incident.summary ? (
+              {/* Show banner if payload was purged per retention policy */}
+              {incident.payload_available === false && (
+                <Alert className="mb-4">
+                  <Archive className="h-4 w-4" />
+                  <AlertTitle>Drift details purged</AlertTitle>
+                  <AlertDescription>
+                    The detailed drift data for this incident was purged per your organization's retention policy.
+                    Incident metadata (timeline, status, ownership) is still available.
+                    {incident.payload_purged_at && (
+                      <span className="block text-xs text-muted-foreground mt-1">
+                        Purged on {new Date(incident.payload_purged_at).toLocaleDateString()}
+                      </span>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {incident.payload_available !== false && incident.summary ? (
                 <pre className="text-xs bg-muted/40 rounded p-3 overflow-auto max-h-96">
                   {typeof incident.summary === 'string'
                     ? incident.summary
                     : JSON.stringify(incident.summary, null, 2)}
                 </pre>
-              ) : (
+              ) : incident.payload_available !== false ? (
                 <p className="text-sm text-muted-foreground text-center py-6">
                   No drift summary available.
                 </p>
-              )}
+              ) : null}
             </CardContent>
           </Card>
         </TabsContent>

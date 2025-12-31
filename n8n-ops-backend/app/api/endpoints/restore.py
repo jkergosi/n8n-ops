@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from datetime import datetime
@@ -6,6 +6,13 @@ from datetime import datetime
 from app.services.provider_registry import ProviderRegistry
 from app.services.database import db_service
 from app.services.github_service import GitHubService
+from app.services.environment_action_guard import (
+    environment_action_guard,
+    EnvironmentAction,
+    ActionGuardError
+)
+from app.schemas.environment import EnvironmentClass
+from app.services.auth_service import get_current_user
 
 router = APIRouter()
 
@@ -201,19 +208,48 @@ async def get_restore_preview(environment_id: str):
 
 
 @router.post("/{environment_id}/execute", response_model=RestoreExecuteResponse)
-async def execute_restore(environment_id: str, options: RestoreOptions):
+async def execute_restore(
+    environment_id: str,
+    options: RestoreOptions,
+    user_info: dict = Depends(get_current_user)
+):
     """
     Execute restore from GitHub to N8N instance.
     Creates snapshots of existing workflows before updating them.
     """
     try:
+        tenant_id = user_info.get("tenant", {}).get("id", MOCK_TENANT_ID)
+        user = user_info.get("user", {})
+        user_role = user.get("role", "user")
+        
         # Get environment configuration
-        env_config = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
+        env_config = await db_service.get_environment(environment_id, tenant_id)
         if not env_config:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Environment not found"
             )
+        
+        # Check action guard for restore/rollback
+        env_class_str = env_config.get("environment_class", "dev")
+        try:
+            env_class = EnvironmentClass(env_class_str)
+        except ValueError:
+            env_class = EnvironmentClass.DEV
+        
+        # Get org policy flags
+        org_policy_flags = env_config.get("policy_flags", {}) or {}
+        
+        try:
+            environment_action_guard.assert_can_perform_action(
+                env_class=env_class,
+                action=EnvironmentAction.RESTORE_ROLLBACK,
+                user_role=user_role,
+                org_policy_flags=org_policy_flags,
+                environment_name=env_config.get("n8n_name", environment_id)
+            )
+        except ActionGuardError as e:
+            raise e
 
         # Check GitHub configuration
         git_repo_url = env_config.get("git_repo_url")

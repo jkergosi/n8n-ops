@@ -63,7 +63,10 @@ npm run dev -- --port <FRONTEND_PORT>
 - **Promotions**: Move workflows with gates, approvals, drift detection
 - **Drift Detection**: Automated drift monitoring, incidents, and reconciliation
 - **Drift Policies**: TTL/SLA-based governance with enterprise controls
+- **Drift Reports**: Comprehensive drift reporting and history tracking
+- **Drift Retention**: Configurable retention policies for drift data
 - **Incident Management**: Lifecycle tracking for drift incidents (open/acknowledged/resolved)
+- **Environment Capabilities**: Policy-based action guards per environment class
 - **Snapshots**: Git-backed environment state versioning
 - **Restore**: Restore workflows from snapshots
 - **Deployments**: Track promotion history, scheduling, and rollback
@@ -93,17 +96,17 @@ n8n-ops/
 │   ├── CLAUDE.md                # Backend-specific docs
 │   ├── app/
 │   │   ├── main.py              # App entry, router registration
-│   │   ├── api/endpoints/       # 36 API routers
-│   │   ├── services/            # 27 business logic services
-│   │   ├── schemas/             # 22 Pydantic model files
+│   │   ├── api/endpoints/       # 38 API routers
+│   │   ├── services/            # 28 business logic services
+│   │   ├── schemas/             # 21 Pydantic model files
 │   │   └── core/                # Config, feature gates
 │   ├── alembic/                 # Alembic migrations
 │   ├── migrations/              # SQL migrations
-│   └── tests/                   # 33 pytest test files
+│   └── tests/                   # 35 pytest test files
 ├── n8n-ops-ui/                  # React frontend
 │   ├── CLAUDE.md                # Frontend-specific docs
 │   └── src/
-│       ├── pages/               # 29 pages + 16 admin pages
+│       ├── pages/               # 32 pages + 16 admin pages
 │       ├── components/          # UI, workflow, pipeline components
 │       ├── hooks/               # Custom React hooks
 │       ├── lib/                 # API client, auth, features

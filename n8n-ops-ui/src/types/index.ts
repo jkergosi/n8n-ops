@@ -464,13 +464,19 @@ export interface DriftIncident {
   expires_at?: string;
   severity?: DriftSeverity;
 
-  // Drift data
+  // Drift data (may be null if purged per retention policy)
   affected_workflows: AffectedWorkflow[];
   drift_snapshot?: Record<string, any>;
 
   // Resolution tracking
   resolution_type?: ResolutionType;
   resolution_details?: Record<string, any>;
+
+  // Retention/soft-delete fields
+  payload_purged_at?: string;
+  is_deleted?: boolean;
+  deleted_at?: string;
+  payload_available?: boolean;
 }
 
 export interface DriftIncidentListResponse {
@@ -495,6 +501,10 @@ export interface DriftPolicy {
   notify_on_detection: boolean;
   notify_on_expiration_warning: boolean;
   expiration_warning_hours: number;
+  retention_enabled: boolean;
+  retention_days_closed_incidents: number;
+  retention_days_reconciliation_artifacts: number;
+  retention_days_approvals: number;
   created_at: string;
   updated_at: string;
 }
@@ -512,6 +522,10 @@ export interface DriftPolicyCreate {
   notify_on_detection?: boolean;
   notify_on_expiration_warning?: boolean;
   expiration_warning_hours?: number;
+  retention_enabled?: boolean;
+  retention_days_closed_incidents?: number;
+  retention_days_reconciliation_artifacts?: number;
+  retention_days_approvals?: number;
 }
 
 export interface DriftPolicyUpdate {
@@ -527,6 +541,10 @@ export interface DriftPolicyUpdate {
   notify_on_detection?: boolean;
   notify_on_expiration_warning?: boolean;
   expiration_warning_hours?: number;
+  retention_enabled?: boolean;
+  retention_days_closed_incidents?: number;
+  retention_days_reconciliation_artifacts?: number;
+  retention_days_approvals?: number;
 }
 
 export interface DriftPolicyTemplate {

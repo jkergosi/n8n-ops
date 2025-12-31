@@ -10,6 +10,12 @@ from app.services.provider_registry import ProviderRegistry
 from app.services.notification_service import notification_service
 from app.services.auth_service import get_current_user
 from app.core.entitlements_gate import require_entitlement
+from app.services.environment_action_guard import (
+    environment_action_guard,
+    EnvironmentAction,
+    ActionGuardError
+)
+from app.schemas.environment import EnvironmentClass
 
 logger = logging.getLogger(__name__)
 from app.schemas.deployment import (
@@ -121,14 +127,38 @@ async def create_manual_snapshot(
     """
     try:
         environment_id = request.environment_id
+        tenant_id = user_info.get("tenant", {}).get("id", MOCK_TENANT_ID)
+        user = user_info.get("user", {})
+        user_role = user.get("role", "user")
         
         # Get environment config
-        env_config = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
+        env_config = await db_service.get_environment(environment_id, tenant_id)
         if not env_config:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Environment {environment_id} not found",
             )
+        
+        # Check action guard for manual snapshot
+        env_class_str = env_config.get("environment_class", "dev")
+        try:
+            env_class = EnvironmentClass(env_class_str)
+        except ValueError:
+            env_class = EnvironmentClass.DEV
+        
+        # Get org policy flags (for now, from environment metadata or defaults)
+        org_policy_flags = env_config.get("policy_flags", {}) or {}
+        
+        try:
+            environment_action_guard.assert_can_perform_action(
+                env_class=env_class,
+                action=EnvironmentAction.MANUAL_SNAPSHOT,
+                user_role=user_role,
+                org_policy_flags=org_policy_flags,
+                environment_name=env_config.get("n8n_name", environment_id)
+            )
+        except ActionGuardError as e:
+            raise e
 
         # Check GitHub config
         if not env_config.get("git_repo_url") or not env_config.get("git_pat"):
@@ -476,6 +506,8 @@ async def restore_snapshot(
     Requires snapshots_enabled entitlement.
     """
     tenant_id = user_info["tenant"]["id"]
+    user = user_info.get("user", {})
+    user_role = user.get("role", "user")
 
     try:
         # Get snapshot
@@ -505,6 +537,27 @@ async def restore_snapshot(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Environment {environment_id} not found",
             )
+        
+        # Check action guard for restore/rollback
+        env_class_str = env_config.get("environment_class", "dev")
+        try:
+            env_class = EnvironmentClass(env_class_str)
+        except ValueError:
+            env_class = EnvironmentClass.DEV
+        
+        # Get org policy flags
+        org_policy_flags = env_config.get("policy_flags", {}) or {}
+        
+        try:
+            environment_action_guard.assert_can_perform_action(
+                env_class=env_class,
+                action=EnvironmentAction.RESTORE_ROLLBACK,
+                user_role=user_role,
+                org_policy_flags=org_policy_flags,
+                environment_name=env_config.get("n8n_name", environment_id)
+            )
+        except ActionGuardError as e:
+            raise e
 
         # Check GitHub config
         if not env_config.get("git_repo_url") or not env_config.get("git_pat"):

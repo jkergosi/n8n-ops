@@ -16,6 +16,12 @@ from app.services.diff_service import compare_workflows
 from app.services.sync_status_service import compute_sync_status
 from app.core.entitlements_gate import require_workflow_limit, require_entitlement
 from app.api.endpoints.admin_audit import create_audit_log, AuditActionType
+from app.services.environment_action_guard import (
+    environment_action_guard,
+    EnvironmentAction,
+    ActionGuardError
+)
+from app.schemas.environment import EnvironmentClass
 from app.services.background_job_service import (
     background_job_service,
     BackgroundJobStatus,
@@ -737,6 +743,7 @@ async def sync_workflows_to_github(
         tenant_id = tenant["id"]
         user = user_info.get("user", {})
         user_id = user.get("id", "00000000-0000-0000-0000-000000000000")
+        user_role = user.get("role", "user")
         
         env_config = await resolve_environment_config(environment_id, environment)
 
@@ -745,6 +752,23 @@ async def sync_workflows_to_github(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Environment '{environment}' not configured"
             )
+        
+        # Check action guard for backup
+        env_class_str = env_config.get("environment_class", "dev")
+        try:
+            env_class = EnvironmentClass(env_class_str)
+        except ValueError:
+            env_class = EnvironmentClass.DEV
+        
+        try:
+            environment_action_guard.assert_can_perform_action(
+                env_class=env_class,
+                action=EnvironmentAction.BACKUP,
+                user_role=user_role,
+                environment_name=env_config.get("n8n_name", env_config.get("id"))
+            )
+        except ActionGuardError as e:
+            raise e
 
         # Check if GitHub is configured
         if not env_config.get("git_repo_url"):

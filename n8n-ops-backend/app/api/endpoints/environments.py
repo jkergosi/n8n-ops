@@ -952,3 +952,103 @@ async def sync_tags_only(environment_id: str):
         )
 
 
+# =============================================================================
+# Drift Detection Endpoints
+# =============================================================================
+
+@router.get("/{environment_id}/drift")
+async def get_environment_drift(
+    environment_id: str,
+    refresh: bool = False,
+    _: dict = Depends(require_entitlement("environment_basic"))
+):
+    """
+    Get drift status for an environment.
+
+    By default returns cached drift status. Set refresh=true to run fresh detection.
+
+    Returns:
+        - driftStatus: IN_SYNC | DRIFT_DETECTED | UNKNOWN | ERROR
+        - lastDriftDetectedAt: Timestamp of last detection
+        - summary: Detailed drift summary (when refresh=true or recently detected)
+    """
+    from app.services.drift_detection_service import drift_detection_service
+
+    try:
+        if refresh:
+            # Run fresh drift detection
+            summary = await drift_detection_service.detect_drift(
+                tenant_id=MOCK_TENANT_ID,
+                environment_id=environment_id,
+                update_status=True
+            )
+            return {
+                "driftStatus": "DRIFT_DETECTED" if (summary.with_drift > 0 or summary.not_in_git > 0) else "IN_SYNC",
+                "lastDriftDetectedAt": summary.last_detected_at,
+                "gitConfigured": summary.git_configured,
+                "summary": summary.to_dict(),
+                "error": summary.error
+            }
+        else:
+            # Return cached status
+            cached = await drift_detection_service.get_cached_drift_status(
+                tenant_id=MOCK_TENANT_ID,
+                environment_id=environment_id
+            )
+            return cached
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get drift status: {str(e)}"
+        )
+
+
+@router.post("/{environment_id}/drift/refresh")
+async def refresh_environment_drift(
+    environment_id: str,
+    background_tasks: BackgroundTasks,
+    _: dict = Depends(require_entitlement("environment_basic"))
+):
+    """
+    Trigger a fresh drift detection for an environment.
+
+    Runs drift detection in the foreground and returns the full summary.
+    For very large environments, consider using background job approach.
+    """
+    from app.services.drift_detection_service import drift_detection_service
+
+    try:
+        # Verify environment exists
+        environment = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
+        if not environment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Environment not found"
+            )
+
+        # Run drift detection
+        summary = await drift_detection_service.detect_drift(
+            tenant_id=MOCK_TENANT_ID,
+            environment_id=environment_id,
+            update_status=True
+        )
+
+        return {
+            "success": True,
+            "driftStatus": "DRIFT_DETECTED" if (summary.with_drift > 0 or summary.not_in_git > 0) else "IN_SYNC",
+            "lastDriftDetectedAt": summary.last_detected_at,
+            "gitConfigured": summary.git_configured,
+            "summary": summary.to_dict(),
+            "error": summary.error
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to refresh drift status: {str(e)}"
+        )
+
+

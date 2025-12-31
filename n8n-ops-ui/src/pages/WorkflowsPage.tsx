@@ -1,7 +1,7 @@
 // @ts-nocheck
 // TODO: Fix TypeScript errors in this file
 import { useState, useMemo, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,14 @@ import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Workflow, EnvironmentType } from '@/types';
 
+// Workflow governance components
+import { WorkflowActionsMenu } from '@/components/workflow/WorkflowActionsMenu';
+import { DirectEditWarningDialog } from '@/components/workflow/DirectEditWarningDialog';
+import { HardDeleteConfirmDialog } from '@/components/workflow/HardDeleteConfirmDialog';
+import { getWorkflowActionPolicy } from '@/lib/workflow-action-policy';
+import { useFeatures } from '@/lib/features';
+import { useAuth } from '@/lib/auth';
+
 type SortField = 'name' | 'description' | 'active' | 'executions' | 'updatedAt';
 type SortDirection = 'asc' | 'desc';
 
@@ -44,9 +52,14 @@ export function WorkflowsPage() {
   }, []);
 
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const selectedEnvironment = useAppStore((state) => state.selectedEnvironment);
   const setSelectedEnvironment = useAppStore((state) => state.setSelectedEnvironment);
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Governance hooks
+  const { planName } = useFeatures();
+  const { user } = useAuth();
 
   // Initialize searchQuery from URL params
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
@@ -79,6 +92,13 @@ export function WorkflowsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [workflowToEdit, setWorkflowToEdit] = useState<Workflow | null>(null);
   const [workflowToDelete, setWorkflowToDelete] = useState<Workflow | null>(null);
+
+  // Governance dialog state
+  const [driftWarningOpen, setDriftWarningOpen] = useState(false);
+  const [hardDeleteOpen, setHardDeleteOpen] = useState(false);
+  const [pendingEditWorkflow, setPendingEditWorkflow] = useState<Workflow | null>(null);
+  const [pendingDeleteWorkflow, setPendingDeleteWorkflow] = useState<Workflow | null>(null);
+
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [isBackingUp, setIsBackingUp] = useState(false);
@@ -233,6 +253,37 @@ export function WorkflowsPage() {
     onError: () => {
       toast.error('Failed to delete workflow');
       setDeleteDialogOpen(false);
+    },
+  });
+
+  // Archive mutation (soft delete)
+  const archiveMutation = useMutation({
+    mutationFn: (workflowId: string) =>
+      api.archiveWorkflow(workflowId, selectedEnvironment!),
+    onSuccess: () => {
+      toast.success('Workflow archived successfully');
+      queryClient.invalidateQueries({ queryKey: ['workflows', selectedEnvironment] });
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.detail || 'Failed to archive workflow';
+      toast.error(message);
+    },
+  });
+
+  // Hard delete mutation (permanent delete)
+  const hardDeleteMutation = useMutation({
+    mutationFn: (workflowId: string) =>
+      api.permanentlyDeleteWorkflow(workflowId, selectedEnvironment!),
+    onSuccess: () => {
+      toast.success('Workflow permanently deleted');
+      queryClient.invalidateQueries({ queryKey: ['workflows', selectedEnvironment] });
+      setHardDeleteOpen(false);
+      setPendingDeleteWorkflow(null);
+    },
+    onError: (error: any) => {
+      const message = error.response?.data?.detail || 'Failed to delete workflow';
+      toast.error(message);
+      setHardDeleteOpen(false);
     },
   });
 
@@ -488,7 +539,8 @@ export function WorkflowsPage() {
 
   const hasActiveFilters = searchQuery || selectedTag.length > 0 || selectedStatus;
 
-  const handleEditClick = (workflow: Workflow) => {
+  // Opens the edit dialog directly (called after policy check or confirmation)
+  const openEditDialog = (workflow: Workflow) => {
     setWorkflowToEdit(workflow);
     setEditForm({
       name: workflow.name,
@@ -496,6 +548,34 @@ export function WorkflowsPage() {
       tags: workflow.tags || [],
     });
     setEditDialogOpen(true);
+  };
+
+  // Edit click handler - checks policy and shows warning if needed
+  const handleEditClick = (workflow: Workflow) => {
+    // Use pure function (NOT hook) inside event handler
+    const hasDrift = workflow.syncStatus === 'local_changes' || workflow.syncStatus === 'conflict';
+    const policy = getWorkflowActionPolicy(
+      currentEnvironment || null,
+      planName,
+      user?.role || 'user',
+      hasDrift
+    );
+
+    if (policy.editRequiresConfirmation) {
+      setPendingEditWorkflow(workflow);
+      setDriftWarningOpen(true);
+    } else {
+      openEditDialog(workflow);
+    }
+  };
+
+  // Called when user confirms drift warning
+  const handleDriftWarningConfirm = () => {
+    if (pendingEditWorkflow) {
+      openEditDialog(pendingEditWorkflow);
+      setPendingEditWorkflow(null);
+    }
+    setDriftWarningOpen(false);
   };
 
   const handleEditSubmit = () => {
@@ -509,6 +589,25 @@ export function WorkflowsPage() {
     });
   };
 
+  // Soft delete (archive) - hides workflow but doesn't remove from N8N
+  const handleSoftDelete = (workflow: Workflow) => {
+    archiveMutation.mutate(workflow.id);
+  };
+
+  // Hard delete click - shows confirmation dialog
+  const handleHardDeleteClick = (workflow: Workflow) => {
+    setPendingDeleteWorkflow(workflow);
+    setHardDeleteOpen(true);
+  };
+
+  // Called when user confirms hard delete
+  const handleHardDeleteConfirm = () => {
+    if (pendingDeleteWorkflow) {
+      hardDeleteMutation.mutate(pendingDeleteWorkflow.id);
+    }
+  };
+
+  // Legacy delete handler (for backward compatibility with existing dialogs)
   const handleDeleteClick = (workflow: Workflow) => {
     setWorkflowToDelete(workflow);
     setDeleteDialogOpen(true);
@@ -518,6 +617,22 @@ export function WorkflowsPage() {
     if (workflowToDelete) {
       deleteMutation.mutate({ workflowId: workflowToDelete.id });
     }
+  };
+
+  // Governance handlers for WorkflowActionsMenu
+  const handleCreateDeployment = (workflow: Workflow) => {
+    // Navigate to new deployment page with workflow context
+    navigate(`/deployments/new?workflow=${workflow.id}&source=${currentEnvironment?.id}`);
+  };
+
+  const handleViewDriftIncident = (workflow: Workflow) => {
+    if (currentEnvironment?.activeDriftIncidentId) {
+      navigate(`/incidents/${currentEnvironment.activeDriftIncidentId}`);
+    }
+  };
+
+  const handleCreateDriftIncident = (workflow: Workflow) => {
+    navigate(`/incidents/new?environment=${currentEnvironment?.id}&workflow=${workflow.id}`);
   };
 
   const handleRefresh = async () => {
@@ -750,35 +865,18 @@ export function WorkflowsPage() {
                       {new Date(workflow.updatedAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openInN8N(workflow.id)}
-                          title="Open in N8N"
-                        >
-                          <ExternalLink className="h-3 w-3 mr-1" />
-                          n8n
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleEditClick(workflow)}
-                          title="Edit workflow"
-                        >
-                          <Edit className="h-3 w-3 mr-1" />
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDeleteClick(workflow)}
-                          title="Delete workflow"
-                        >
-                          <Trash2 className="h-3 w-3 mr-1" />
-                          Delete
-                        </Button>
-                      </div>
+                      <WorkflowActionsMenu
+                        workflow={workflow}
+                        environment={currentEnvironment || null}
+                        onViewDetails={() => navigate(`/workflows/${workflow.id}`)}
+                        onEdit={() => handleEditClick(workflow)}
+                        onSoftDelete={() => handleSoftDelete(workflow)}
+                        onHardDelete={() => handleHardDeleteClick(workflow)}
+                        onOpenInN8N={() => openInN8N(workflow.id)}
+                        onCreateDeployment={() => handleCreateDeployment(workflow)}
+                        onViewDriftIncident={() => handleViewDriftIncident(workflow)}
+                        onCreateDriftIncident={() => handleCreateDriftIncident(workflow)}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -967,7 +1065,7 @@ export function WorkflowsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Confirmation Dialog (legacy - kept for backward compatibility) */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -990,6 +1088,21 @@ export function WorkflowsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Governance Dialogs */}
+      <DirectEditWarningDialog
+        open={driftWarningOpen}
+        onOpenChange={setDriftWarningOpen}
+        workflowName={pendingEditWorkflow?.name || ''}
+        environmentType={currentEnvironment?.environmentClass || currentEnvironment?.type || 'dev'}
+        onConfirm={handleDriftWarningConfirm}
+      />
+      <HardDeleteConfirmDialog
+        open={hardDeleteOpen}
+        onOpenChange={setHardDeleteOpen}
+        workflowName={pendingDeleteWorkflow?.name || ''}
+        onConfirm={handleHardDeleteConfirm}
+      />
     </div>
   );
 }

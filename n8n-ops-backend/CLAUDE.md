@@ -104,6 +104,25 @@ All endpoints prefixed with `/api/v1`.
 | GET | `/{id}` | Get snapshot details |
 | POST | `/{id}/restore` | Restore snapshot |
 
+### Drift & Incidents (`/incidents`, `/drift-policies`, `/drift-approvals`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/incidents` | List drift incidents |
+| GET | `/incidents/{id}` | Get incident details |
+| POST | `/incidents/{id}/acknowledge` | Acknowledge incident |
+| POST | `/incidents/{id}/resolve` | Resolve incident |
+| GET | `/drift-policies` | Get tenant drift policy |
+| PUT | `/drift-policies` | Update drift policy |
+| GET | `/drift-policies/templates` | Get policy templates |
+| GET | `/drift-approvals` | List pending approvals |
+| POST | `/drift-approvals/{id}/approve` | Approve drift change |
+| POST | `/drift-approvals/{id}/reject` | Reject drift change |
+
+### Workflow Policy (`/workflows/policy`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/policy/{environment_id}` | Get action policy for environment |
+
 ### Other Endpoints
 | Router | Prefix | Description |
 |--------|--------|-------------|
@@ -121,6 +140,8 @@ All endpoints prefixed with `/api/v1`.
 | `support` | `/support` | Support tickets |
 | `sse` | `/sse` | Server-sent events |
 | `providers` | `/providers` | Workflow automation providers |
+| `background_jobs` | `/background-jobs` | Background job status |
+| `health` | `/health` | Health check endpoint |
 
 ### Admin Endpoints
 | Router | Prefix | Description |
@@ -158,12 +179,17 @@ All endpoints prefixed with `/api/v1`.
 | `sse_pubsub_service.py` | Real-time event publishing |
 | `provider_adapter.py` | Multi-provider workflow abstraction |
 | `provider_registry.py` | Provider registration system |
+| `drift_detection_service.py` | Automated drift monitoring between environments |
+| `drift_incident_service.py` | Drift incident lifecycle management |
+| `reconciliation_service.py` | Drift reconciliation and remediation |
+| `drift_scheduler.py` | Scheduled drift detection jobs |
+| `deployment_scheduler.py` | Scheduled deployment execution |
 
 ## Schemas (Pydantic Models)
 
 | File | Key Models |
 |------|------------|
-| `environment.py` | `EnvironmentCreate`, `EnvironmentResponse` |
+| `environment.py` | `EnvironmentCreate`, `EnvironmentResponse`, `EnvironmentClass` |
 | `workflow.py` | `WorkflowResponse`, `WorkflowUpload` |
 | `pipeline.py` | `PipelineStage`, `PipelineResponse` |
 | `promotion.py` | `PromotionInitiateRequest`, `PromotionStatus` |
@@ -181,6 +207,9 @@ All endpoints prefixed with `/api/v1`.
 | `sse.py` | `SSEEvent`, `SSEMessage` |
 | `environment_type.py` | `EnvironmentTypeResponse` |
 | `provider.py` | `ProviderConfig`, `ProviderResponse` |
+| `drift_incident.py` | `DriftIncidentCreate`, `DriftIncidentResponse`, `DriftIncidentStatus` |
+| `drift_policy.py` | `DriftPolicyCreate`, `DriftPolicyResponse`, `DriftPolicyTemplate` |
+| `workflow_policy.py` | `WorkflowPolicyResponse`, `EnvironmentClass`, `ActionPermissions` |
 
 ## Database Tables
 
@@ -188,7 +217,7 @@ All endpoints prefixed with `/api/v1`.
 |-------|---------|
 | `tenants` | Multi-tenant orgs (id, name, subscription_tier) |
 | `users` | Team members (tenant_id, email, role) |
-| `environments` | N8N instances (base_url, api_key, git config) |
+| `environments` | N8N instances (base_url, api_key, git config, environment_class) |
 | `workflows` | Cached workflow data (n8n_workflow_id, workflow_data JSONB) |
 | `executions` | Execution history |
 | `tags` | Workflow tags |
@@ -199,6 +228,11 @@ All endpoints prefixed with `/api/v1`.
 | `deployments` | Deployment tracking (source/target env, status) |
 | `snapshots` | Git-backed env snapshots (commit_sha, type) |
 | `deployment_workflows` | Per-workflow deployment results |
+| `drift_incidents` | Drift incident records (status, severity, acknowledged_at) |
+| `drift_policies` | TTL/SLA governance policies per tenant |
+| `drift_approvals` | Pending approval requests for drift changes |
+| `reconciliation_artifacts` | Artifacts from reconciliation attempts |
+| `workflow_archive` | Archived/deleted workflow history |
 
 ## Core Patterns
 

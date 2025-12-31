@@ -23,16 +23,13 @@ function Show-Menu {
     Write-Host "  n8n-ops Feature Manager" -ForegroundColor Cyan
     Write-Host "  =======================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "  FEATURE     START    FINISH   DESTROY" -ForegroundColor White
-    Write-Host "  -------     -----    ------   -------" -ForegroundColor Gray
+    Write-Host "  BRANCH      START    FINISH   DESTROY" -ForegroundColor White
+    Write-Host "  ------      -----    ------   -------" -ForegroundColor Gray
+    Write-Host "  main        M        M1       -        (localhost:3000/4000)"
     Write-Host "  f1          1        F1       D1       (localhost:3001/4001)"
     Write-Host "  f2          2        F2       D2       (localhost:3002/4002)"
     Write-Host "  f3          3        F3       D3       (localhost:3003/4003)"
     Write-Host "  f4          4        F4       D4       (localhost:3004/4004)"
-    Write-Host ""
-    Write-Host "  MAIN" -ForegroundColor Magenta
-    Write-Host "    M   Open main (localhost:3000/4000)"
-    Write-Host "    CM  Commit & push main"
     Write-Host ""
     Write-Host "  OTHER" -ForegroundColor Gray
     Write-Host "    L   List worktrees"
@@ -336,7 +333,7 @@ do {
         "D4" { Destroy-Feature "f4"; pause }
         # Main
         "M"  { Start-Feature "main"; pause }
-        "CM" { Commit-Main; pause }
+        "M1" { Commit-Main; pause }
         # Other
         "L"  { List-Worktrees; pause }
         "Q"  { exit }

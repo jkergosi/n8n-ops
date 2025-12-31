@@ -299,21 +299,23 @@ export function NewDeploymentPage() {
     onSuccess: (data) => {
       const job = data.data;
       setJobStatus(job);
-      
+
       if (job.status === 'completed') {
         toast.success('Deployment completed successfully');
         queryClient.invalidateQueries({ queryKey: ['promotions'] });
         queryClient.invalidateQueries({ queryKey: ['deployments'] });
-        setPollingPromotionId(null);
+        setPollingDeploymentId(null);
         setTimeout(() => navigate('/deployments'), 2000);
       } else if (job.status === 'failed') {
         toast.error(`Deployment failed: ${job.error_message || 'Unknown error'}`);
-        setPollingPromotionId(null);
+        setPollingDeploymentId(null);
+        // Navigate to deployments page so user can see details
+        setTimeout(() => navigate('/deployments'), 2000);
       }
     },
     onError: () => {
       // If polling fails, stop polling and navigate to deployments
-      setPollingPromotionId(null);
+      setPollingDeploymentId(null);
       navigate('/deployments');
     }
   });

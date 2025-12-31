@@ -25,6 +25,7 @@ Check port in `../.env.local` (default: 3000 for main worktree).
 | Page | Route | Description |
 |------|-------|-------------|
 | `EnvironmentsPage` | `/environments` | List N8N instances, sync, backup |
+| `EnvironmentDetailPage` | `/environments/:id` | Environment details, workflows, settings |
 | `EnvironmentSetupPage` | `/environments/new` | Create/edit environment |
 | `RestorePage` | `/environments/:id/restore` | Restore from snapshots |
 
@@ -36,7 +37,20 @@ Check port in `../.env.local` (default: 3000 for main worktree).
 | `PromotionPage` | `/promote` | Execute workflow promotions |
 | `DeploymentsPage` | `/deployments` | Deployment history, status |
 | `DeploymentDetailPage` | `/deployments/:id` | Individual deployment details |
+| `NewDeploymentPage` | `/deployments/new` | Create new deployment |
 | `SnapshotsPage` | `/snapshots` | Environment snapshot history |
+
+### Drift & Incidents
+| Page | Route | Description |
+|------|-------|-------------|
+| `IncidentsPage` | `/incidents` | List drift incidents, filter by status |
+| `IncidentDetailPage` | `/incidents/:id` | Incident details, acknowledge, resolve |
+
+### Activity Center
+| Page | Route | Description |
+|------|-------|-------------|
+| `ActivityCenterPage` | `/activity` | Unified activity feed |
+| `ActivityDetailPage` | `/activity/:id` | Activity item details |
 
 ### Team & Admin
 | Page | Route | Description |
@@ -69,6 +83,7 @@ Check port in `../.env.local` (default: 3000 for main worktree).
 | `EntitlementsAuditPage` | `/admin/entitlements-audit` | Entitlement change history |
 | `SupportConfigPage` | `/admin/support-config` | Support system settings |
 | `CredentialHealthPage` | `/admin/credential-health` | Credential monitoring |
+| `DriftPoliciesPage` | `/admin/drift-policies` | Drift detection policy config |
 
 ## State Management
 
@@ -176,21 +191,44 @@ shadcn/ui components: `button`, `card`, `dialog`, `table`, `tabs`, `input`, `sel
 - `WorkflowHeroSection.tsx` - Workflow header, metadata
 - `NodeDetailsPanel.tsx` - Selected node details
 - `NodeConfigView.tsx` - Node parameters, credentials
+- `WorkflowActionsMenu.tsx` - Context menu for workflow actions
+- `DirectEditWarningDialog.tsx` - Warning for production direct edits
+- `HardDeleteConfirmDialog.tsx` - Confirmation for permanent deletion
 
 ### Pipeline Components (`src/components/pipeline/`)
 - `EnvironmentSequence.tsx` - Visual env promotion path
 - `StageCard.tsx` - Stage config (gates, approvals, schedule)
 
+## Custom Hooks (`src/hooks/`)
+
+| Hook | Purpose |
+|------|---------|
+| `useWorkflowActionPolicy.ts` | Fetches workflow action permissions based on environment class |
+
+### Workflow Action Policy (`src/lib/workflow-action-policy.ts`)
+```typescript
+// Determines what workflow actions are allowed based on environment class
+import { getActionPolicy, ActionPolicy } from '@/lib/workflow-action-policy';
+
+const policy = getActionPolicy(environmentClass, userRole);
+if (policy.canDirectEdit) {
+  // Show edit button
+}
+```
+
 ## Types (`src/types/index.ts`)
 
 Key interfaces:
 ```typescript
-interface Environment { id, name, type, baseUrl, apiKey, ... }
+interface Environment { id, name, type, baseUrl, apiKey, environmentClass, ... }
 interface Workflow { id, name, active, tags, nodes, ... }
 interface Pipeline { id, name, stages, environmentIds, ... }
 interface PipelineStage { sourceEnvironmentId, targetEnvironmentId, gates, approvals, ... }
 interface Deployment { id, status, sourceEnvironmentId, targetEnvironmentId, ... }
 interface Snapshot { id, environmentId, gitCommitSha, type, ... }
+interface DriftIncident { id, status, severity, workflowId, environmentId, ... }
+interface DriftPolicy { id, tenantId, ttlHours, slaHours, autoResolve, ... }
+interface WorkflowActionPolicy { canDirectEdit, canDelete, canActivate, requiresApproval, ... }
 ```
 
 ## Environment Variables

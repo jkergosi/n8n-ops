@@ -14,6 +14,7 @@ export const MENU_VISIBILITY: MenuItemVisibility[] = [
   { id: 'deployments', roles: ['user', 'admin', 'agency', 'superuser'] },
   { id: 'snapshots', roles: ['user', 'admin', 'agency', 'superuser'] },
   { id: 'drift', roles: ['user', 'admin', 'agency', 'superuser'] },
+  { id: 'incidents', roles: ['user', 'admin', 'agency', 'superuser'] },
   { id: 'observability', roles: ['user', 'admin', 'agency', 'superuser'] },
   { id: 'alerts', roles: ['user', 'admin', 'agency', 'superuser'] },
   { id: 'credentials', roles: ['user', 'admin', 'agency', 'superuser'] },
@@ -29,6 +30,7 @@ export const MENU_VISIBILITY: MenuItemVisibility[] = [
   { id: 'security', roles: ['admin', 'agency', 'superuser'] },
   { id: 'systemSettings', roles: ['admin', 'agency', 'superuser'] },
   { id: 'supportConfig', roles: ['admin', 'superuser'] },
+  { id: 'driftPolicies', roles: ['admin', 'superuser'] },
 ];
 
 // Route to menu item ID mapping
@@ -41,6 +43,7 @@ export const ROUTE_TO_MENU_ID: Record<string, string> = {
   '/deployments': 'deployments',
   '/snapshots': 'snapshots',
   '/drift': 'drift',
+  '/incidents': 'incidents',
   '/observability': 'observability',
   '/admin/notifications': 'alerts',
   '/credentials': 'credentials',
@@ -56,6 +59,7 @@ export const ROUTE_TO_MENU_ID: Record<string, string> = {
   '/admin/security': 'security',
   '/admin/settings': 'systemSettings',
   '/admin/support-config': 'supportConfig',
+  '/admin/drift-policies': 'driftPolicies',
 };
 
 // Helper function to check if a route is accessible by a role

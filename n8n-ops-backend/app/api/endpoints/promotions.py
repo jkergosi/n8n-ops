@@ -43,6 +43,110 @@ from app.api.endpoints.sse import emit_deployment_upsert, emit_deployment_progre
 
 router = APIRouter()
 
+
+async def check_drift_policy_blocking(
+    tenant_id: str,
+    target_environment_id: str
+) -> dict:
+    """
+    Check if drift policy blocks the deployment.
+
+    Returns dict with:
+    - blocked: bool - whether deployment is blocked
+    - reason: str - reason for blocking (if blocked)
+    - details: dict - additional details about the block
+    """
+    from app.services.feature_service import feature_service
+
+    try:
+        # Check if tenant has drift_policies feature
+        can_use_policies, _ = await feature_service.can_use_feature(tenant_id, "drift_policies")
+        if not can_use_policies:
+            # No policy feature = no blocking
+            return {"blocked": False, "reason": None, "details": {}}
+
+        # Get tenant's drift policy
+        policy_response = db_service.client.table("drift_policies").select(
+            "*"
+        ).eq("tenant_id", tenant_id).execute()
+
+        if not policy_response.data or len(policy_response.data) == 0:
+            # No policy defined = no blocking
+            return {"blocked": False, "reason": None, "details": {}}
+
+        policy = policy_response.data[0]
+
+        # Check if policy blocks on drift or expired incidents
+        block_on_drift = policy.get("block_deployments_on_drift", False)
+        block_on_expired = policy.get("block_deployments_on_expired", False)
+
+        if not block_on_drift and not block_on_expired:
+            # Policy doesn't block anything
+            return {"blocked": False, "reason": None, "details": {}}
+
+        # Get active drift incidents for target environment
+        incidents_response = db_service.client.table("drift_incidents").select(
+            "id, status, severity, expires_at, title"
+        ).eq("tenant_id", tenant_id).eq("environment_id", target_environment_id).in_(
+            "status", ["detected", "acknowledged", "stabilized"]
+        ).order("created_at", desc=True).limit(1).execute()
+
+        if not incidents_response.data or len(incidents_response.data) == 0:
+            # No active incidents = no blocking
+            return {"blocked": False, "reason": None, "details": {}}
+
+        incident = incidents_response.data[0]
+        incident_id = incident.get("id")
+
+        # Check for expired TTL
+        if block_on_expired and incident.get("expires_at"):
+            from datetime import datetime, timezone
+            expires_at_str = incident.get("expires_at")
+            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+            now = datetime.now(timezone.utc)
+            if now >= expires_at:
+                return {
+                    "blocked": True,
+                    "reason": "drift_incident_expired",
+                    "details": {
+                        "incident_id": incident_id,
+                        "incident_title": incident.get("title"),
+                        "severity": incident.get("severity"),
+                        "expired_at": expires_at_str,
+                        "message": (
+                            f"Deployment blocked: Drift incident has expired. "
+                            f"Please resolve or extend the TTL for incident '{incident.get('title')}' before deploying."
+                        )
+                    }
+                }
+
+        # Check for active drift (not necessarily expired)
+        if block_on_drift:
+            return {
+                "blocked": True,
+                "reason": "active_drift_incident",
+                "details": {
+                    "incident_id": incident_id,
+                    "incident_title": incident.get("title"),
+                    "severity": incident.get("severity"),
+                    "status": incident.get("status"),
+                    "message": (
+                        f"Deployment blocked: Active drift incident exists. "
+                        f"Please resolve incident '{incident.get('title')}' before deploying to this environment."
+                    )
+                }
+            }
+
+        return {"blocked": False, "reason": None, "details": {}}
+
+    except Exception as e:
+        logger.warning(f"Failed to check drift policy blocking: {e}")
+        # On error, don't block - fail open
+        return {"blocked": False, "reason": None, "details": {"error": str(e)}}
+
 # TODO: Replace with actual tenant ID from authenticated user
 MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
 
@@ -77,6 +181,21 @@ async def initiate_deployment(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No stage found for this source -> target environment pair"
+            )
+
+        # Check drift policy blocking for target environment
+        drift_block = await check_drift_policy_blocking(
+            tenant_id=MOCK_TENANT_ID,
+            target_environment_id=request.target_environment_id
+        )
+        if drift_block.get("blocked"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "deployment_blocked_by_drift_policy",
+                    "reason": drift_block.get("reason"),
+                    **drift_block.get("details", {})
+                }
             )
 
         # Check if approval required
@@ -463,8 +582,12 @@ async def execute_deployment(
             )
 
     try:
+        # The deployment_id parameter is actually the promotion_id from the initiate step
+        # We'll create a new deployment_id later, so alias this correctly
+        promotion_id = deployment_id
+
         # Get promotion record (still uses promotion_id in DB)
-        promotion = await db_service.get_promotion(deployment_id, MOCK_TENANT_ID)
+        promotion = await db_service.get_promotion(promotion_id, MOCK_TENANT_ID)
         if not promotion:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -486,6 +609,21 @@ async def execute_deployment(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Source or target environment not found"
+            )
+
+        # Re-check drift policy blocking before execution (may have changed since initiation)
+        drift_block = await check_drift_policy_blocking(
+            tenant_id=MOCK_TENANT_ID,
+            target_environment_id=promotion.get("target_environment_id")
+        )
+        if drift_block.get("blocked"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "deployment_blocked_by_drift_policy",
+                    "reason": drift_block.get("reason"),
+                    **drift_block.get("details", {})
+                }
             )
 
         # Get selected workflows
@@ -686,7 +824,7 @@ async def execute_deployment(
         )
 
 
-@router.get("/{deployment_id}/job")
+@router.get("/{promotion_id}/job")
 async def get_promotion_job(
     promotion_id: str,
     _: None = Depends(require_entitlement("workflow_ci_cd"))
@@ -701,13 +839,13 @@ async def get_promotion_job(
             resource_id=promotion_id,
             tenant_id=MOCK_TENANT_ID
         )
-        
+
         if not job:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No job found for this promotion"
             )
-        
+
         return {
             "job_id": job.get("id"),
             "promotion_id": promotion_id,

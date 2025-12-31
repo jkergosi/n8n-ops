@@ -63,6 +63,12 @@ import type {
   FeatureConfigAudit,
   FeatureAccessLog,
   WorkflowDiffResult,
+  DriftIncident,
+  DriftPolicy,
+  DriftPolicyCreate,
+  DriftPolicyUpdate,
+  DriftPolicyTemplate,
+  DriftApproval,
 } from '@/types';
 
 // Helper function to determine if a string is a UUID
@@ -319,6 +325,10 @@ class ApiClient {
       allowUpload: env.allow_upload ?? false,
       lastConnected: env.last_connected,
       lastBackup: env.last_backup,
+      driftStatus: env.drift_status,
+      lastDriftDetectedAt: env.last_drift_detected_at,
+      activeDriftIncidentId: env.active_drift_incident_id,
+      driftHandlingMode: env.drift_handling_mode,
       workflowCount: env.workflow_count || 0,
       gitRepoUrl: env.git_repo_url,
       gitBranch: env.git_branch,
@@ -347,6 +357,10 @@ class ApiClient {
       allowUpload: env.allow_upload ?? false,
       lastConnected: env.last_connected,
       lastBackup: env.last_backup,
+      driftStatus: env.drift_status,
+      lastDriftDetectedAt: env.last_drift_detected_at,
+      activeDriftIncidentId: env.active_drift_incident_id,
+      driftHandlingMode: env.drift_handling_mode,
       workflowCount: env.workflow_count || 0,
       gitRepoUrl: env.git_repo_url,
       gitBranch: env.git_branch,
@@ -355,6 +369,201 @@ class ApiClient {
       updatedAt: env.updated_at,
     };
     return { data };
+  }
+
+  // Drift Incidents
+  async getIncidents(params?: {
+    environmentId?: string;
+    status?: string;
+    limit?: number;
+  }): Promise<{ data: any[] }> {
+    const response = await this.client.get<any[]>('/incidents', {
+      params: {
+        environment_id: params?.environmentId,
+        status_filter: params?.status,
+        limit: params?.limit,
+      },
+    });
+    return { data: response.data || [] };
+  }
+
+  async getIncident(id: string): Promise<{ data: any }> {
+    const response = await this.client.get<any>(`/incidents/${id}`);
+    return { data: response.data };
+  }
+
+  async createIncident(payload: {
+    environmentId: string;
+    title?: string;
+    affectedWorkflows?: Array<{
+      workflow_id: string;
+      workflow_name: string;
+      drift_type: string;
+      n8n_workflow_id?: string;
+      change_summary?: string;
+    }>;
+    severity?: 'low' | 'medium' | 'high' | 'critical';
+  }): Promise<{ data: DriftIncident }> {
+    const response = await this.client.post<DriftIncident>('/incidents', {
+      environment_id: payload.environmentId,
+      title: payload.title,
+      affected_workflows: payload.affectedWorkflows,
+      severity: payload.severity,
+    });
+    return { data: response.data };
+  }
+
+  async updateIncident(id: string, payload: {
+    title?: string;
+    ownerUserId?: string;
+    reason?: string;
+    ticketRef?: string;
+    expiresAt?: string;
+    severity?: 'low' | 'medium' | 'high' | 'critical';
+  }): Promise<{ data: DriftIncident }> {
+    const response = await this.client.patch<DriftIncident>(`/incidents/${id}`, {
+      title: payload.title,
+      owner_user_id: payload.ownerUserId,
+      reason: payload.reason,
+      ticket_ref: payload.ticketRef,
+      expires_at: payload.expiresAt,
+      severity: payload.severity,
+    });
+    return { data: response.data };
+  }
+
+  async acknowledgeIncident(id: string, payload: {
+    reason?: string;
+    ownerUserId?: string;
+    ticketRef?: string;
+    expiresAt?: string;
+  }): Promise<{ data: DriftIncident }> {
+    const response = await this.client.post<DriftIncident>(`/incidents/${id}/acknowledge`, {
+      reason: payload.reason,
+      owner_user_id: payload.ownerUserId,
+      ticket_ref: payload.ticketRef,
+      expires_at: payload.expiresAt,
+    });
+    return { data: response.data };
+  }
+
+  async stabilizeIncident(id: string, reason?: string): Promise<{ data: DriftIncident }> {
+    const response = await this.client.post<DriftIncident>(`/incidents/${id}/stabilize`, null, {
+      params: { reason },
+    });
+    return { data: response.data };
+  }
+
+  async reconcileIncident(id: string, payload: {
+    resolutionType: 'promote' | 'revert' | 'replace' | 'acknowledge';
+    reason?: string;
+    resolutionDetails?: Record<string, any>;
+  }): Promise<{ data: DriftIncident }> {
+    const response = await this.client.post<DriftIncident>(`/incidents/${id}/reconcile`, {
+      resolution_type: payload.resolutionType,
+      reason: payload.reason,
+      resolution_details: payload.resolutionDetails,
+    });
+    return { data: response.data };
+  }
+
+  async closeIncident(id: string, reason?: string): Promise<{ data: DriftIncident }> {
+    const response = await this.client.post<DriftIncident>(`/incidents/${id}/close`, null, {
+      params: { reason },
+    });
+    return { data: response.data };
+  }
+
+  async getActiveIncident(environmentId: string): Promise<{ data: DriftIncident | null }> {
+    const response = await this.client.get<DriftIncident | null>(`/incidents/environment/${environmentId}/active`);
+    return { data: response.data };
+  }
+
+  async getIncidentStats(environmentId?: string): Promise<{ data: {
+    total: number;
+    open: number;
+    by_status: Record<string, number>;
+  } }> {
+    const response = await this.client.get<any>('/incidents/stats', {
+      params: { environment_id: environmentId },
+    });
+    return { data: response.data };
+  }
+
+  // =========================================================================
+  // Environment Drift Detection
+  // =========================================================================
+
+  async getEnvironmentDrift(environmentId: string, refresh: boolean = false): Promise<{
+    data: {
+      driftStatus: 'IN_SYNC' | 'DRIFT_DETECTED' | 'UNKNOWN' | 'ERROR';
+      lastDriftDetectedAt: string | null;
+      activeDriftIncidentId?: string | null;
+      gitConfigured?: boolean;
+      summary?: {
+        totalWorkflows: number;
+        inSync: number;
+        withDrift: number;
+        notInGit: number;
+        affectedWorkflows: Array<{
+          id: string;
+          name: string;
+          active: boolean;
+          hasDrift: boolean;
+          notInGit: boolean;
+          driftType: string;
+          summary?: {
+            nodesAdded: number;
+            nodesRemoved: number;
+            nodesModified: number;
+            connectionsChanged: boolean;
+            settingsChanged: boolean;
+          };
+          differenceCount?: number;
+        }>;
+      };
+      error?: string | null;
+    };
+  }> {
+    const response = await this.client.get<any>(`/environments/${environmentId}/drift`, {
+      params: { refresh },
+    });
+    return { data: response.data };
+  }
+
+  async refreshEnvironmentDrift(environmentId: string): Promise<{
+    data: {
+      success: boolean;
+      driftStatus: 'IN_SYNC' | 'DRIFT_DETECTED' | 'UNKNOWN' | 'ERROR';
+      lastDriftDetectedAt: string;
+      gitConfigured: boolean;
+      summary: {
+        totalWorkflows: number;
+        inSync: number;
+        withDrift: number;
+        notInGit: number;
+        affectedWorkflows: Array<{
+          id: string;
+          name: string;
+          active: boolean;
+          hasDrift: boolean;
+          notInGit: boolean;
+          driftType: string;
+          summary?: {
+            nodesAdded: number;
+            nodesRemoved: number;
+            nodesModified: number;
+            connectionsChanged: boolean;
+            settingsChanged: boolean;
+          };
+          differenceCount?: number;
+        }>;
+      };
+      error?: string | null;
+    };
+  }> {
+    const response = await this.client.post<any>(`/environments/${environmentId}/drift/refresh`);
+    return { data: response.data };
   }
 
   async createEnvironment(environment: {
@@ -397,6 +606,7 @@ class ApiClient {
       git_repo_url?: string;
       git_branch?: string;
       git_pat?: string;
+      drift_handling_mode?: string;
     }
   ): Promise<{ data: Environment }> {
     // Transform to backend field names
@@ -411,6 +621,7 @@ class ApiClient {
     if (environment.git_repo_url !== undefined) payload.git_repo_url = environment.git_repo_url;
     if (environment.git_branch !== undefined) payload.git_branch = environment.git_branch;
     if (environment.git_pat !== undefined) payload.git_pat = environment.git_pat;
+    if (environment.drift_handling_mode !== undefined) payload.drift_handling_mode = environment.drift_handling_mode;
 
     const response = await this.client.patch<Environment>(`/environments/${id}`, payload);
     return { data: response.data };
@@ -716,6 +927,50 @@ class ApiClient {
     await this.client.delete(`/workflows/${id}`, { params });
   }
 
+  /**
+   * Archive (soft delete) a workflow - hides from default list but doesn't remove from N8N
+   */
+  async archiveWorkflow(
+    workflowId: string,
+    environment: EnvironmentType
+  ): Promise<{ status: string; workflow_id: string }> {
+    const params = buildEnvironmentParams(environment);
+    const response = await this.client.post(
+      `/workflows/${workflowId}/archive`,
+      null,
+      { params }
+    );
+    return response.data;
+  }
+
+  /**
+   * Unarchive (restore) a workflow
+   */
+  async unarchiveWorkflow(
+    workflowId: string,
+    environment: EnvironmentType
+  ): Promise<{ status: string; workflow_id: string }> {
+    const params = buildEnvironmentParams(environment);
+    const response = await this.client.post(
+      `/workflows/${workflowId}/unarchive`,
+      null,
+      { params }
+    );
+    return response.data;
+  }
+
+  /**
+   * Permanently delete workflow (hard delete) - admin only in dev environment
+   * NOTE: This is the ORIGINAL DELETE behavior, kept for backward compatibility
+   */
+  async permanentlyDeleteWorkflow(
+    workflowId: string,
+    environment: EnvironmentType
+  ): Promise<void> {
+    const params = buildEnvironmentParams(environment);
+    await this.client.delete(`/workflows/${workflowId}`, { params });
+  }
+
   async syncWorkflowsFromGithub(environment: EnvironmentType): Promise<{
     data: {
       success: boolean;
@@ -967,33 +1222,33 @@ class ApiClient {
         requires_overwrite: ws.requiresOverwrite,
       })) || [],
     };
-    const response = await this.client.post('/deployments/initiate', payload);
+    const response = await this.client.post('/promotions/initiate', payload);
     return { data: response.data };
   }
 
   async executeDeployment(deploymentId: string, scheduledAt?: string): Promise<{ data: any }> {
     const payload = scheduledAt ? { scheduled_at: scheduledAt } : undefined;
-    const response = await this.client.post(`/deployments/execute/${deploymentId}`, payload);
+    const response = await this.client.post(`/promotions/execute/${deploymentId}`, payload);
     return { data: response.data };
   }
 
   async getDeploymentJob(deploymentId: string): Promise<{ data: any }> {
-    const response = await this.client.get(`/deployments/${deploymentId}/job`);
+    const response = await this.client.get(`/promotions/${deploymentId}/job`);
     return { data: response.data };
   }
 
   async approveDeployment(deploymentId: string, approval: PromotionApprovalRequest): Promise<{ data: PromotionApprovalResponse }> {
-    const response = await this.client.post<PromotionApprovalResponse>(`/deployments/approvals/${deploymentId}/approve`, approval);
+    const response = await this.client.post<PromotionApprovalResponse>(`/promotions/approvals/${deploymentId}/approve`, approval);
     return { data: response.data };
   }
 
   async getDeploymentInitiation(deploymentId: string): Promise<{ data: PromotionResponse }> {
-    const response = await this.client.get<PromotionResponse>(`/deployments/initiate/${deploymentId}`);
+    const response = await this.client.get<PromotionResponse>(`/promotions/initiate/${deploymentId}`);
     return { data: response.data };
   }
 
   async getDeploymentInitiations(): Promise<{ data: PromotionResponse[] }> {
-    const response = await this.client.get<PromotionResponse[]>('/deployments/initiate');
+    const response = await this.client.get<PromotionResponse[]>('/promotions/initiate');
     return { data: response.data };
   }
 
@@ -2786,6 +3041,97 @@ class ApiClient {
 
   async adminDeleteProviderPlan(planId: string): Promise<{ data: { message: string } }> {
     const response = await this.client.delete(`/providers/admin/plans/${planId}`);
+    return { data: response.data };
+  }
+
+  // =========================================================================
+  // Drift Policies
+  // =========================================================================
+
+  async getDriftPolicy(): Promise<{ data: DriftPolicy }> {
+    const response = await this.client.get<DriftPolicy>('/drift-policies/');
+    return { data: response.data };
+  }
+
+  async createDriftPolicy(payload: DriftPolicyCreate): Promise<{ data: DriftPolicy }> {
+    const response = await this.client.post<DriftPolicy>('/drift-policies/', payload);
+    return { data: response.data };
+  }
+
+  async updateDriftPolicy(payload: DriftPolicyUpdate): Promise<{ data: DriftPolicy }> {
+    const response = await this.client.patch<DriftPolicy>('/drift-policies/', payload);
+    return { data: response.data };
+  }
+
+  async getDriftPolicyTemplates(): Promise<{ data: DriftPolicyTemplate[] }> {
+    const response = await this.client.get<DriftPolicyTemplate[]>('/drift-policies/templates');
+    return { data: response.data };
+  }
+
+  async applyDriftPolicyTemplate(templateId: string): Promise<{ data: DriftPolicy }> {
+    const response = await this.client.post<DriftPolicy>(`/drift-policies/apply-template/${templateId}`);
+    return { data: response.data };
+  }
+
+  // =========================================================================
+  // Drift Approvals
+  // =========================================================================
+
+  async getDriftApprovals(params?: {
+    status?: string;
+    incidentId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ data: DriftApproval[] }> {
+    const response = await this.client.get<DriftApproval[]>('/drift-approvals/', {
+      params: {
+        status: params?.status,
+        incident_id: params?.incidentId,
+        limit: params?.limit,
+        offset: params?.offset,
+      },
+    });
+    return { data: response.data };
+  }
+
+  async getPendingDriftApprovals(): Promise<{ data: DriftApproval[] }> {
+    const response = await this.client.get<DriftApproval[]>('/drift-approvals/pending');
+    return { data: response.data };
+  }
+
+  async requestDriftApproval(payload: {
+    incidentId: string;
+    approvalType: 'acknowledge' | 'extend_ttl' | 'close' | 'reconcile';
+    requestReason?: string;
+    extensionHours?: number;
+  }): Promise<{ data: DriftApproval }> {
+    const response = await this.client.post<DriftApproval>('/drift-approvals/', {
+      incident_id: payload.incidentId,
+      approval_type: payload.approvalType,
+      request_reason: payload.requestReason,
+      extension_hours: payload.extensionHours,
+    });
+    return { data: response.data };
+  }
+
+  async getDriftApproval(approvalId: string): Promise<{ data: DriftApproval }> {
+    const response = await this.client.get<DriftApproval>(`/drift-approvals/${approvalId}`);
+    return { data: response.data };
+  }
+
+  async decideDriftApproval(approvalId: string, payload: {
+    decision: 'approved' | 'rejected';
+    decisionNotes?: string;
+  }): Promise<{ data: DriftApproval }> {
+    const response = await this.client.post<DriftApproval>(`/drift-approvals/${approvalId}/decide`, {
+      decision: payload.decision,
+      decision_notes: payload.decisionNotes,
+    });
+    return { data: response.data };
+  }
+
+  async cancelDriftApproval(approvalId: string): Promise<{ data: DriftApproval }> {
+    const response = await this.client.post<DriftApproval>(`/drift-approvals/${approvalId}/cancel`);
     return { data: response.data };
   }
 }

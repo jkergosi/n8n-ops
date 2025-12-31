@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents
+from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy
 from app.services.background_job_service import background_job_service
 from datetime import datetime, timedelta
 import logging
@@ -35,6 +35,12 @@ app.include_router(
     workflows.router,
     prefix=f"{settings.API_V1_PREFIX}/workflows",
     tags=["workflows"]
+)
+
+app.include_router(
+    workflow_policy.router,
+    prefix=f"{settings.API_V1_PREFIX}/workflows",
+    tags=["workflow-policy"]
 )
 
 app.include_router(
@@ -87,8 +93,8 @@ app.include_router(
 
 app.include_router(
     promotions.router,
-    prefix=f"{settings.API_V1_PREFIX}/deployments",
-    tags=["deployments"]
+    prefix=f"{settings.API_V1_PREFIX}/promotions",
+    tags=["promotions"]
 )
 
 app.include_router(
@@ -217,6 +223,18 @@ app.include_router(
     tags=["incidents"]
 )
 
+app.include_router(
+    drift_policies.router,
+    prefix=f"{settings.API_V1_PREFIX}/drift-policies",
+    tags=["drift-policies"]
+)
+
+app.include_router(
+    drift_approvals.router,
+    prefix=f"{settings.API_V1_PREFIX}/drift-approvals",
+    tags=["drift-approvals"]
+)
+
 
 @app.get("/")
 async def root():
@@ -251,6 +269,11 @@ async def startup_event():
         from app.services.deployment_scheduler import start_scheduler
         await start_scheduler()
         logger.info("Deployment scheduler started")
+
+        # Start drift detection scheduler
+        from app.services.drift_scheduler import start_all_drift_schedulers
+        await start_all_drift_schedulers()
+        logger.info("Drift detection scheduler started")
         
         # Also cleanup stale deployments directly (in case job cleanup didn't catch them)
         try:
@@ -294,13 +317,20 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Stop the deployment scheduler on shutdown."""
+    """Stop all schedulers on shutdown."""
     try:
         from app.services.deployment_scheduler import stop_scheduler
         await stop_scheduler()
         logger.info("Deployment scheduler stopped")
     except Exception as e:
         logger.error(f"Error stopping deployment scheduler: {str(e)}")
+
+    try:
+        from app.services.drift_scheduler import stop_all_drift_schedulers
+        await stop_all_drift_schedulers()
+        logger.info("Drift detection scheduler stopped")
+    except Exception as e:
+        logger.error(f"Error stopping drift scheduler: {str(e)}")
 
 
 @app.exception_handler(Exception)

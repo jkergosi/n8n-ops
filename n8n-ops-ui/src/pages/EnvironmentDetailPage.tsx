@@ -28,6 +28,8 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { api } from '@/lib/api';
 import { useBackgroundJobsSSE } from '@/lib/use-background-jobs-sse';
+import { useFeatures } from '@/lib/features';
+import { useAuth } from '@/lib/auth';
 import {
   ArrowLeft,
   Server,
@@ -107,27 +109,42 @@ export function EnvironmentDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { canUseFeature } = useFeatures();
+  const { user } = useAuth();
 
   // Dialog states
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [backupDialogOpen, setBackupDialogOpen] = useState(false);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
-  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
 
   // Form states
   const [forceBackup, setForceBackup] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [syncConfirmText, setSyncConfirmText] = useState('');
 
   // Loading states
-  const [syncingEnvId, setSyncingEnvId] = useState<string | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testingInDialog, setTestingInDialog] = useState(false);
   const [testingGitInDialog, setTestingGitInDialog] = useState(false);
+  const [refreshingDrift, setRefreshingDrift] = useState(false);
+  const [driftSummary, setDriftSummary] = useState<{
+    totalWorkflows: number;
+    inSync: number;
+    withDrift: number;
+    notInGit: number;
+    affectedWorkflows: Array<{
+      id: string;
+      name: string;
+      hasDrift: boolean;
+      notInGit: boolean;
+      driftType: string;
+    }>;
+  } | null>(null);
 
   // Active tab
   const [activeTab, setActiveTab] = useState('overview');
+
+  const [driftHandlingMode, setDriftHandlingMode] = useState<'warn_only' | 'manual_override' | 'require_attestation'>('warn_only');
 
   // Active jobs tracking
   const [activeJobs, setActiveJobs] = useState<Record<string, {
@@ -300,41 +317,6 @@ export function EnvironmentDetailPage() {
   }, [id, queryClient]);
 
   // Mutations
-  const syncMutation = useMutation({
-    mutationFn: (environmentId: string) => apiClient.syncEnvironment(environmentId),
-    onSuccess: (result, environmentId) => {
-      setSyncingEnvId(null);
-      setSyncDialogOpen(false);
-      setSyncConfirmText('');
-      const { job_id, status, message } = result.data;
-
-      if (job_id && status === 'running') {
-        toast.success('Sync started in background');
-        setActiveJobs((prev) => ({
-          ...prev,
-          [environmentId]: {
-            jobId: job_id,
-            jobType: 'sync',
-            status: 'running',
-            current: 0,
-            total: 5,
-            message: 'Starting sync...',
-          },
-        }));
-      } else {
-        toast.error(message || 'Failed to start sync');
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['environment', id] });
-      queryClient.invalidateQueries({ queryKey: ['environment-jobs', id] });
-    },
-    onError: (error: any) => {
-      setSyncingEnvId(null);
-      const message = error.response?.data?.detail || 'Failed to sync environment';
-      toast.error(message);
-    },
-  });
-
   const backupMutation = useMutation({
     mutationFn: ({ environment, force }: { environment: Environment; force: boolean }) =>
       apiClient.syncWorkflowsToGithub(environment, force),
@@ -445,6 +427,21 @@ export function EnvironmentDetailPage() {
     },
   });
 
+  const driftHandlingModeMutation = useMutation({
+    mutationFn: (mode: 'warn_only' | 'manual_override' | 'require_attestation') => {
+      if (!environment?.id) throw new Error('Environment not loaded');
+      return apiClient.updateEnvironment(environment.id, { drift_handling_mode: mode });
+    },
+    onSuccess: () => {
+      toast.success('Drift handling updated');
+      queryClient.invalidateQueries({ queryKey: ['environment', id] });
+      queryClient.invalidateQueries({ queryKey: ['environments'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || 'Failed to update drift handling');
+    },
+  });
+
   // Handlers
   const handleEdit = () => {
     if (!environment) return;
@@ -532,29 +529,6 @@ export function EnvironmentDetailPage() {
     }
   };
 
-  const handleSync = () => {
-    if (!id) return;
-    if (activeJobs[id]?.status === 'running') {
-      toast.info('Sync already in progress for this environment');
-      return;
-    }
-
-    // Show confirmation dialog for staging/prod
-    if (requiresSafetyConfirmation(environment?.type)) {
-      setSyncDialogOpen(true);
-    } else {
-      // Direct sync for dev environments
-      setSyncingEnvId(id);
-      syncMutation.mutate(id);
-    }
-  };
-
-  const handleSyncConfirm = () => {
-    if (!id) return;
-    setSyncingEnvId(id);
-    syncMutation.mutate(id);
-  };
-
   const handleBackup = () => {
     if (!environment) return;
     setForceBackup(false);
@@ -575,6 +549,25 @@ export function EnvironmentDetailPage() {
   const handleDownloadConfirm = () => {
     if (environment) {
       downloadMutation.mutate(environment);
+    }
+  };
+
+  const handleRefreshDrift = async () => {
+    if (!id) return;
+    setRefreshingDrift(true);
+    try {
+      const result = await apiClient.refreshEnvironmentDrift(id);
+      const summary = result.data.summary;
+      if (summary) {
+        setDriftSummary(summary);
+      }
+      // Refresh environment data to get updated drift_status
+      queryClient.invalidateQueries({ queryKey: ['environment', id] });
+      toast.success('Drift check completed');
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to refresh drift status');
+    } finally {
+      setRefreshingDrift(false);
     }
   };
 
@@ -754,6 +747,28 @@ export function EnvironmentDetailPage() {
   const connectionStatus = getConnectionStatus(environment.lastConnected);
   const isProduction = isProductionEnvironment(environment.type);
   const needsSafetyConfirmation = requiresSafetyConfirmation(environment.type);
+  const canUseDriftIncidents = canUseFeature('drift_incidents');
+
+  const userRole = String((user as any)?.role || '').toLowerCase();
+  const canAdminEnvironment = userRole === 'admin' || userRole === 'superuser' || userRole === 'super_admin';
+  const canDeleteEnvironment = canAdminEnvironment && (!isProduction || userRole === 'superuser' || userRole === 'super_admin');
+
+  const envState =
+    environment.activeDriftIncidentId ? 'DRIFT_INCIDENT_ACTIVE' : (environment.driftStatus || 'IN_SYNC');
+  const envStateLabel =
+    envState === 'DRIFT_INCIDENT_ACTIVE' ? 'Drift Incident Active' :
+    envState === 'DRIFT_DETECTED' ? 'Drift Detected' :
+    'In Sync';
+
+  useEffect(() => {
+    if (!environment) return;
+    const mode = (environment.driftHandlingMode || 'warn_only') as any;
+    if (mode === 'warn_only' || mode === 'manual_override' || mode === 'require_attestation') {
+      setDriftHandlingMode(mode);
+    } else {
+      setDriftHandlingMode('warn_only');
+    }
+  }, [environment?.id, environment?.driftHandlingMode]);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -790,12 +805,59 @@ export function EnvironmentDetailPage() {
             </h1>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               {getEnvironmentTypeBadge(environment.type)}
-              {getConnectionStatusBadge(connectionStatus)}
+              <Badge
+                variant={
+                  envState === 'IN_SYNC' ? 'default' :
+                  envState === 'DRIFT_DETECTED' ? 'secondary' :
+                  'destructive'
+                }
+                className="text-sm"
+              >
+                {envStateLabel}
+              </Badge>
               {environment.provider && (
                 <Badge variant="outline" className="text-sm">{environment.provider}</Badge>
               )}
             </div>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {envState === 'DRIFT_INCIDENT_ACTIVE' && environment.activeDriftIncidentId && (
+            <Button asChild variant="default">
+              <Link to={`/incidents/${environment.activeDriftIncidentId}`}>
+                View Drift Incident
+              </Link>
+            </Button>
+          )}
+          {envState === 'DRIFT_DETECTED' && (
+            canUseDriftIncidents ? (
+              <Button
+                variant="default"
+                onClick={async () => {
+                  try {
+                    const res = await apiClient.createIncident({ environmentId: environment.id, title: `Drift detected: ${environment.name}` });
+                    const incidentId = res?.data?.id;
+                    if (incidentId) {
+                      navigate(`/incidents/${incidentId}`);
+                      return;
+                    }
+                    navigate('/incidents');
+                  } catch (e: any) {
+                    toast.error(e?.response?.data?.detail || 'Failed to create incident');
+                  }
+                }}
+              >
+                Create Drift Incident
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() => toast.info('Upgrade to Agency+ to use Drift Incidents')}
+              >
+                View Drift Summary
+              </Button>
+            )
+          )}
         </div>
       </div>
 
@@ -835,6 +897,10 @@ export function EnvironmentDetailPage() {
               <p className="text-sm">{formatRelativeTime(environment.lastConnected)}</p>
             </div>
             <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">Last Drift Detected</p>
+              <p className="text-sm">{formatRelativeTime(environment.lastDriftDetectedAt)}</p>
+            </div>
+            <div className="space-y-1">
               <p className="text-sm font-medium text-muted-foreground">Last Backup</p>
               <p className="text-sm">{formatRelativeTime(environment.lastBackup)}</p>
             </div>
@@ -842,77 +908,27 @@ export function EnvironmentDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Primary Action Bar */}
       <Card>
         <CardContent className="py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              This page is read-first. Run changes via <span className="font-medium text-foreground">Deployments</span>; handle drift/recovery via <span className="font-medium text-foreground">Incidents</span>.
+            </p>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                onClick={handleSync}
-                disabled={syncingEnvId === id || activeJob?.status === 'running'}
-              >
-                <RefreshCw
-                  className={`h-4 w-4 mr-2 ${syncingEnvId === id || activeJob?.status === 'running' ? 'animate-spin' : ''}`}
-                />
-                Sync
+              <Button asChild variant="outline">
+                <Link to="/deployments">
+                  Go to Deployments →
+                </Link>
               </Button>
-              <Button
-                variant="outline"
-                onClick={handleBackup}
-                disabled={activeJob?.jobType === 'backup' && activeJob?.status === 'running'}
-              >
-                <Database className={`h-4 w-4 mr-2 ${activeJob?.jobType === 'backup' && activeJob?.status === 'running' ? 'animate-spin' : ''}`} />
-                Backup
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => navigate(`/environments/${id}/restore`)}
-              >
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Restore
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleDownload}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Download
-              </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                onClick={handleTestConnection}
-                disabled={testingConnection}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${testingConnection ? 'animate-spin' : ''}`} />
-                {testingConnection ? 'Testing...' : 'Test Connection'}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleEdit}
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleOpenDeleteDialog}
-                disabled={isProduction}
-                className={isProduction ? 'opacity-50 cursor-not-allowed' : ''}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
+              {canUseDriftIncidents && (
+                <Button asChild variant="outline">
+                  <Link to="/incidents">
+                    Incidents →
+                  </Link>
+                </Button>
+              )}
             </div>
           </div>
-          {isProduction && (
-            <p className="text-xs text-muted-foreground mt-2">
-              <AlertTriangle className="h-3 w-3 inline mr-1" />
-              Delete is disabled for production environments
-            </p>
-          )}
         </CardContent>
       </Card>
 
@@ -997,9 +1013,9 @@ export function EnvironmentDetailPage() {
             <Archive className="h-4 w-4" />
             Snapshots
           </TabsTrigger>
-          <TabsTrigger value="history" className="flex items-center gap-1">
+          <TabsTrigger value="activity" className="flex items-center gap-1">
             <History className="h-4 w-4" />
-            Sync History
+            Activity
           </TabsTrigger>
           <TabsTrigger value="credentials" className="flex items-center gap-1">
             <Key className="h-4 w-4" />
@@ -1012,7 +1028,129 @@ export function EnvironmentDetailPage() {
         </TabsList>
 
         {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-4">
+        <TabsContent value="overview" className="space-y-4" id="drift">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Drift Summary</CardTitle>
+                <CardDescription>Compare runtime state against Git source of truth</CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefreshDrift}
+                disabled={refreshingDrift || !environment.gitRepoUrl}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${refreshingDrift ? 'animate-spin' : ''}`} />
+                {refreshingDrift ? 'Checking...' : 'Check Drift'}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Status Row */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant={
+                        envState === 'IN_SYNC' ? 'default' :
+                        envState === 'DRIFT_DETECTED' ? 'secondary' :
+                        'destructive'
+                      }
+                    >
+                      {envStateLabel}
+                    </Badge>
+                    {environment.lastDriftDetectedAt && (
+                      <span className="text-xs text-muted-foreground">
+                        Last checked: {formatRelativeTime(environment.lastDriftDetectedAt)}
+                      </span>
+                    )}
+                  </div>
+                  {!environment.gitRepoUrl && (
+                    <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                      Git repository not configured. Configure Git to enable drift detection.
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {envState === 'DRIFT_INCIDENT_ACTIVE' && environment.activeDriftIncidentId && (
+                    <Button asChild>
+                      <Link to={`/incidents/${environment.activeDriftIncidentId}`}>
+                        View Drift Incident
+                      </Link>
+                    </Button>
+                  )}
+                  {envState === 'DRIFT_DETECTED' && (
+                    canUseDriftIncidents ? (
+                      <Button
+                        onClick={async () => {
+                          try {
+                            const res = await apiClient.createIncident({ environmentId: environment.id, title: `Drift detected: ${environment.name}` });
+                            const incidentId = res?.data?.id;
+                            navigate(incidentId ? `/incidents/${incidentId}` : '/incidents');
+                          } catch (e: any) {
+                            toast.error(e?.response?.data?.detail || 'Failed to create incident');
+                          }
+                        }}
+                      >
+                        Create Drift Incident
+                      </Button>
+                    ) : (
+                      <Button variant="outline" onClick={() => toast.info('Upgrade to Agency+ to use Drift Incidents')}>
+                        Manage Drift
+                      </Button>
+                    )
+                  )}
+                </div>
+              </div>
+
+              {/* Drift Summary Stats */}
+              {driftSummary && (
+                <div className="border-t pt-4 space-y-3">
+                  <div className="grid grid-cols-4 gap-4 text-center">
+                    <div>
+                      <p className="text-2xl font-bold">{driftSummary.totalWorkflows}</p>
+                      <p className="text-xs text-muted-foreground">Total Workflows</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-green-600">{driftSummary.inSync}</p>
+                      <p className="text-xs text-muted-foreground">In Sync</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-yellow-600">{driftSummary.withDrift}</p>
+                      <p className="text-xs text-muted-foreground">With Drift</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-blue-600">{driftSummary.notInGit}</p>
+                      <p className="text-xs text-muted-foreground">Not in Git</p>
+                    </div>
+                  </div>
+
+                  {/* Affected Workflows List */}
+                  {driftSummary.affectedWorkflows.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">Affected Workflows:</p>
+                      <div className="max-h-48 overflow-y-auto space-y-1">
+                        {driftSummary.affectedWorkflows.slice(0, 10).map((wf) => (
+                          <div key={wf.id} className="flex items-center justify-between text-sm p-2 bg-muted/50 rounded">
+                            <span className="font-medium">{wf.name}</span>
+                            <Badge variant={wf.hasDrift ? 'secondary' : 'outline'} className="text-xs">
+                              {wf.hasDrift ? 'Modified' : wf.notInGit ? 'Not in Git' : 'Unknown'}
+                            </Badge>
+                          </div>
+                        ))}
+                        {driftSummary.affectedWorkflows.length > 10 && (
+                          <p className="text-xs text-muted-foreground text-center">
+                            +{driftSummary.affectedWorkflows.length - 10} more workflows
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card>
               <CardHeader className="pb-2">
@@ -1114,11 +1252,11 @@ export function EnvironmentDetailPage() {
               </CardContent>
             </Card>
 
-            {/* Recent Activity */}
+            {/* Recent Events */}
             <Card>
               <CardHeader>
-                <CardTitle>Recent Activity</CardTitle>
-                <CardDescription>Background jobs and operations</CardDescription>
+                <CardTitle>Recent Events</CardTitle>
+                <CardDescription>Syncs, backups, restores, and operational events</CardDescription>
               </CardHeader>
               <CardContent>
                 {recentJobs.length === 0 ? (
@@ -1150,7 +1288,7 @@ export function EnvironmentDetailPage() {
                   </div>
                 )}
                 <div className="mt-4">
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => setActiveTab('history')}>
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => setActiveTab('activity')}>
                     <Activity className="h-4 w-4 mr-2" />
                     View All Activity
                   </Button>
@@ -1234,10 +1372,23 @@ export function EnvironmentDetailPage() {
         <TabsContent value="snapshots" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Snapshots</CardTitle>
-              <CardDescription>
-                Git-backed environment state backups ({snapshots.length} total)
-              </CardDescription>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Snapshots</CardTitle>
+                  <CardDescription>
+                    Git-backed environment state backups ({snapshots.length} total)
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBackup}
+                  disabled={activeJob?.jobType === 'backup' && activeJob?.status === 'running'}
+                >
+                  <Database className={`h-4 w-4 mr-2 ${activeJob?.jobType === 'backup' && activeJob?.status === 'running' ? 'animate-spin' : ''}`} />
+                  Create Snapshot
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {snapshotsLoading ? (
@@ -1246,7 +1397,7 @@ export function EnvironmentDetailPage() {
                 </div>
               ) : snapshots.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  No snapshots found. Create a backup to generate a snapshot.
+                  No snapshots found. Create a snapshot to generate a Git-backed backup.
                 </p>
               ) : (
                 <Table>
@@ -1277,14 +1428,17 @@ export function EnvironmentDetailPage() {
                           {snapshot.metadataJson?.reason || snapshot.metadataJson?.notes || '-'}
                         </TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => navigate(`/environments/${id}/restore?snapshot=${snapshot.id}`)}
-                          >
-                            <RotateCcw className="h-4 w-4 mr-1" />
-                            Restore
-                          </Button>
+                          {canUseDriftIncidents ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => navigate(`/incidents?environment_id=${id}&snapshot_id=${snapshot.id}`)}
+                            >
+                              Use in Incident
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1295,15 +1449,15 @@ export function EnvironmentDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* Sync History Tab */}
-        <TabsContent value="history" className="space-y-4">
+        {/* Activity Tab */}
+        <TabsContent value="activity" className="space-y-4">
           <Card>
             <CardHeader>
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <CardTitle>Sync History</CardTitle>
+                  <CardTitle>Activity</CardTitle>
                   <CardDescription>
-                    Audit log of syncs, restores, and other operations
+                    Audit log of operations for this environment
                   </CardDescription>
                 </div>
                 <Link to="/activity" className="text-sm text-primary hover:underline whitespace-nowrap">
@@ -1314,7 +1468,7 @@ export function EnvironmentDetailPage() {
             <CardContent>
               {recentJobs.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  No sync history found.
+                  No activity found.
                 </p>
               ) : (
                 <Table>
@@ -1384,7 +1538,7 @@ export function EnvironmentDetailPage() {
                 </div>
               ) : credentials.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  No credentials found. Sync the environment to fetch credentials.
+                  No credentials cached. Run a deployment via Deployments to sync metadata, or check your plan/permissions.
                 </p>
               ) : (
                 <Table>
@@ -1428,26 +1582,29 @@ export function EnvironmentDetailPage() {
             <CardHeader>
               <CardTitle>Environment Settings</CardTitle>
               <CardDescription>
-                Metadata, connection details, and feature flags
+                Configuration and safety controls
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-4">
-                  <h3 className="text-sm font-semibold">Connection Details</h3>
-                  <div className="space-y-2">
-                    <div>
-                      <Label className="text-muted-foreground">Base URL</Label>
-                      <p className="text-sm">{environment.baseUrl}</p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground">API Key</Label>
-                      <p className="text-sm font-mono">{'•'.repeat(20)}</p>
-                    </div>
-                    <div>
-                      <Label className="text-muted-foreground">Provider</Label>
-                      <p className="text-sm">{environment.provider || 'n8n'}</p>
-                    </div>
+                  <h3 className="text-sm font-semibold">Connection</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Connection credentials are managed via environment configuration. Use “Test Connection” to validate access.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleTestConnection}
+                      disabled={testingConnection}
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-2 ${testingConnection ? 'animate-spin' : ''}`} />
+                      {testingConnection ? 'Testing…' : 'Test Connection'}
+                    </Button>
+                    <Button variant="outline" onClick={handleEdit}>
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit Configuration
+                    </Button>
                   </div>
                 </div>
 
@@ -1469,6 +1626,38 @@ export function EnvironmentDetailPage() {
                   )}
                 </div>
               </div>
+
+              {!canUseDriftIncidents && (
+                <div className="border-t pt-4 space-y-3">
+                  <div>
+                    <h3 className="text-sm font-semibold">Drift Handling (Free/Pro)</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Configure how drift should be handled for this environment. Agency+ centralizes drift handling in Incidents.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="space-y-2 min-w-[260px]">
+                      <Label>Behavior</Label>
+                      <Select value={driftHandlingMode} onValueChange={(v) => setDriftHandlingMode(v as any)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select behavior" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="warn_only">Warn only</SelectItem>
+                          <SelectItem value="manual_override">Allow manual override (recorded)</SelectItem>
+                          <SelectItem value="require_attestation">Require manual attestation</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      onClick={() => driftHandlingModeMutation.mutate(driftHandlingMode)}
+                      disabled={driftHandlingModeMutation.isPending}
+                    >
+                      {driftHandlingModeMutation.isPending ? 'Saving…' : 'Save'}
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               <div className="border-t pt-4">
                 <h3 className="text-sm font-semibold mb-4">Feature Flags</h3>
@@ -1511,10 +1700,28 @@ export function EnvironmentDetailPage() {
               </div>
 
               <div className="border-t pt-4">
-                <Button variant="outline" onClick={handleEdit}>
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit Environment Settings
-                </Button>
+                <h3 className="text-sm font-semibold mb-3 text-destructive">Danger Zone</h3>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant="outline"
+                    className="border-destructive text-destructive hover:bg-destructive/10"
+                    onClick={handleOpenDeleteDialog}
+                    disabled={!canDeleteEnvironment}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete Environment
+                  </Button>
+                  {!canAdminEnvironment && (
+                    <p className="text-xs text-muted-foreground">
+                      Admin permissions required.
+                    </p>
+                  )}
+                  {canAdminEnvironment && isProduction && !canDeleteEnvironment && (
+                    <p className="text-xs text-muted-foreground">
+                      Deleting production environments is restricted.
+                    </p>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1700,51 +1907,6 @@ export function EnvironmentDetailPage() {
               disabled={updateMutation.isPending}
             >
               {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Sync Confirmation Dialog (for staging/prod) */}
-      <Dialog open={syncDialogOpen} onOpenChange={setSyncDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-yellow-500" />
-              Confirm Environment Sync
-            </DialogTitle>
-            <DialogDescription>
-              You are about to sync <strong>{environment.name}</strong> ({environment.type}).
-              This will fetch the latest data from the n8n instance.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4 space-y-4">
-            {isProduction && (
-              <>
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>Production Environment</AlertTitle>
-                  <AlertDescription>
-                    Type the environment name to confirm: <strong>{environment.name}</strong>
-                  </AlertDescription>
-                </Alert>
-                <Input
-                  placeholder={`Type "${environment.name}" to confirm`}
-                  value={syncConfirmText}
-                  onChange={(e) => setSyncConfirmText(e.target.value)}
-                />
-              </>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSyncDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSyncConfirm}
-              disabled={syncMutation.isPending || (isProduction && syncConfirmText !== environment.name)}
-            >
-              {syncMutation.isPending ? 'Syncing...' : 'Sync Environment'}
             </Button>
           </DialogFooter>
         </DialogContent>

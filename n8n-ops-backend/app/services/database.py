@@ -93,6 +93,42 @@ class DatabaseService:
         )
         return response.data
 
+    async def create_drift_incident(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        title: Optional[str] = None,
+        created_by: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "environment_id": environment_id,
+            "status": "open",
+        }
+        if title:
+            payload["title"] = title
+        if created_by:
+            payload["created_by"] = created_by
+
+        response = self.client.table("drift_incidents").insert(payload).execute()
+        incident = response.data[0] if response.data else None
+        if not incident:
+            raise Exception("Failed to create incident")
+
+        # Set environment drift pointers (best-effort; keeps changes additive)
+        try:
+            self.client.table("environments").update(
+                {
+                    "drift_status": "DRIFT_INCIDENT_ACTIVE",
+                    "active_drift_incident_id": incident["id"],
+                    "last_drift_detected_at": datetime.utcnow().isoformat(),
+                }
+            ).eq("id", environment_id).eq("tenant_id", tenant_id).execute()
+        except Exception:
+            pass
+
+        return incident
+
     # Environment type operations (system-configurable ordering)
     async def get_environment_types(self, tenant_id: str, ensure_defaults: bool = False) -> List[Dict[str, Any]]:
         """Get environment types for a tenant (sorted by sort_order)."""
@@ -432,9 +468,18 @@ class DatabaseService:
         return results
 
     # Workflow cache operations
-    async def get_workflows(self, tenant_id: str, environment_id: str) -> List[Dict[str, Any]]:
-        """Get all cached workflows for a tenant and environment"""
-        response = self.client.table("workflows").select("*").eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq("is_deleted", False).order("name").execute()
+    async def get_workflows(self, tenant_id: str, environment_id: str, include_archived: bool = False) -> List[Dict[str, Any]]:
+        """Get all cached workflows for a tenant and environment.
+
+        Args:
+            tenant_id: The tenant ID
+            environment_id: The environment ID
+            include_archived: If True, include archived workflows. Default False.
+        """
+        query = self.client.table("workflows").select("*").eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq("is_deleted", False)
+        if not include_archived:
+            query = query.eq("is_archived", False)
+        response = query.order("name").execute()
         return response.data
 
     async def get_workflow(self, tenant_id: str, environment_id: str, n8n_workflow_id: str) -> Optional[Dict[str, Any]]:
@@ -553,6 +598,60 @@ class DatabaseService:
         }).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq("n8n_workflow_id", n8n_workflow_id).execute()
 
         return bool(response.data)
+
+    async def archive_workflow(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        workflow_id: str,
+        archived_by: str = None
+    ) -> Optional[Dict[str, Any]]:
+        """Soft delete a workflow by marking it as archived.
+
+        This hides the workflow from the default list but does NOT remove it from N8N.
+
+        Args:
+            tenant_id: The tenant ID
+            environment_id: The environment ID
+            workflow_id: The N8N workflow ID
+            archived_by: User ID of who archived the workflow
+
+        Returns:
+            The updated workflow record or None if not found
+        """
+        from datetime import datetime
+
+        response = self.client.table("workflows").update({
+            "is_archived": True,
+            "archived_at": datetime.utcnow().isoformat(),
+            "archived_by": archived_by
+        }).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq("n8n_workflow_id", workflow_id).execute()
+
+        return response.data[0] if response.data else None
+
+    async def unarchive_workflow(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        workflow_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Restore an archived workflow.
+
+        Args:
+            tenant_id: The tenant ID
+            environment_id: The environment ID
+            workflow_id: The N8N workflow ID
+
+        Returns:
+            The updated workflow record or None if not found
+        """
+        response = self.client.table("workflows").update({
+            "is_archived": False,
+            "archived_at": None,
+            "archived_by": None
+        }).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq("n8n_workflow_id", workflow_id).execute()
+
+        return response.data[0] if response.data else None
 
     async def update_workflow_in_cache(self, tenant_id: str, environment_id: str, n8n_workflow_id: str, workflow_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Update an existing workflow in cache with new data"""

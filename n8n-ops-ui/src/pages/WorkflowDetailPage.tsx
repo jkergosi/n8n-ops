@@ -2278,6 +2278,28 @@ export function WorkflowDetailPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Link to Drift Incident Workspace for resolution actions */}
+              {driftData?.hasDrift && (
+                <div className="p-4 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="h-5 w-5 text-yellow-600" />
+                      <span className="font-medium text-yellow-800 dark:text-yellow-200">
+                        This workflow has drift from Git
+                      </span>
+                    </div>
+                    <Link to={`/environments/${environment}#drift`}>
+                      <Button variant="outline" size="sm">
+                        View in Environment
+                      </Button>
+                    </Link>
+                  </div>
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-2">
+                    To create or manage a drift incident, go to the Environment's drift section.
+                  </p>
+                </div>
+              )}
+
               {isLoadingDrift ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="text-center">

@@ -26,6 +26,12 @@ FEATURE_NAMES = {
     "environment_protection": "environment_protection",
     "sso_scim": "sso_scim",
     "support": "support",
+    # Drift features
+    "drift_detection": "drift_detection",
+    "drift_incidents": "drift_incidents",
+    "drift_full_diff": "drift_full_diff",
+    "drift_ttl_sla": "drift_ttl_sla",
+    "drift_policies": "drift_policies",
 }
 
 # Feature display names for error messages
@@ -48,6 +54,12 @@ FEATURE_DISPLAY_NAMES = {
     "environment_protection": "Environment Protection",
     "sso_scim": "SSO/SCIM",
     "support": "Support Level",
+    # Drift features
+    "drift_detection": "Drift Detection",
+    "drift_incidents": "Drift Incident Management",
+    "drift_full_diff": "Full Drift Diff Visualization",
+    "drift_ttl_sla": "Drift TTL/SLA Enforcement",
+    "drift_policies": "Drift Policies",
 }
 
 # Features that require specific plans
@@ -64,6 +76,12 @@ FEATURE_REQUIRED_PLANS = {
     "compliance_tools": "enterprise",
     "environment_protection": "enterprise",
     "sso_scim": "enterprise",
+    # Drift features - detection is free, management is gated
+    # drift_detection: available on all plans (no entry needed)
+    "drift_incidents": "pro",
+    "drift_full_diff": "agency",
+    "drift_ttl_sla": "agency",
+    "drift_policies": "enterprise",
 }
 
 
@@ -110,6 +128,12 @@ class FeatureService:
                 "environment_protection": False,
                 "sso_scim": False,
                 "support": "community",
+                # Drift features - detection is free for all
+                "drift_detection": True,
+                "drift_incidents": False,
+                "drift_full_diff": False,
+                "drift_ttl_sla": False,
+                "drift_policies": False,
             }
 
         plan = subscription["plan"]
@@ -136,6 +160,12 @@ class FeatureService:
             "environment_protection": features.get("environment_protection", False),
             "sso_scim": features.get("sso_scim", False),
             "support": features.get("support", "community"),
+            # Drift features - detection is always true, others from plan
+            "drift_detection": True,  # Always available
+            "drift_incidents": features.get("drift_incidents", False),
+            "drift_full_diff": features.get("drift_full_diff", False),
+            "drift_ttl_sla": features.get("drift_ttl_sla", False),
+            "drift_policies": features.get("drift_policies", False),
         }
 
     async def get_feature_value(self, tenant_id: str, feature: str) -> Any:

@@ -2,6 +2,10 @@
 // Kept for backward compatibility but can be any string or undefined
 export type EnvironmentType = string | undefined;
 
+// Deterministic environment class for policy enforcement
+// This is the ONLY source of truth for workflow action policies
+export type EnvironmentClass = 'dev' | 'staging' | 'production';
+
 export interface EnvironmentTypeConfig {
   id: string;
   tenantId: string;
@@ -91,6 +95,7 @@ export interface Environment {
   provider: Provider;  // Provider type (n8n, make)
   name: string;
   type?: string;  // Optional metadata for display/sorting only (e.g., 'dev', 'staging', 'production', 'qa', etc.)
+  environmentClass: EnvironmentClass;  // Deterministic class for policy enforcement - REQUIRED
   baseUrl: string;
   apiKey?: string;
   n8nEncryptionKey?: string;
@@ -98,6 +103,10 @@ export interface Environment {
   allowUpload: boolean;  // Feature flag: true if workflows can be uploaded from this environment
   lastConnected?: string;
   lastBackup?: string;
+  driftStatus?: 'IN_SYNC' | 'DRIFT_DETECTED' | 'DRIFT_INCIDENT_ACTIVE' | string;
+  lastDriftDetectedAt?: string;
+  activeDriftIncidentId?: string;
+  driftHandlingMode?: 'warn_only' | 'manual_override' | 'require_attestation' | string;
   workflowCount: number;
   gitRepoUrl?: string;
   gitBranch?: string;
@@ -138,6 +147,8 @@ export interface Workflow {
   analysis?: import('@/lib/workflow-analysis').WorkflowAnalysis;
   lastSyncedAt?: string;
   isArchived?: boolean;
+  archivedAt?: string;  // Timestamp when workflow was archived
+  archivedBy?: string;  // User ID who archived the workflow
   syncStatus?: SyncStatus;
 }
 
@@ -408,6 +419,148 @@ export interface EnvironmentDriftAnalysis {
   };
 }
 
+// Drift Incident types
+export type DriftIncidentStatus = 'detected' | 'acknowledged' | 'stabilized' | 'reconciled' | 'closed';
+export type DriftSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type ResolutionType = 'promote' | 'revert' | 'replace' | 'acknowledge';
+
+export interface AffectedWorkflow {
+  workflow_id: string;
+  workflow_name: string;
+  drift_type: 'modified' | 'missing_in_git' | 'missing_in_runtime';
+  n8n_workflow_id?: string;
+  change_summary?: string;
+}
+
+export interface DriftIncident {
+  id: string;
+  tenant_id: string;
+  environment_id: string;
+  status: DriftIncidentStatus;
+  title?: string;
+  summary?: Record<string, any>;
+
+  // Lifecycle timestamps
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+
+  detected_at: string;
+  acknowledged_at?: string;
+  acknowledged_by?: string;
+  stabilized_at?: string;
+  stabilized_by?: string;
+  reconciled_at?: string;
+  reconciled_by?: string;
+  closed_at?: string;
+  closed_by?: string;
+
+  // Ownership
+  owner_user_id?: string;
+  reason?: string;
+  ticket_ref?: string;
+
+  // Agency+ fields
+  expires_at?: string;
+  severity?: DriftSeverity;
+
+  // Drift data
+  affected_workflows: AffectedWorkflow[];
+  drift_snapshot?: Record<string, any>;
+
+  // Resolution tracking
+  resolution_type?: ResolutionType;
+  resolution_details?: Record<string, any>;
+}
+
+export interface DriftIncidentListResponse {
+  items: DriftIncident[];
+  total: number;
+  has_more: boolean;
+}
+
+// Drift Policies
+export interface DriftPolicy {
+  id: string;
+  tenant_id: string;
+  default_ttl_hours: number;
+  critical_ttl_hours: number;
+  high_ttl_hours: number;
+  medium_ttl_hours: number;
+  low_ttl_hours: number;
+  auto_create_incidents: boolean;
+  auto_create_for_production_only: boolean;
+  block_deployments_on_expired: boolean;
+  block_deployments_on_drift: boolean;
+  notify_on_detection: boolean;
+  notify_on_expiration_warning: boolean;
+  expiration_warning_hours: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DriftPolicyCreate {
+  default_ttl_hours?: number;
+  critical_ttl_hours?: number;
+  high_ttl_hours?: number;
+  medium_ttl_hours?: number;
+  low_ttl_hours?: number;
+  auto_create_incidents?: boolean;
+  auto_create_for_production_only?: boolean;
+  block_deployments_on_expired?: boolean;
+  block_deployments_on_drift?: boolean;
+  notify_on_detection?: boolean;
+  notify_on_expiration_warning?: boolean;
+  expiration_warning_hours?: number;
+}
+
+export interface DriftPolicyUpdate {
+  default_ttl_hours?: number;
+  critical_ttl_hours?: number;
+  high_ttl_hours?: number;
+  medium_ttl_hours?: number;
+  low_ttl_hours?: number;
+  auto_create_incidents?: boolean;
+  auto_create_for_production_only?: boolean;
+  block_deployments_on_expired?: boolean;
+  block_deployments_on_drift?: boolean;
+  notify_on_detection?: boolean;
+  notify_on_expiration_warning?: boolean;
+  expiration_warning_hours?: number;
+}
+
+export interface DriftPolicyTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  policy_config: Record<string, any>;
+  is_system: boolean;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Drift Approvals
+export type ApprovalType = 'acknowledge' | 'extend_ttl' | 'close' | 'reconcile';
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface DriftApproval {
+  id: string;
+  tenant_id: string;
+  incident_id: string;
+  approval_type: ApprovalType;
+  status: ApprovalStatus;
+  requested_by: string;
+  requested_at: string;
+  request_reason?: string;
+  decided_by?: string;
+  decided_at?: string;
+  decision_notes?: string;
+  extension_hours?: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // Legacy types for mock API compatibility
 export interface Tenant {
   id: string;
@@ -613,7 +766,7 @@ export interface ApiResponse<T> {
 
 // Pipeline types
 export type RiskLevel = 'Low' | 'Medium' | 'High';
-export type ApprovalType = '1 of N' | 'All';
+export type PipelineApprovalType = '1 of N' | 'All';
 
 export interface PipelineStageGates {
   requireCleanDrift: boolean;
@@ -629,7 +782,7 @@ export interface PipelineStageApprovals {
   requireApproval: boolean;
   approverRole?: string;
   approverGroup?: string;
-  requiredApprovals?: ApprovalType;
+  requiredApprovals?: PipelineApprovalType;
 }
 
 export interface PipelineStageSchedule {
@@ -1324,4 +1477,26 @@ export interface ExecutionMetricsSummary {
   successRate: number;
   avgDurationMs: number;
   period: string;
+}
+
+// Workflow Action Policy types - MUST match backend WorkflowActionPolicy exactly
+export interface WorkflowActionPolicy {
+  can_view_details: boolean;
+  can_open_in_n8n: boolean;
+  can_create_deployment: boolean;
+  can_edit_directly: boolean;
+  can_soft_delete: boolean;       // Archive workflow
+  can_hard_delete: boolean;       // Permanently remove (admin-only)
+  can_create_drift_incident: boolean;
+  drift_incident_required: boolean;
+  edit_requires_confirmation: boolean;
+  edit_requires_admin: boolean;
+}
+
+export interface WorkflowPolicyResponse {
+  environment_id: string;
+  environment_class: EnvironmentClass;
+  plan: string;
+  role: string;
+  policy: WorkflowActionPolicy;
 }

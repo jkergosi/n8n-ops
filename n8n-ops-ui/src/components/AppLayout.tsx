@@ -4,7 +4,6 @@ import { useAuth } from '@/lib/auth';
 import { useAppStore } from '@/store/use-app-store';
 import { useFeatures, type PlanFeatures } from '@/lib/features';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -60,13 +59,13 @@ import {
   Key,
   HelpCircle,
   Palette,
-  ChevronRight,
   ChevronDown,
   ChevronUp,
   Search,
   PanelLeftClose,
   PanelLeftOpen,
   History,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isMenuItemVisible, mapBackendRoleToFrontendRole, type Role } from '@/lib/permissions';
@@ -105,6 +104,12 @@ const navigationSections: NavSection[] = [
     ],
   },
   {
+    title: 'Incidents',
+    items: [
+      { id: 'incidents', name: 'Incidents', href: '/incidents', icon: AlertTriangle, requiredPlan: 'agency', feature: 'drift_incidents' },
+    ],
+  },
+  {
     title: 'Observability',
     items: [
       { id: 'observability', name: 'Observability', href: '/observability', icon: Activity, feature: 'observability_basic' },
@@ -130,6 +135,7 @@ const navigationSections: NavSection[] = [
       { id: 'tenantOverrides', name: 'Tenant Overrides', href: '/admin/entitlements/overrides', icon: Shield, requiredPlan: 'enterprise' },
       { id: 'entitlementsAudit', name: 'Entitlements Audit', href: '/admin/entitlements/audit', icon: History, requiredPlan: 'enterprise' },
       { id: 'auditLogs', name: 'Audit Logs', href: '/admin/audit-logs', icon: FileText, requiredPlan: 'pro', feature: 'audit_logs_enabled' },
+      { id: 'driftPolicies', name: 'Drift Policies', href: '/admin/drift-policies', icon: AlertTriangle, requiredPlan: 'enterprise', feature: 'drift_policies' },
       { id: 'security', name: 'Security', href: '/admin/security', icon: Shield, requiredPlan: 'enterprise', feature: 'sso_saml' },
       { id: 'systemSettings', name: 'System Settings', href: '/admin/settings', icon: Settings },
       { id: 'supportConfig', name: 'Support Config', href: '/admin/support-config', icon: HelpCircle },

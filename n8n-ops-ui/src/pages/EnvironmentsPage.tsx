@@ -557,33 +557,24 @@ export function EnvironmentsPage() {
     };
   };
 
-  // Helper function to get drift information
-  const getDriftInfo = (env: Environment): string => {
-    const health = healthData?.data?.find(h => h.environmentId === env.id);
-    if (!health || health.driftState === 'unknown') return '—';
-    if (health.driftState === 'in_sync') return 'In sync';
+  // Helper function to get drift status badge info
+  const getDriftBadgeInfo = (env: Environment): {
+    status: 'in_sync' | 'drift_detected' | 'unknown' | 'error';
+    label: string;
+    variant: 'default' | 'secondary' | 'destructive' | 'outline';
+  } => {
+    const driftStatus = env.driftStatus?.toUpperCase() || 'UNKNOWN';
 
-    // Compare workflow counts with other environments
-    const otherEnvs = environments?.data?.filter(e => e.id !== env.id) || [];
-    if (otherEnvs.length === 0) {
-      return health.driftWorkflowCount ? `+${health.driftWorkflowCount} vs source` : 'Drift detected';
+    switch (driftStatus) {
+      case 'IN_SYNC':
+        return { status: 'in_sync', label: 'In Sync', variant: 'default' };
+      case 'DRIFT_DETECTED':
+        return { status: 'drift_detected', label: 'Drift Detected', variant: 'destructive' };
+      case 'ERROR':
+        return { status: 'error', label: 'Error', variant: 'secondary' };
+      default:
+        return { status: 'unknown', label: 'Unknown', variant: 'outline' };
     }
-
-    // Find the most similar environment (usually staging for prod, dev for staging)
-    const currentWorkflowCount = env.workflowCount || 0;
-    const comparisons = otherEnvs.map(e => {
-      const diff = currentWorkflowCount - (e.workflowCount || 0);
-      return { env: e, diff };
-    });
-
-    // Find the closest match (smallest absolute difference)
-    const closest = comparisons.reduce((prev, curr) => 
-      Math.abs(curr.diff) < Math.abs(prev.diff) ? curr : prev
-    );
-
-    if (Math.abs(closest.diff) === 0) return 'In sync';
-    const sign = closest.diff > 0 ? '+' : '';
-    return `${sign}${closest.diff} vs ${closest.env.type || closest.env.name}`;
   };
 
   // Use the new features system for limits
@@ -635,7 +626,7 @@ export function EnvironmentsPage() {
               <TableBody>
                 {environments?.data?.map((env) => {
                   const envStatus = getEnvironmentStatus(env);
-                  const driftInfo = getDriftInfo(env);
+                  const driftBadge = getDriftBadgeInfo(env);
                   const isProduction = env.type?.toLowerCase() === 'production';
                   
                   return (
@@ -686,7 +677,19 @@ export function EnvironmentsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm">{driftInfo}</span>
+                        <Link to={`/environments/${env.id}#drift`}>
+                          <Badge
+                            variant={driftBadge.variant}
+                            className="text-xs cursor-pointer hover:opacity-80"
+                          >
+                            {driftBadge.label}
+                          </Badge>
+                        </Link>
+                        {env.lastDriftDetectedAt && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Checked {formatRelativeTime(env.lastDriftDetectedAt)}
+                          </p>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Link

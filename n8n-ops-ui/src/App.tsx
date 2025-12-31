@@ -27,6 +27,8 @@ import { TeamPage } from '@/pages/TeamPage';
 import { BillingPage } from '@/pages/BillingPage';
 import { N8NUsersPage } from '@/pages/N8NUsersPage';
 import { CredentialsPage } from '@/pages/CredentialsPage';
+import { IncidentsPage } from '@/pages/IncidentsPage';
+import { IncidentDetailPage } from '@/pages/IncidentDetailPage';
 import { EnvironmentSetupPage } from '@/pages/EnvironmentSetupPage';
 import { RestorePage } from '@/pages/RestorePage';
 import { ProfilePage } from '@/pages/ProfilePage';
@@ -48,6 +50,7 @@ import {
   EntitlementsAuditPage,
   CredentialHealthPage,
   SupportConfigPage,
+  DriftPoliciesPage,
 } from '@/pages/admin';
 import {
   SupportHomePage,
@@ -214,6 +217,8 @@ function App() {
                 <Route path="/activity/:id" element={<RoleProtectedRoute><ActivityDetailPage /></RoleProtectedRoute>} />
                 <Route path="/n8n-users" element={<RoleProtectedRoute><N8NUsersPage /></RoleProtectedRoute>} />
                 <Route path="/credentials" element={<RoleProtectedRoute><CredentialsPage /></RoleProtectedRoute>} />
+                <Route path="/incidents" element={<RoleProtectedRoute><IncidentsPage /></RoleProtectedRoute>} />
+                <Route path="/incidents/:id" element={<RoleProtectedRoute><IncidentDetailPage /></RoleProtectedRoute>} />
                 <Route path="/team" element={<RoleProtectedRoute><TeamPage /></RoleProtectedRoute>} />
                 <Route path="/billing" element={<RoleProtectedRoute><BillingPage /></RoleProtectedRoute>} />
                 <Route path="/profile" element={<RoleProtectedRoute><ProfilePage /></RoleProtectedRoute>} />
@@ -234,6 +239,7 @@ function App() {
                 <Route path="/admin/notifications" element={<RoleProtectedRoute><NotificationsPage /></RoleProtectedRoute>} />
                 <Route path="/admin/security" element={<RoleProtectedRoute><SecurityPage /></RoleProtectedRoute>} />
                 <Route path="/admin/settings" element={<RoleProtectedRoute><SettingsPage /></RoleProtectedRoute>} />
+                <Route path="/admin/drift-policies" element={<RoleProtectedRoute><DriftPoliciesPage /></RoleProtectedRoute>} />
                 <Route path="/admin/entitlements/matrix" element={<RoleProtectedRoute><FeatureMatrixPage /></RoleProtectedRoute>} />
                 <Route path="/admin/entitlements/overrides" element={<RoleProtectedRoute><TenantOverridesPage /></RoleProtectedRoute>} />
                 <Route path="/admin/entitlements/audit" element={<RoleProtectedRoute><EntitlementsAuditPage /></RoleProtectedRoute>} />

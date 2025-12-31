@@ -1517,6 +1517,133 @@ async def delete_workflow(
         )
 
 
+@router.post("/{workflow_id}/archive")
+async def archive_workflow(
+    workflow_id: str,
+    environment_id: Optional[str] = None,
+    environment: Optional[str] = None,
+    user_info: dict = Depends(require_entitlement("workflow_push"))
+):
+    """
+    Archive (soft delete) a workflow.
+
+    This hides the workflow from the default list but does NOT remove it from N8N.
+    Use this for workflows that should be hidden but may need to be restored.
+    """
+    try:
+        env_config = await resolve_environment_config(environment_id, environment)
+
+        # Extract user info for audit
+        user = user_info.get("user", {})
+        tenant = user_info.get("tenant", {})
+        user_id = user.get("id")
+        tenant_id = tenant.get("id") or MOCK_TENANT_ID  # Fallback for dev mode
+
+        # Archive the workflow in cache
+        result = await db_service.archive_workflow(
+            tenant_id=tenant_id,
+            environment_id=env_config.get("id"),
+            workflow_id=workflow_id,
+            archived_by=user_id
+        )
+
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workflow '{workflow_id}' not found"
+            )
+
+        # Create audit log
+        try:
+            await create_audit_log(
+                action_type="WORKFLOW_ARCHIVED",
+                action=f"Archived workflow '{result.get('name', workflow_id)}'",
+                tenant_id=tenant_id,
+                resource_type="workflow",
+                resource_id=workflow_id,
+                resource_name=result.get("name"),
+                provider=env_config.get("provider", "n8n"),
+                metadata={
+                    "environment_id": env_config.get("id"),
+                    "environment_name": env_config.get("n8n_name") or env_config.get("name"),
+                    "creates_drift": True
+                }
+            )
+        except Exception:
+            pass
+
+        return {"status": "archived", "workflow_id": workflow_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to archive workflow: {str(e)}"
+        )
+
+
+@router.post("/{workflow_id}/unarchive")
+async def unarchive_workflow(
+    workflow_id: str,
+    environment_id: Optional[str] = None,
+    environment: Optional[str] = None,
+    user_info: dict = Depends(require_entitlement("workflow_push"))
+):
+    """
+    Restore an archived workflow.
+
+    Makes the workflow visible again in the default workflow list.
+    """
+    try:
+        env_config = await resolve_environment_config(environment_id, environment)
+
+        # Extract user info
+        tenant = user_info.get("tenant", {})
+        tenant_id = tenant.get("id") or MOCK_TENANT_ID
+
+        # Unarchive the workflow
+        result = await db_service.unarchive_workflow(
+            tenant_id=tenant_id,
+            environment_id=env_config.get("id"),
+            workflow_id=workflow_id
+        )
+
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workflow '{workflow_id}' not found"
+            )
+
+        # Create audit log
+        try:
+            await create_audit_log(
+                action_type="WORKFLOW_UNARCHIVED",
+                action=f"Restored workflow '{result.get('name', workflow_id)}'",
+                tenant_id=tenant_id,
+                resource_type="workflow",
+                resource_id=workflow_id,
+                resource_name=result.get("name"),
+                provider=env_config.get("provider", "n8n"),
+                metadata={
+                    "environment_id": env_config.get("id"),
+                    "environment_name": env_config.get("n8n_name") or env_config.get("name")
+                }
+            )
+        except Exception:
+            pass
+
+        return {"status": "unarchived", "workflow_id": workflow_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unarchive workflow: {str(e)}"
+        )
+
+
 @router.get("/{workflow_id}/drift", response_model=Dict[str, Any])
 async def get_workflow_drift(
     workflow_id: str,

@@ -54,23 +54,26 @@ npm run dev -- --port <FRONTEND_PORT>
 
 ## Key Features
 
-- **Environments**: Manage multiple N8N instances (dev/staging/prod)
-- **Workflows**: View, upload, sync, activate/deactivate workflows
+- **Environments**: Manage multiple N8N instances (dev/staging/prod) with environment classes
+- **Workflows**: View, upload, sync, activate/deactivate workflows with action policies
 - **Credentials**: View and manage N8N credentials across environments
 - **Executions**: Monitor workflow execution history
 - **GitHub Sync**: Backup/restore workflows to Git repositories
 - **Pipelines**: Define promotion flows between environments
 - **Promotions**: Move workflows with gates, approvals, drift detection
+- **Drift Detection**: Automated drift monitoring, incidents, and reconciliation
+- **Drift Policies**: TTL/SLA-based governance with enterprise controls
+- **Incident Management**: Lifecycle tracking for drift incidents (open/acknowledged/resolved)
 - **Snapshots**: Git-backed environment state versioning
 - **Restore**: Restore workflows from snapshots
-- **Deployments**: Track promotion history and rollback
+- **Deployments**: Track promotion history, scheduling, and rollback
 - **Observability**: Health monitoring, alerts, execution analytics
 - **Alerts**: Configurable alerting for workflow failures
 - **Team Management**: Role-based access (admin, developer, viewer)
 - **Billing**: Stripe integration with free/pro/enterprise tiers
 - **Support**: Ticket system for user assistance
 - **Entitlements**: Plan-based feature access with overrides
-- **Admin Portal**: 15 admin pages for system management
+- **Admin Portal**: 16 admin pages for system management
 - **Real-time Updates**: SSE-based live notifications
 
 ## Dev Mode Authentication
@@ -90,17 +93,19 @@ n8n-ops/
 │   ├── CLAUDE.md                # Backend-specific docs
 │   ├── app/
 │   │   ├── main.py              # App entry, router registration
-│   │   ├── api/endpoints/       # 29 API routers
-│   │   ├── services/            # 21 business logic services
-│   │   ├── schemas/             # 18 Pydantic model files
+│   │   ├── api/endpoints/       # 36 API routers
+│   │   ├── services/            # 27 business logic services
+│   │   ├── schemas/             # 22 Pydantic model files
 │   │   └── core/                # Config, feature gates
+│   ├── alembic/                 # Alembic migrations
 │   ├── migrations/              # SQL migrations
-│   └── tests/                   # 30 pytest test files
+│   └── tests/                   # 33 pytest test files
 ├── n8n-ops-ui/                  # React frontend
 │   ├── CLAUDE.md                # Frontend-specific docs
 │   └── src/
-│       ├── pages/               # 23 pages + 15 admin pages
+│       ├── pages/               # 29 pages + 16 admin pages
 │       ├── components/          # UI, workflow, pipeline components
+│       ├── hooks/               # Custom React hooks
 │       ├── lib/                 # API client, auth, features
 │       ├── store/               # Zustand state
 │       └── types/               # TypeScript definitions

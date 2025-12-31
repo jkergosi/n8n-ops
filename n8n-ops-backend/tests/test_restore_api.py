@@ -38,9 +38,12 @@ MOCK_ENVIRONMENT_NO_GIT = {
     "is_active": True,
 }
 
-MOCK_GITHUB_WORKFLOWS = [
-    {
+# get_all_workflows_from_github returns Dict[workflow_id, workflow_data]
+# Note: _comment field contains "Workflow ID: xxx" for matching
+MOCK_GITHUB_WORKFLOWS = {
+    "wf-1": {
         "_comment": "Workflow ID: wf-1",
+        "id": "wf-1",
         "name": "Email Automation",
         "nodes": [
             {"id": "node-1", "type": "n8n-nodes-base.start", "name": "Start"},
@@ -49,8 +52,9 @@ MOCK_GITHUB_WORKFLOWS = [
         "connections": {},
         "active": False,
     },
-    {
+    "wf-2": {
         "_comment": "Workflow ID: wf-2",
+        "id": "wf-2",
         "name": "Data Sync",
         "nodes": [
             {"id": "node-1", "type": "n8n-nodes-base.schedule", "name": "Schedule"},
@@ -60,8 +64,9 @@ MOCK_GITHUB_WORKFLOWS = [
         "connections": {},
         "active": True,
     },
-    {
-        "_comment": "New workflow without ID",
+    "wf-new": {
+        "_comment": "Workflow ID: wf-new",
+        "id": "wf-new",
         "name": "New Workflow",
         "nodes": [
             {"id": "node-1", "type": "n8n-nodes-base.webhook", "name": "Webhook"},
@@ -69,7 +74,7 @@ MOCK_GITHUB_WORKFLOWS = [
         "connections": {},
         "active": False,
     },
-]
+}
 
 MOCK_N8N_WORKFLOWS = [
     {
@@ -328,7 +333,7 @@ class TestExecuteRestore:
             mock_db.update_environment_workflow_count = AsyncMock()
 
             mock_github = MagicMock()
-            mock_github.get_all_workflows_from_github = AsyncMock(return_value=MOCK_GITHUB_WORKFLOWS[:1])
+            mock_github.get_all_workflows_from_github = AsyncMock(return_value={"wf-1": MOCK_GITHUB_WORKFLOWS["wf-1"]})
             MockGitHubService.return_value = mock_github
 
             mock_adapter = MagicMock()
@@ -396,7 +401,7 @@ class TestExecuteRestore:
             mock_db.update_environment_workflow_count = AsyncMock()
 
             mock_github = MagicMock()
-            mock_github.get_all_workflows_from_github = AsyncMock(return_value=MOCK_GITHUB_WORKFLOWS[:1])
+            mock_github.get_all_workflows_from_github = AsyncMock(return_value={"wf-1": MOCK_GITHUB_WORKFLOWS["wf-1"]})
             MockGitHubService.return_value = mock_github
 
             mock_adapter = MagicMock()
@@ -697,7 +702,7 @@ class TestRestoreIntegration:
             mock_db.update_environment_workflow_count = AsyncMock()
 
             mock_github = MagicMock()
-            mock_github.get_all_workflows_from_github = AsyncMock(return_value=MOCK_GITHUB_WORKFLOWS[:1])
+            mock_github.get_all_workflows_from_github = AsyncMock(return_value={"wf-1": MOCK_GITHUB_WORKFLOWS["wf-1"]})
             MockGitHubService.return_value = mock_github
 
             mock_adapter = MagicMock()

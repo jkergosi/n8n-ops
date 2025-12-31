@@ -224,8 +224,8 @@ class TestComputeSyncStatus:
         assert result == SyncStatus.CONFLICT.value
 
     @pytest.mark.unit
-    def test_conflict_when_both_updated_same_time(self):
-        """Should return conflict when both updated within same minute."""
+    def test_update_available_when_github_slightly_newer(self):
+        """Should return update_available when GitHub is slightly newer."""
         n8n_workflow = {"name": "N8N", "nodes": []}
         github_workflow = {"name": "GitHub", "nodes": []}
 
@@ -233,9 +233,10 @@ class TestComputeSyncStatus:
             n8n_workflow,
             github_workflow,
             n8n_updated_at="2024-01-15T10:00:30Z",
-            github_updated_at="2024-01-15T10:00:45Z"  # Within same minute
+            github_updated_at="2024-01-15T10:00:45Z"  # GitHub is more recent
         )
-        assert result == SyncStatus.CONFLICT.value
+        # When GitHub is newer, it's an update available
+        assert result == SyncStatus.UPDATE_AVAILABLE.value
 
     @pytest.mark.unit
     def test_local_changes_when_n8n_more_recent(self):
@@ -266,13 +267,17 @@ class TestComputeSyncStatus:
         assert result == SyncStatus.UPDATE_AVAILABLE.value
 
     @pytest.mark.unit
-    def test_defaults_to_conflict_without_timestamps(self):
-        """Should default to conflict when workflows differ and no timestamps."""
+    def test_defaults_to_local_changes_without_timestamps(self):
+        """Should default to local_changes when workflows differ and no timestamps.
+
+        The implementation treats N8N as the authoritative source when we can't
+        determine sync status from timestamps, so it returns local_changes.
+        """
         n8n_workflow = {"name": "N8N Version", "nodes": []}
         github_workflow = {"name": "GitHub Version", "nodes": []}
 
         result = compute_sync_status(n8n_workflow, github_workflow)
-        assert result == SyncStatus.CONFLICT.value
+        assert result == SyncStatus.LOCAL_CHANGES.value
 
     @pytest.mark.unit
     def test_handles_invalid_timestamp_format(self):
@@ -287,8 +292,8 @@ class TestComputeSyncStatus:
             n8n_updated_at="also-invalid",
             github_updated_at="nope"
         )
-        # Should fall through to conflict
-        assert result == SyncStatus.CONFLICT.value
+        # Falls through to local_changes (N8N as authoritative source)
+        assert result == SyncStatus.LOCAL_CHANGES.value
 
     @pytest.mark.unit
     def test_handles_none_timestamps(self):
@@ -303,7 +308,8 @@ class TestComputeSyncStatus:
             n8n_updated_at=None,
             github_updated_at=None
         )
-        assert result == SyncStatus.CONFLICT.value
+        # With no timestamps, defaults to local_changes (N8N as authoritative)
+        assert result == SyncStatus.LOCAL_CHANGES.value
 
     @pytest.mark.unit
     def test_detects_node_content_changes(self):

@@ -800,8 +800,9 @@ class TestCompareWorkflows:
         """Should identify workflows that exist only in source."""
         service.db.get_environment = AsyncMock(side_effect=[mock_environment, mock_target_environment])
 
-        source_workflows = [{"id": "wf-1", "name": "New Workflow", "active": True, "updatedAt": "2024-01-15T10:00:00Z"}]
-        target_workflows = []
+        # get_all_workflows_from_github returns Dict[workflow_id, workflow_data]
+        source_workflows = {"wf-1": {"id": "wf-1", "name": "New Workflow", "active": True, "updatedAt": "2024-01-15T10:00:00Z"}}
+        target_workflows = {}
 
         with patch.object(service, '_get_github_service') as mock_github:
             mock_source_gh = AsyncMock()
@@ -907,17 +908,20 @@ class TestCheckDrift:
         """Should return no drift when runtime matches GitHub."""
         service.db.get_environment = AsyncMock(return_value=mock_environment)
 
-        workflows = [{"id": "wf-1", "name": "Test", "updatedAt": "2024-01-15T10:00:00Z"}]
+        # Runtime workflows are a list
+        runtime_workflows = [{"id": "wf-1", "name": "Test", "updatedAt": "2024-01-15T10:00:00Z"}]
+        # GitHub workflows are a dict keyed by workflow ID
+        github_workflows = {"wf-1": {"id": "wf-1", "name": "Test", "updatedAt": "2024-01-15T10:00:00Z"}}
 
         with patch('app.services.promotion_service.ProviderRegistry') as mock_registry:
             mock_adapter = AsyncMock()
-            mock_adapter.get_workflows = AsyncMock(return_value=workflows)
+            mock_adapter.get_workflows = AsyncMock(return_value=runtime_workflows)
             mock_registry.get_adapter_for_environment.return_value = mock_adapter
 
             # Mock GitHubService directly since check_drift creates it internally
             with patch('app.services.promotion_service.GitHubService') as mock_gh_class:
                 mock_gh = MagicMock()
-                mock_gh.get_all_workflows_from_github = AsyncMock(return_value=workflows)
+                mock_gh.get_all_workflows_from_github = AsyncMock(return_value=github_workflows)
                 mock_gh_class.return_value = mock_gh
 
                 result = await service.check_drift(
@@ -1002,10 +1006,11 @@ class TestExecutePromotion:
         service.db.list_logical_credentials = AsyncMock(return_value=[])
         service.db.list_credential_mappings = AsyncMock(return_value=[])
 
-        source_workflows = [
-            {"id": "wf-1", "name": "Workflow 1", "active": True, "nodes": []},
-            {"id": "wf-2", "name": "Workflow 2", "active": False, "nodes": []}
-        ]
+        # get_all_workflows_from_github returns Dict[workflow_id, workflow_data]
+        source_workflows = {
+            "wf-1": {"id": "wf-1", "name": "Workflow 1", "active": True, "nodes": []},
+            "wf-2": {"id": "wf-2", "name": "Workflow 2", "active": False, "nodes": []}
+        }
 
         with patch('app.services.promotion_service.ProviderRegistry') as mock_registry:
             mock_source_adapter = AsyncMock()
@@ -1063,7 +1068,8 @@ class TestExecutePromotion:
             )
         ]
 
-        source_workflows = [{"id": "wf-1", "name": "Selected", "active": True, "nodes": []}]
+        # get_all_workflows_from_github returns Dict[workflow_id, workflow_data]
+        source_workflows = {"wf-1": {"id": "wf-1", "name": "Selected", "active": True, "nodes": []}}
 
         with patch('app.services.promotion_service.ProviderRegistry') as mock_registry:
             mock_adapter = AsyncMock()

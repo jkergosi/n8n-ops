@@ -124,6 +124,8 @@ const PLAN_FEATURES: Record<string, PlanFeatures> = {
     support_priority: false,
     data_residency: false,
     enterprise_limits: 0,
+    // Drift
+    drift_incidents: false,
   },
   pro: {
     // Legacy
@@ -178,6 +180,8 @@ const PLAN_FEATURES: Record<string, PlanFeatures> = {
     support_priority: true,
     data_residency: false,
     enterprise_limits: 0,
+    // Drift
+    drift_incidents: false,
   },
   agency: {
     // Legacy
@@ -232,6 +236,8 @@ const PLAN_FEATURES: Record<string, PlanFeatures> = {
     support_priority: true,
     data_residency: false,
     enterprise_limits: 0,
+    // Drift
+    drift_incidents: true,
   },
   enterprise: {
     // Legacy
@@ -286,6 +292,8 @@ const PLAN_FEATURES: Record<string, PlanFeatures> = {
     support_priority: true,
     data_residency: true,
     enterprise_limits: 9999,
+    // Drift
+    drift_incidents: true,
   },
 };
 
@@ -343,6 +351,8 @@ export const FEATURE_DISPLAY_NAMES: Record<string, string> = {
   support_priority: 'Priority Support',
   data_residency: 'Data Residency Controls',
   enterprise_limits: 'Enterprise Quotas',
+  // Drift
+  drift_incidents: 'Drift Incidents',
 };
 
 // Which plan is required for each feature - Phase 2 Full Catalog
@@ -399,6 +409,8 @@ export const FEATURE_REQUIRED_PLANS: Record<string, 'free' | 'pro' | 'agency' | 
   support_priority: 'pro',
   data_residency: 'enterprise',
   enterprise_limits: null,
+  // Drift
+  drift_incidents: 'agency',
 };
 
 // Usage tracking interface
@@ -503,6 +515,7 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
             support_priority: entitlements.features.support_priority as boolean ?? false,
             data_residency: entitlements.features.data_residency as boolean ?? false,
             enterprise_limits: entitlements.features.enterprise_limits as number ?? 0,
+            drift_incidents: entitlements.features.drift_incidents as boolean ?? baseFeatures.drift_incidents ?? false,
             // Also map to legacy feature names for backward compatibility
             workflow_snapshots: entitlements.features.snapshots_enabled as boolean ?? true,
             deployments: entitlements.features.workflow_ci_cd as boolean ?? false,

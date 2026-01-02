@@ -48,7 +48,15 @@ interface AuthContextType {
   refreshTenantUsers: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+// Keep a single context instance across Vite HMR updates.
+// Without this, edits to this file can produce multiple live module copies (different `?t=`),
+// causing providers/consumers to reference different contexts and crash at runtime.
+const AUTH_CONTEXT_KEY = '__n8n_ops_auth_context__';
+const AuthContext: React.Context<AuthContextType | undefined> =
+  (globalThis as any)[AUTH_CONTEXT_KEY] ?? createContext<AuthContextType | undefined>(undefined);
+if (import.meta.env.DEV) {
+  (globalThis as any)[AUTH_CONTEXT_KEY] = AuthContext;
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isTest = import.meta.env.MODE === 'test';

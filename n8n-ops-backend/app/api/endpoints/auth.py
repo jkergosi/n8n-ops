@@ -737,22 +737,23 @@ async def get_tenant_users(user_info: dict = Depends(get_current_user)):
         # Try to select can_be_impersonated, but fall back if column doesn't exist
         try:
             response = db_service.client.table("users").select(
-                "id, email, name, role, is_active, can_be_impersonated"
-            ).eq("tenant_id", tenant["id"]).eq("is_active", True).execute()
+                "id, email, name, role, status, can_be_impersonated"
+            ).eq("tenant_id", tenant["id"]).eq("status", "active").execute()
         except Exception as col_error:
-            # Fallback if can_be_impersonated column doesn't exist
-            # Check if it's a column error or something else
-            error_str = str(col_error).lower()
-            if "column" in error_str or "does not exist" in error_str or "can_be_impersonated" in error_str:
+            # Fallback for older schemas (missing can_be_impersonated and/or status)
+            try:
                 response = db_service.client.table("users").select(
-                    "id, email, name, role, is_active"
-                ).eq("tenant_id", tenant["id"]).eq("is_active", True).execute()
-                # Add default can_be_impersonated for backward compatibility
-                for user in response.data:
-                    user["can_be_impersonated"] = True
-            else:
-                # Re-raise if it's a different error
-                raise
+                    "id, email, name, role, status"
+                ).eq("tenant_id", tenant["id"]).eq("status", "active").execute()
+            except Exception:
+                response = db_service.client.table("users").select(
+                    "id, email, name, role"
+                ).eq("tenant_id", tenant["id"]).execute()
+
+            # Back-compat default
+            for u in (response.data or []):
+                if "can_be_impersonated" not in u:
+                    u["can_be_impersonated"] = True
         
         return {"users": response.data or []}
     except Exception as e:

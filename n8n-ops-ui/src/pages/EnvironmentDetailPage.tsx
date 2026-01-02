@@ -195,6 +195,17 @@ export function EnvironmentDetailPage() {
 
   const environment = environmentData?.data;
 
+  // Sync drift handling mode from environment data
+  useEffect(() => {
+    if (!environment) return;
+    const mode = (environment.driftHandlingMode || 'warn_only') as any;
+    if (mode === 'warn_only' || mode === 'manual_override' || mode === 'require_attestation') {
+      setDriftHandlingMode(mode);
+    } else {
+      setDriftHandlingMode('warn_only');
+    }
+  }, [environment?.id, environment?.driftHandlingMode]);
+
   // Fetch environment types
   const { data: environmentTypesData } = useQuery({
     queryKey: ['environment-types'],
@@ -298,7 +309,7 @@ export function EnvironmentDetailPage() {
       }
     };
 
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1';
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
     const token = localStorage.getItem('auth_token');
     const url = token
       ? `${baseUrl}/sse/stream?token=${encodeURIComponent(token)}`
@@ -740,16 +751,6 @@ export function EnvironmentDetailPage() {
     envState === 'DRIFT_INCIDENT_ACTIVE' ? (canUseDriftIncidents ? 'Drift Incident Active' : 'Changes Detected') :
     envState === 'DRIFT_DETECTED' ? (canUseDriftIncidents ? 'Drift Detected' : 'Changes Detected') :
     'In Sync';
-
-  useEffect(() => {
-    if (!environment) return;
-    const mode = (environment.driftHandlingMode || 'warn_only') as any;
-    if (mode === 'warn_only' || mode === 'manual_override' || mode === 'require_attestation') {
-      setDriftHandlingMode(mode);
-    } else {
-      setDriftHandlingMode('warn_only');
-    }
-  }, [environment?.id, environment?.driftHandlingMode]);
 
   return (
     <div className="container mx-auto p-6 space-y-6">

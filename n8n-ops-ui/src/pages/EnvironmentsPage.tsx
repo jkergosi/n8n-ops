@@ -222,7 +222,7 @@ export function EnvironmentsPage() {
     // Create EventSource connection for background jobs
     // EventSource can't send custom headers, so we pass token as query parameter
     // VITE_API_BASE_URL already includes /api/v1, so we just add /sse/stream
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1';
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
     const token = localStorage.getItem('auth_token');
     const url = token 
       ? `${baseUrl}/sse/stream?token=${encodeURIComponent(token)}`

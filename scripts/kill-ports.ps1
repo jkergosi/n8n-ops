@@ -43,15 +43,15 @@ function Kill-Port {
     
     Write-Host "[Port $PortNumber] Found process(es): $($pids -join ', ')" -ForegroundColor Yellow
     
-    foreach ($pid in $pids) {
+    foreach ($procId in $pids) {
         try {
-            $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+            $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
             if ($proc) {
-                Write-Host "  Killing PID $pid ($($proc.ProcessName))..." -ForegroundColor Yellow
-                taskkill /PID $pid /F /T 2>&1 | Out-Null
+                Write-Host "  Killing PID $procId ($($proc.ProcessName))..." -ForegroundColor Yellow
+                taskkill /PID $procId /F /T 2>&1 | Out-Null
             }
         } catch {
-            Write-Host "  Failed to kill PID $pid: $_" -ForegroundColor Red
+            Write-Host "  Failed to kill PID ${procId}: $_" -ForegroundColor Red
         }
     }
     
@@ -59,10 +59,10 @@ function Kill-Port {
     
     $remaining = Get-NetTCPConnection -LocalPort $PortNumber -State Listen -ErrorAction SilentlyContinue
     if ($remaining.Count -eq 0) {
-        Write-Host "[Port $PortNumber] ✓ Port is now free" -ForegroundColor Green
+        Write-Host "[Port $PortNumber] Port is now free" -ForegroundColor Green
     } else {
         $stillRunning = $remaining | Select-Object -ExpandProperty OwningProcess -Unique
-        Write-Host "[Port $PortNumber] ⚠️  Port still in use by PID(s): $($stillRunning -join ', ')" -ForegroundColor Red
+        Write-Host "[Port $PortNumber] Port still in use by PID(s): $($stillRunning -join ', ')" -ForegroundColor Red
     }
 }
 

@@ -28,10 +28,17 @@ class SupabaseAuthService:
                 audience="authenticated"
             )
             return payload
-        except JWTError as e:
+        except JWTError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Token validation failed: {str(e)}"
+                detail="Token validation failed"
+            )
+        except Exception:
+            # Some malformed tokens can raise non-JWT exceptions in the underlying libs.
+            # Treat all decode failures as unauthenticated to avoid leaking 500s to clients.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token validation failed"
             )
 
     async def get_or_create_user(self, supabase_user_id: str, email: str, name: Optional[str] = None) -> Dict[str, Any]:
@@ -312,13 +319,22 @@ async def get_current_user_optional(
             return {
                 "user": None,
                 "tenant": None,
-                "is_new": True
+                "is_new": False,
+                "no_credentials": True
             }
 
         # Get or create app user
         return await supabase_auth_service.get_or_create_user(supabase_user_id, email)
 
-    except HTTPException:
+    except HTTPException as e:
+        # Invalid/expired tokens should behave like "no credentials" so the UI stays on /login.
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            return {
+                "user": None,
+                "tenant": None,
+                "is_new": False,
+                "no_credentials": True
+            }
         return {
             "user": None,
             "tenant": None,

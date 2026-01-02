@@ -76,7 +76,7 @@ function Stop-ProcessTree {
         Start-Sleep -Milliseconds 500
         return $true
     } catch {
-        Write-Host "  Failed to kill PID $ProcessId: $_" -ForegroundColor Red
+        Write-Host "  Failed to kill PID ${ProcessId}: $_" -ForegroundColor Red
         return $false
     }
 }
@@ -84,42 +84,42 @@ function Stop-ProcessTree {
 function Enforce-Port {
     param([int]$PortNumber)
     
-    Write-Host "`n[Port $PortNumber] Checking port ownership..." -ForegroundColor Cyan
+    Write-Host ("`n[Port {0}] Checking port ownership..." -f $PortNumber) -ForegroundColor Cyan
     
     $listeners = Get-PortListeners -PortNumber $PortNumber
     
     if ($listeners.Count -eq 0) {
-        Write-Host "[Port $PortNumber] Port is free ✓" -ForegroundColor Green
+        Write-Host ("[Port {0}] Port is free" -f $PortNumber) -ForegroundColor Green
         return $true
     }
     
     $pids = $listeners | Select-Object -ExpandProperty OwningProcess -Unique
     
-    Write-Host "[Port $PortNumber] Port is in use by PID(s): $($pids -join ', ')" -ForegroundColor Yellow
+    Write-Host ("[Port {0}] Port is in use by PID(s): {1}" -f $PortNumber, ($pids -join ', ')) -ForegroundColor Yellow
     
-    foreach ($pid in $pids) {
-        $procInfo = Get-ProcessInfo -ProcessId $pid
+    foreach ($procId in $pids) {
+        $procInfo = Get-ProcessInfo -ProcessId $procId
         if ($procInfo) {
-            Write-Host "  Process: $($procInfo.Name) (PID: $pid)" -ForegroundColor Yellow
+            Write-Host "  Process: $($procInfo.Name) (PID: $procId)" -ForegroundColor Yellow
             if ($procInfo.Path) {
                 Write-Host "  Path: $($procInfo.Path)" -ForegroundColor Gray
             }
         } else {
-            Write-Host "  Process: Unknown (PID: $pid)" -ForegroundColor Yellow
+            Write-Host "  Process: Unknown (PID: $procId)" -ForegroundColor Yellow
         }
     }
     
-    Write-Host "[Port $PortNumber] Force-killing process tree(s)..." -ForegroundColor Yellow
+    Write-Host ("[Port {0}] Force-killing process tree(s)..." -f $PortNumber) -ForegroundColor Yellow
     
     $allKilled = $true
-    foreach ($pid in $pids) {
-        if (-not (Stop-ProcessTree -ProcessId $pid)) {
+    foreach ($procId in $pids) {
+        if (-not (Stop-ProcessTree -ProcessId $procId)) {
             $allKilled = $false
         }
     }
     
     if (-not $allKilled) {
-        Write-Host "[Port $PortNumber] Failed to kill some processes" -ForegroundColor Red
+        Write-Host ("[Port {0}] Failed to kill some processes" -f $PortNumber) -ForegroundColor Red
     }
     
     $maxRetries = 10
@@ -131,7 +131,7 @@ function Enforce-Port {
         $remaining = Get-PortListeners -PortNumber $PortNumber
         
         if ($remaining.Count -eq 0) {
-            Write-Host "[Port $PortNumber] Port is now free ✓" -ForegroundColor Green
+            Write-Host ("[Port {0}] Port is now free" -f $PortNumber) -ForegroundColor Green
             return $true
         }
         
@@ -142,15 +142,15 @@ function Enforce-Port {
     $remainingPids = $stillOccupied | Select-Object -ExpandProperty OwningProcess -Unique
     
     Write-Host "" -ForegroundColor Red
-    Write-Host "❌ [Port $PortNumber] Port remains occupied after forced termination" -ForegroundColor Red
+    Write-Host "ERROR [Port $PortNumber] Port remains occupied after forced termination" -ForegroundColor Red
     Write-Host "   Blocking PID(s): $($remainingPids -join ', ')" -ForegroundColor Red
     
-    foreach ($pid in $remainingPids) {
-        $procInfo = Get-ProcessInfo -ProcessId $pid
+    foreach ($procId in $remainingPids) {
+        $procInfo = Get-ProcessInfo -ProcessId $procId
         if ($procInfo) {
-            Write-Host "   - PID $pid: $($procInfo.Name)" -ForegroundColor Red
+            Write-Host "   - PID ${procId}: $($procInfo.Name)" -ForegroundColor Red
         } else {
-            Write-Host "   - PID $pid: Unknown process" -ForegroundColor Red
+            Write-Host "   - PID ${procId}: Unknown process" -ForegroundColor Red
         }
     }
     
@@ -183,7 +183,7 @@ function Main {
         }
     }
     
-    Write-Host "`n✓ All ports are free and ready" -ForegroundColor Green
+    Write-Host "`nOK - All ports are free and ready" -ForegroundColor Green
 }
 
 Main

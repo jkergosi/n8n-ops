@@ -222,7 +222,7 @@ export function useDeploymentsSSE(
       eventSourceRef.current.close();
     }
 
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1';
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
     const endpoint = deploymentId
       ? `${baseUrl}/sse/deployments/${deploymentId}`
       : `${baseUrl}/sse/deployments`;

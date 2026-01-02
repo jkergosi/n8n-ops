@@ -91,7 +91,8 @@ class ApiClient {
   private client: AxiosInstance;
 
   constructor() {
-    const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1';
+    // Default to same-origin so dev can use Vite proxy (avoids CORS) and prod can run behind one host.
+    const baseURL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
     this.client = axios.create({
       baseURL,
       headers: {
@@ -1057,7 +1058,8 @@ class ApiClient {
     const params: any = {};
     if (environmentId) params.environment_id = environmentId;
     if (workflowId) params.workflow_id = workflowId;
-    const response = await this.client.get<Execution[]>('/executions', { params });
+    // Backend is configured with redirect_slashes=False, so list endpoints must include trailing slash.
+    const response = await this.client.get<Execution[]>('/executions/', { params });
     return { data: response.data };
   }
 

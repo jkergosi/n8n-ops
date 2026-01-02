@@ -187,7 +187,7 @@ export function useBackgroundJobsSSE(
 
     // Build SSE URL with filters
     // Note: VITE_API_BASE_URL already includes /api/v1
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1';
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
     let url = `${baseUrl}/sse/stream`;
     const params = new URLSearchParams();
 

@@ -20,8 +20,14 @@ export default defineConfig({
     environment: 'happy-dom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    // Threads pool can OOM in this repo even with maxWorkers=1 due to the per-worker heap cap.
+    // Forks pool is heavier but more stable for the full UI suite.
+    pool: 'forks',
+    maxWorkers: 1,
     env: {
       VITE_API_BASE_URL: 'http://localhost:3000/api/v1',
+      VITE_SUPABASE_URL: 'https://xjunfyugpbyjslqkzlwn.supabase.co',
+      VITE_SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqdW5meXVncGJ5anNscWt6bHduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIyNTA1NDAsImV4cCI6MjA3NzgyNjU0MH0.DrVdRVzzctWqL6ATsEIeH_U3u2Y-PowbPt-ZWApD7kg',
     },
     coverage: {
       provider: 'v8',

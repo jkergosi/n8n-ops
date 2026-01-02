@@ -1,9 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { Session, AuthError } from '@supabase/supabase-js';
+import { supabase } from './supabase';
 import { apiClient } from './api-client';
 import type { Entitlements } from '@/types';
-
-// DEV MODE - Always enabled, bypasses Auth0 entirely
-// Assumes first user in database is the current user
 
 interface User {
   id: string;
@@ -15,7 +14,15 @@ interface User {
 interface Tenant {
   id: string;
   name: string;
-  subscriptionPlan: 'free' | 'pro' | 'enterprise';
+  subscriptionPlan: 'free' | 'pro' | 'agency' | 'enterprise';
+}
+
+interface TenantUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  can_be_impersonated?: boolean;
 }
 
 interface AuthContextType {
@@ -26,180 +33,300 @@ interface AuthContextType {
   user: User | null;
   tenant: Tenant | null;
   entitlements: Entitlements | null;
-  availableUsers: Array<{ id: string; email: string; name: string; tenant_id: string }>;
+  session: Session | null;
+  impersonating: boolean;
+  tenantUsers: TenantUser[];
   login: () => void;
-  logout: () => void;
+  loginWithEmail: (email: string, password: string) => Promise<void>;
+  loginWithOAuth: (provider: 'google' | 'github') => Promise<void>;
+  signup: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
   loginAs: (userId: string) => Promise<void>;
+  stopImpersonating: () => Promise<void>;
   completeOnboarding: (organizationName?: string) => Promise<void>;
   refreshEntitlements: () => Promise<void>;
+  refreshTenantUsers: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isTest = import.meta.env.MODE === 'test';
+  const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
-  const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; email: string; name: string; tenant_id: string }>>([]);
-  // Use a single status to avoid race conditions between multiple state variables
+  const [tenantUsers, setTenantUsers] = useState<TenantUser[]>([]);
+  const [impersonating, setImpersonating] = useState(false);
   const [authStatus, setAuthStatus] = useState<'initializing' | 'authenticated' | 'unauthenticated'>('initializing');
 
-  // Derived values for backwards compatibility
   const isLoading = authStatus === 'initializing';
   const initComplete = authStatus !== 'initializing';
 
-  // Debug logging
   if (!isTest) {
-    console.log('[Auth] Current state:', { authStatus, isLoading, initComplete, hasUser: !!user, hasTenant: !!tenant });
+    console.log('[Auth] Current state:', { authStatus, isLoading, initComplete, hasUser: !!user, hasTenant: !!tenant, impersonating });
   }
 
-  // Load available users and auto-login on mount
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        // Get list of users from backend (no auth required for this endpoint)
-        const { data } = await apiClient.getDevUsers();
-        const users = data.users || [];
-        setAvailableUsers(users);
-
-        if (users.length > 0) {
-          // Check if we have a saved user ID, otherwise use first user
-          const savedUserId = localStorage.getItem('dev_user_id');
-          const userIdToUse = savedUserId && users.find(u => u.id === savedUserId)
-            ? savedUserId
-            : users[0].id;
-
-          const selectedUser = users.find(u => u.id === userIdToUse) || users[0];
-
-          // Set the token BEFORE making the login call
-          const devToken = `dev-token-${selectedUser.id}`;
-          apiClient.setAuthToken(devToken);
-          localStorage.setItem('dev_user_id', selectedUser.id);
-
-          try {
-            const loginResult = await apiClient.devLoginAs(selectedUser.id);
-            if (loginResult.data.user && loginResult.data.tenant) {
-              setUser({
-                id: loginResult.data.user.id,
-                email: loginResult.data.user.email,
-                name: loginResult.data.user.name,
-                role: loginResult.data.user.role || 'admin',
-              });
-              setTenant({
-                id: loginResult.data.tenant.id,
-                name: loginResult.data.tenant.name,
-                subscriptionPlan: loginResult.data.tenant.subscription_tier || 'free',
-              });
-              setNeedsOnboarding(false);
-
-              // Fetch entitlements after login
-              try {
-                const { data: statusData } = await apiClient.getAuthStatus();
-                if (statusData.entitlements) {
-                  if (!isTest) console.log('[Auth] Loaded entitlements:', statusData.entitlements);
-                  setEntitlements(statusData.entitlements);
-                } else {
-                  if (!isTest) console.warn('[Auth] No entitlements in status response');
-                }
-              } catch (entitlementError) {
-                if (!isTest) console.warn('Failed to fetch entitlements:', entitlementError);
-              }
-
-              // Mark as authenticated after all state is set
-              setAuthStatus('authenticated');
-            } else {
-              // No user/tenant data returned
-              if (!isTest) console.warn('[Auth] No user or tenant data in login response');
-              setAuthStatus('unauthenticated');
-            }
-          } catch (loginError) {
-            if (!isTest) console.error('Failed to login as user:', loginError);
-            // Even if login fails, try to set user from what we know
-            // But also set a dummy tenant to allow dev mode to work
-            setUser({
-              id: selectedUser.id,
-              email: selectedUser.email,
-              name: selectedUser.name,
-              role: 'admin',
-            });
-            setTenant({
-              id: 'dev-tenant',
-              name: 'Development',
-              subscriptionPlan: 'enterprise',
-            });
-            setNeedsOnboarding(false);
-            setAuthStatus('authenticated');
-          }
-        } else {
-          // No users exist
-          if (!isTest) console.log('No users in database');
-          setNeedsOnboarding(false);
-          setAuthStatus('unauthenticated');
-        }
-      } catch (error) {
-        if (!isTest) console.error('Failed to init auth:', error);
-        setNeedsOnboarding(false);
-        setAuthStatus('unauthenticated');
-      }
-    };
-
-    initAuth();
-  }, []);
-
-  const login = useCallback(() => {
-    window.location.reload();
-  }, []);
-
-  const logout = useCallback(() => {
-    apiClient.setAuthToken(null);
-    localStorage.removeItem('dev_user_id');
-    window.location.reload();
-  }, []);
-
-  const loginAs = useCallback(async (userId: string) => {
+  // Fetch user data from backend after Supabase authentication
+  const fetchUserData = useCallback(async (accessToken: string) => {
     try {
-      setAuthStatus('initializing');
-      const { data } = await apiClient.devLoginAs(userId);
-      if (data.user && data.tenant) {
+      apiClient.setAuthToken(accessToken);
+
+      const { data: statusData } = await apiClient.getAuthStatus();
+
+      if (statusData.onboarding_required) {
+        setNeedsOnboarding(true);
+        setUser(null);
+        setTenant(null);
+        setAuthStatus('authenticated');
+        return;
+      }
+
+      if (statusData.user && statusData.tenant) {
         setUser({
-          id: data.user.id,
-          email: data.user.email,
-          name: data.user.name,
-          role: data.user.role || 'admin',
+          id: statusData.user.id,
+          email: statusData.user.email,
+          name: statusData.user.name,
+          role: statusData.user.role || 'admin',
         });
         setTenant({
-          id: data.tenant.id,
-          name: data.tenant.name,
-          subscriptionPlan: data.tenant.subscription_tier || 'free',
+          id: statusData.tenant.id,
+          name: statusData.tenant.name,
+          subscriptionPlan: statusData.tenant.subscription_plan || 'free',
         });
-        localStorage.setItem('dev_user_id', userId);
-        apiClient.setAuthToken(`dev-token-${userId}`);
+        setNeedsOnboarding(false);
 
-        // Fetch entitlements after switching users
-        try {
-          const { data: statusData } = await apiClient.getAuthStatus();
-          if (statusData.entitlements) {
-            setEntitlements(statusData.entitlements);
-          }
-        } catch (entitlementError) {
-          if (!isTest) console.warn('Failed to fetch entitlements:', entitlementError);
+        if (statusData.entitlements) {
+          setEntitlements(statusData.entitlements);
         }
+
         setAuthStatus('authenticated');
       } else {
         setAuthStatus('unauthenticated');
       }
     } catch (error) {
-      if (!isTest) console.error('Failed to login as user:', error);
+      if (!isTest) console.error('[Auth] Failed to fetch user data:', error);
       setAuthStatus('unauthenticated');
+    }
+  }, [isTest]);
+
+  // Fetch tenant users for admin impersonation
+  const refreshTenantUsers = useCallback(async () => {
+    if (user?.role !== 'admin' || !tenant) {
+      setTenantUsers([]);
+      return;
+    }
+
+    try {
+      const { data } = await apiClient.getTenantUsers();
+      setTenantUsers(data.users || []);
+    } catch (error) {
+      if (!isTest) console.error('[Auth] Failed to fetch tenant users:', error);
+      setTenantUsers([]);
+    }
+  }, [user?.role, tenant, isTest]);
+
+  // Initialize auth on mount
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        // Check for impersonation token first
+        const impersonationToken = localStorage.getItem('impersonation_token');
+        if (impersonationToken) {
+          apiClient.setAuthToken(impersonationToken);
+          setImpersonating(true);
+
+          try {
+            const { data: statusData } = await apiClient.getAuthStatus();
+            if (statusData.user && statusData.tenant) {
+              setUser({
+                id: statusData.user.id,
+                email: statusData.user.email,
+                name: statusData.user.name,
+                role: statusData.user.role || 'admin',
+              });
+              setTenant({
+                id: statusData.tenant.id,
+                name: statusData.tenant.name,
+                subscriptionPlan: statusData.tenant.subscription_plan || 'free',
+              });
+              if (statusData.entitlements) {
+                setEntitlements(statusData.entitlements);
+              }
+              setAuthStatus('authenticated');
+              return;
+            }
+          } catch {
+            // Impersonation token invalid, clear it
+            localStorage.removeItem('impersonation_token');
+            setImpersonating(false);
+          }
+        }
+
+        // Get Supabase session
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+
+        if (currentSession) {
+          setSession(currentSession);
+          await fetchUserData(currentSession.access_token);
+        } else {
+          setAuthStatus('unauthenticated');
+        }
+      } catch (error) {
+        if (!isTest) console.error('[Auth] Failed to init auth:', error);
+        setAuthStatus('unauthenticated');
+      }
+    };
+
+    initAuth();
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, newSession) => {
+        if (!isTest) console.log('[Auth] Auth state changed:', event);
+
+        if (event === 'SIGNED_OUT') {
+          setSession(null);
+          setUser(null);
+          setTenant(null);
+          setEntitlements(null);
+          setTenantUsers([]);
+          setImpersonating(false);
+          localStorage.removeItem('impersonation_token');
+          setAuthStatus('unauthenticated');
+          return;
+        }
+
+        if (newSession) {
+          setSession(newSession);
+          // Don't fetch if impersonating
+          if (!impersonating) {
+            await fetchUserData(newSession.access_token);
+          }
+        }
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [fetchUserData, isTest, impersonating]);
+
+  // Fetch tenant users when user/tenant changes
+  useEffect(() => {
+    if (user?.role === 'admin' && tenant && !impersonating) {
+      refreshTenantUsers();
+    }
+  }, [user?.role, tenant, impersonating, refreshTenantUsers]);
+
+  const login = useCallback(() => {
+    window.location.href = '/login';
+  }, []);
+
+  const loginWithEmail = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      throw error;
     }
   }, []);
 
-  const completeOnboarding = useCallback(async (_organizationName?: string) => {
-    // No-op in dev mode - onboarding is disabled
-    setNeedsOnboarding(false);
+  const loginWithOAuth = useCallback(async (provider: 'google' | 'github') => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: `${window.location.origin}/login`
+      }
+    });
+    if (error) {
+      throw error;
+    }
   }, []);
+
+  const signup = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/login`
+      }
+    });
+    if (error) {
+      throw error;
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    localStorage.removeItem('impersonation_token');
+    setImpersonating(false);
+    await supabase.auth.signOut();
+  }, []);
+
+  const loginAs = useCallback(async (userId: string) => {
+    try {
+      const { data } = await apiClient.impersonateUser(userId);
+      localStorage.setItem('impersonation_token', data.token);
+      apiClient.setAuthToken(data.token);
+
+      setUser({
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.name,
+        role: data.user.role || 'admin',
+      });
+      setTenant({
+        id: data.tenant.id,
+        name: data.tenant.name,
+        subscriptionPlan: data.tenant.subscription_tier || 'free',
+      });
+      setImpersonating(true);
+
+      // Refresh entitlements for impersonated user
+      try {
+        const { data: statusData } = await apiClient.getAuthStatus();
+        if (statusData.entitlements) {
+          setEntitlements(statusData.entitlements);
+        }
+      } catch {
+        // Ignore entitlements fetch error
+      }
+    } catch (error) {
+      if (!isTest) console.error('[Auth] Failed to impersonate user:', error);
+      throw error;
+    }
+  }, [isTest]);
+
+  const stopImpersonating = useCallback(async () => {
+    try {
+      await apiClient.stopImpersonating();
+    } catch {
+      // Ignore error, just clear local state
+    }
+
+    localStorage.removeItem('impersonation_token');
+    setImpersonating(false);
+
+    // Restore original session
+    if (session) {
+      apiClient.setAuthToken(session.access_token);
+      await fetchUserData(session.access_token);
+    }
+  }, [session, fetchUserData]);
+
+  const completeOnboarding = useCallback(async (organizationName?: string) => {
+    try {
+      await apiClient.completeOnboarding({ organization_name: organizationName });
+      setNeedsOnboarding(false);
+
+      // Refresh user data
+      if (session) {
+        await fetchUserData(session.access_token);
+      }
+    } catch (error) {
+      if (!isTest) console.error('[Auth] Failed to complete onboarding:', error);
+      throw error;
+    }
+  }, [session, fetchUserData, isTest]);
 
   const refreshEntitlements = useCallback(async () => {
     try {
@@ -208,11 +335,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setEntitlements(data.entitlements);
       }
     } catch (error) {
-      if (!isTest) console.error('Failed to refresh entitlements:', error);
+      if (!isTest) console.error('[Auth] Failed to refresh entitlements:', error);
     }
-  }, []);
+  }, [isTest]);
 
-  // Use the authStatus directly - this is the single source of truth
   const isAuthenticated = authStatus === 'authenticated';
 
   return (
@@ -225,12 +351,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         tenant,
         entitlements,
-        availableUsers,
+        session,
+        impersonating,
+        tenantUsers,
         login,
+        loginWithEmail,
+        loginWithOAuth,
+        signup,
         logout,
         loginAs,
+        stopImpersonating,
         completeOnboarding,
         refreshEntitlements,
+        refreshTenantUsers,
       }}
     >
       {children}

@@ -73,7 +73,7 @@ TEST_USERS = [
         "name": "Alice Admin",
         "role": "admin",
         "is_active": True,
-        "auth0_id": "seed|alice-admin",
+        "supabase_auth_id": None,  # Will be linked when user signs up
     },
     {
         "id": deterministic_uuid("alice-dev"),
@@ -82,7 +82,7 @@ TEST_USERS = [
         "name": "Alex Developer",
         "role": "developer",
         "is_active": True,
-        "auth0_id": "seed|alice-dev",
+        "supabase_auth_id": None,  # Will be linked when user signs up
     },
     {
         "id": deterministic_uuid("alice-viewer"),
@@ -91,7 +91,7 @@ TEST_USERS = [
         "name": "Victor Viewer",
         "role": "viewer",
         "is_active": True,
-        "auth0_id": "seed|alice-viewer",
+        "supabase_auth_id": None,  # Will be linked when user signs up
     },
     # Startup Inc users
     {
@@ -101,7 +101,7 @@ TEST_USERS = [
         "name": "Bob Builder",
         "role": "admin",
         "is_active": True,
-        "auth0_id": "seed|bob-admin",
+        "supabase_auth_id": None,  # Will be linked when user signs up
     },
     # Enterprise Co users
     {
@@ -111,7 +111,7 @@ TEST_USERS = [
         "name": "Carol CTO",
         "role": "admin",
         "is_active": True,
-        "auth0_id": "seed|carol-admin",
+        "supabase_auth_id": None,  # Will be linked when user signs up
     },
     {
         "id": deterministic_uuid("carol-dev1"),
@@ -120,7 +120,7 @@ TEST_USERS = [
         "name": "Dan Developer",
         "role": "developer",
         "is_active": True,
-        "auth0_id": "seed|carol-dev1",
+        "supabase_auth_id": None,  # Will be linked when user signs up
     },
     {
         "id": deterministic_uuid("carol-dev2"),
@@ -129,7 +129,7 @@ TEST_USERS = [
         "name": "Diana Developer",
         "role": "developer",
         "is_active": True,
-        "auth0_id": "seed|carol-dev2",
+        "supabase_auth_id": None,  # Will be linked when user signs up
     },
     # Agency Partners users
     {
@@ -139,7 +139,7 @@ TEST_USERS = [
         "name": "David Director",
         "role": "admin",
         "is_active": True,
-        "auth0_id": "seed|david-admin",
+        "supabase_auth_id": None,  # Will be linked when user signs up
     },
     # Trial user
     {
@@ -149,7 +149,7 @@ TEST_USERS = [
         "name": "Eve Explorer",
         "role": "admin",
         "is_active": True,
-        "auth0_id": "seed|eve-admin",
+        "supabase_auth_id": None,  # Will be linked when user signs up
     },
 ]
 

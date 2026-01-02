@@ -148,18 +148,14 @@ class ApiClient {
 
         // 401 Unauthorized
         if (error.response?.status === 401) {
-          // TEMPORARY: In dev mode, don't redirect on 401 for dev endpoints
           const url = error.config?.url || '';
-          if (url.includes('/auth/dev/')) {
-            // Don't redirect for dev endpoints - they don't require auth
-            return Promise.reject(error);
-          }
           // Don't redirect if it's a health check failure
           if (url.includes('/health')) {
             return Promise.reject(error);
           }
-          // Handle unauthorized - redirect to login (only for non-dev endpoints)
+          // Handle unauthorized - redirect to login
           localStorage.removeItem('auth_token');
+          localStorage.removeItem('impersonation_token');
           // Only redirect if not already on login page to prevent loops
           if (window.location.pathname !== '/login') {
             window.location.href = '/login';
@@ -193,21 +189,20 @@ class ApiClient {
     return { data: response.data };
   }
 
-  // Dev auth endpoints (bypass Auth0)
-  async getDevUsers(): Promise<{ data: { users: Array<{ id: string; email: string; name: string; tenant_id: string }> } }> {
-    const response = await this.client.get('/auth/dev/users');
+  // Tenant user management (admin only)
+  async getTenantUsers(): Promise<{ data: { users: Array<{ id: string; email: string; name: string; role: string; can_be_impersonated?: boolean }> } }> {
+    const response = await this.client.get('/auth/users');
     return { data: response.data };
   }
 
-  async devLoginAs(userId: string): Promise<{ data: { user: any; tenant: any } }> {
-    const response = await this.client.post(`/auth/dev/login-as/${userId}`);
+  // Admin impersonation
+  async impersonateUser(userId: string): Promise<{ data: { token: string; user: any; tenant: any; impersonating: boolean; admin_id: string } }> {
+    const response = await this.client.post(`/auth/impersonate/${userId}`);
     return { data: response.data };
   }
 
-  async devCreateUser(organizationName?: string): Promise<{ data: { user: any; tenant: any } }> {
-    const response = await this.client.post('/auth/dev/create-user', null, {
-      params: organizationName ? { organization_name: organizationName } : {},
-    });
+  async stopImpersonating(): Promise<{ data: { success: boolean; message: string } }> {
+    const response = await this.client.post('/auth/stop-impersonating');
     return { data: response.data };
   }
 
@@ -217,6 +212,12 @@ class ApiClient {
     } else {
       localStorage.removeItem('auth_token');
     }
+  }
+
+  // Complete onboarding
+  async completeOnboarding(data: { organization_name?: string }): Promise<{ data: any }> {
+    const response = await this.client.post('/auth/onboarding', data);
+    return { data: response.data };
   }
 
   // Get auth status with entitlements

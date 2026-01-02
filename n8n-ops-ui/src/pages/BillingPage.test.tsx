@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@/test/test-utils';
-import userEvent from '@testing-library/user-event';
+import { render, screen, waitFor } from '@/test/test-utils';
 import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { BillingPage } from './BillingPage';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+// Use relative base so MSW matches regardless of the test runner origin/baseURL
+const API_BASE = '/api/v1';
 
 const mockSubscription = {
   id: 'sub-1',

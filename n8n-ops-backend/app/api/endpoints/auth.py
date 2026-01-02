@@ -1,18 +1,20 @@
-"""Authentication endpoints for Auth0 integration."""
+"""Authentication endpoints for Supabase integration."""
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, EmailStr
 from typing import Optional, Any, Union, List
 
 from app.services.auth_service import (
-    auth_service,
+    supabase_auth_service,
     get_current_user,
-    get_current_user_optional
+    get_current_user_optional,
+    create_impersonation_token
 )
 from app.services.database import db_service
 from app.services.feature_service import feature_service
 from app.services.entitlements_service import entitlements_service
 from app.services.stripe_service import stripe_service
 from app.services.email_service import email_service
+from app.services.audit_service import audit_service
 import secrets
 
 router = APIRouter()
@@ -31,7 +33,7 @@ class CheckEmailRequest(BaseModel):
 class CheckEmailResponse(BaseModel):
     """Response for email check."""
     exists: bool
-    has_auth0_account: bool
+    has_supabase_account: bool
     has_n8n_ops_account: bool
     message: Optional[str] = None
 
@@ -137,7 +139,7 @@ async def get_auth_status(user_info: dict = Depends(get_current_user_optional)):
             "authenticated": True,
             "onboarding_required": True,
             "user": None,
-            "auth0_id": user_info.get("auth0_id"),
+            "supabase_auth_id": user_info.get("supabase_auth_id"),
             "email": user_info.get("email"),
             "name": user_info.get("name")
         }
@@ -233,18 +235,18 @@ async def complete_onboarding(
         }
 
     # Create new user and tenant
-    auth0_id = user_info.get("auth0_id")
+    supabase_auth_id = user_info.get("supabase_auth_id")
     email = user_info.get("email")
     name = user_info.get("name")
 
-    if not auth0_id or not email:
+    if not supabase_auth_id or not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing required user information"
         )
 
-    result = await auth_service.create_user_and_tenant(
-        auth0_id=auth0_id,
+    result = await supabase_auth_service.create_user_and_tenant(
+        supabase_auth_id=supabase_auth_id,
         email=email,
         name=name,
         organization_name=request.organization_name
@@ -272,29 +274,29 @@ async def complete_onboarding(
 
 @router.post("/check-email", response_model=CheckEmailResponse)
 async def check_email(request: CheckEmailRequest):
-    """Check if email exists in Auth0 or n8n-ops database."""
+    """Check if email exists in Supabase or n8n-ops database."""
     email = request.email.lower().strip()
-    
+
     # Check if email exists in n8n-ops database
-    user_response = db_service.client.table("users").select("id, email").eq("email", email).execute()
+    user_response = db_service.client.table("users").select("id, email, supabase_auth_id").eq("email", email).execute()
     has_n8n_ops_account = user_response.data and len(user_response.data) > 0
-    
-    # Note: Auth0 check would require Auth0 Management API
-    # For now, we'll check if user exists in our database
-    # In production, you'd want to check Auth0 as well
-    has_auth0_account = has_n8n_ops_account  # Simplified for now
-    
+
+    # Check if user has a linked Supabase auth account
+    has_supabase_account = False
+    if has_n8n_ops_account and user_response.data:
+        has_supabase_account = bool(user_response.data[0].get("supabase_auth_id"))
+
     if has_n8n_ops_account:
         return CheckEmailResponse(
             exists=True,
-            has_auth0_account=has_auth0_account,
+            has_supabase_account=has_supabase_account,
             has_n8n_ops_account=has_n8n_ops_account,
             message="An account with this email already exists. Please sign in instead."
         )
-    
+
     return CheckEmailResponse(
         exists=False,
-        has_auth0_account=False,
+        has_supabase_account=False,
         has_n8n_ops_account=False,
         message=None
     )
@@ -312,38 +314,38 @@ async def onboarding_organization(
             detail="User already has an account. Please sign in instead."
         )
     
-    auth0_id = user_info.get("auth0_id")
+    supabase_auth_id = user_info.get("supabase_auth_id")
     email = user_info.get("email")
     name = user_info.get("name")
-    
-    if not auth0_id or not email:
+
+    if not supabase_auth_id or not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing required user information. Please ensure you're properly authenticated."
         )
-    
+
     # Validate organization name
     if not request.organization_name or not request.organization_name.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Organization name is required and cannot be empty."
         )
-    
+
     if len(request.organization_name.strip()) < 2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Organization name must be at least 2 characters long."
         )
-    
+
     if len(request.organization_name.strip()) > 100:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Organization name must be 100 characters or less."
         )
-    
+
     # Create tenant with pending status
-    result = await auth_service.create_user_and_tenant(
-        auth0_id=auth0_id,
+    result = await supabase_auth_service.create_user_and_tenant(
+        supabase_auth_id=supabase_auth_id,
         email=email,
         name=name,
         organization_name=request.organization_name
@@ -700,14 +702,32 @@ async def onboarding_complete(
 
 
 # =============================================================================
-# DEV MODE ENDPOINTS - Bypass Auth0 for local development
+# USER MANAGEMENT & IMPERSONATION ENDPOINTS
 # =============================================================================
 
-@router.get("/dev/users")
-async def get_dev_users():
-    """Get all users for dev mode - allows switching between users."""
+@router.get("/users")
+async def get_tenant_users(user_info: dict = Depends(get_current_user)):
+    """Get all users in the current tenant. Admin only."""
+    user = user_info.get("user")
+    tenant = user_info.get("tenant")
+
+    if not user or not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated"
+        )
+
+    # Only admins can list users
+    if user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can view tenant users"
+        )
+
     try:
-        response = db_service.client.table("users").select("id, email, name, tenant_id, role").execute()
+        response = db_service.client.table("users").select(
+            "id, email, name, role, is_active, can_be_impersonated"
+        ).eq("tenant_id", tenant["id"]).eq("is_active", True).execute()
         return {"users": response.data or []}
     except Exception as e:
         raise HTTPException(
@@ -716,105 +736,139 @@ async def get_dev_users():
         )
 
 
-@router.post("/dev/login-as/{user_id}")
-async def dev_login_as(user_id: str):
-    """Login as a specific user in dev mode - bypasses Auth0."""
-    try:
-        # Get user
-        user_response = db_service.client.table("users").select("*").eq("id", user_id).single().execute()
-        if not user_response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        user = user_response.data
+@router.post("/impersonate/{user_id}")
+async def impersonate_user(user_id: str, user_info: dict = Depends(get_current_user)):
+    """Impersonate another user in the same tenant. Admin only, with audit logging."""
+    user = user_info.get("user")
+    tenant = user_info.get("tenant")
 
-        # Get tenant
-        tenant_response = db_service.client.table("tenants").select("*").eq("id", user["tenant_id"]).single().execute()
-        if not tenant_response.data:
+    if not user or not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated"
+        )
+
+    # Only admins can impersonate
+    if user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can impersonate other users"
+        )
+
+    # Cannot impersonate yourself
+    if user["id"] == user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot impersonate yourself"
+        )
+
+    # Check if already impersonating
+    if user_info.get("impersonating"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot nest impersonation. Stop current impersonation first."
+        )
+
+    try:
+        # Get target user - must be in same tenant
+        target_response = db_service.client.table("users").select("*").eq(
+            "id", user_id
+        ).eq("tenant_id", tenant["id"]).single().execute()
+
+        if not target_response.data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Tenant not found"
+                detail="User not found or not in your organization"
             )
-        tenant = tenant_response.data
+
+        target_user = target_response.data
+
+        # Check if user can be impersonated
+        if target_user.get("can_be_impersonated") is False:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This user has disabled impersonation"
+            )
+
+        # Create impersonation token
+        token = create_impersonation_token(
+            admin_user_id=user["id"],
+            target_user_id=user_id,
+            tenant_id=tenant["id"]
+        )
+
+        # Audit log the impersonation
+        try:
+            await audit_service.log_action(
+                tenant_id=tenant["id"],
+                user_id=user["id"],
+                action="impersonation_start",
+                resource_type="user",
+                resource_id=user_id,
+                details={
+                    "admin_email": user["email"],
+                    "target_email": target_user["email"],
+                    "target_name": target_user["name"]
+                }
+            )
+        except Exception:
+            # Don't fail impersonation if audit logging fails
+            pass
 
         return {
+            "token": token,
             "user": {
-                "id": user["id"],
-                "email": user["email"],
-                "name": user["name"],
-                "role": user.get("role", "admin"),
+                "id": target_user["id"],
+                "email": target_user["email"],
+                "name": target_user["name"],
+                "role": target_user.get("role", "admin"),
             },
             "tenant": {
                 "id": tenant["id"],
                 "name": tenant["name"],
                 "subscription_tier": tenant.get("subscription_tier", "free"),
-            }
+            },
+            "impersonating": True,
+            "admin_id": user["id"]
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to login as user: {str(e)}"
+            detail=f"Failed to impersonate user: {str(e)}"
         )
 
 
-@router.post("/dev/create-user")
-async def dev_create_user(organization_name: Optional[str] = None):
-    """Create a new user and tenant in dev mode for initial setup."""
-    import uuid
-    from datetime import datetime
+@router.post("/stop-impersonating")
+async def stop_impersonating(user_info: dict = Depends(get_current_user)):
+    """Stop impersonating and return to admin session."""
+    if not user_info.get("impersonating"):
+        return {"success": True, "message": "Not currently impersonating"}
 
+    admin_id = user_info.get("admin_id")
+    tenant = user_info.get("tenant")
+
+    # Audit log the end of impersonation
     try:
-        # Create tenant
-        tenant_id = str(uuid.uuid4())
-        tenant_data = {
-            "id": tenant_id,
-            "name": organization_name or "Dev Organization",
-            "subscription_tier": "free",
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-        tenant_response = db_service.client.table("tenants").insert(tenant_data).execute()
-        tenant = tenant_response.data[0]
-
-        # Create user
-        user_id = str(uuid.uuid4())
-        user_data = {
-            "id": user_id,
-            "tenant_id": tenant_id,
-            "email": "dev@example.com",
-            "name": "Dev User",
-            "role": "admin",
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-        user_response = db_service.client.table("users").insert(user_data).execute()
-        user = user_response.data[0]
-
-        return {
-            "user": {
-                "id": user["id"],
-                "email": user["email"],
-                "name": user["name"],
-                "role": user["role"],
-            },
-            "tenant": {
-                "id": tenant["id"],
-                "name": tenant["name"],
-                "subscription_tier": tenant.get("subscription_tier", "free"),
+        await audit_service.log_action(
+            tenant_id=tenant["id"],
+            user_id=admin_id,
+            action="impersonation_end",
+            resource_type="user",
+            resource_id=user_info["user"]["id"],
+            details={
+                "target_email": user_info["user"]["email"]
             }
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create user: {str(e)}"
         )
+    except Exception:
+        pass
+
+    return {"success": True, "message": "Impersonation ended"}
 
 
 # =============================================================================
-# END DEV MODE ENDPOINTS
+# END USER MANAGEMENT ENDPOINTS
 # =============================================================================
 
 

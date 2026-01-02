@@ -1,7 +1,6 @@
 import { http, HttpResponse } from 'msw';
 
 const API_BASE = '/api/v1';
-const API_BASE_4000 = '/api/v1';
 
 // Default fixtures
 export const mockUsers = [
@@ -213,43 +212,6 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
   http.post(`${API_BASE}/admin/environment-types/reorder`, () => {
-    return HttpResponse.json(mockEnvironmentTypes);
-  }),
-
-  // Same handlers for tests that use API base :4000
-  http.get(`${API_BASE_4000}/admin/environment-types`, () => {
-    return HttpResponse.json(mockEnvironmentTypes);
-  }),
-  http.post(`${API_BASE_4000}/admin/environment-types`, async ({ request }) => {
-    const body: any = await request.json();
-    return HttpResponse.json({
-      id: `envt-${Date.now()}`,
-      tenant_id: 'tenant-1',
-      key: body.key,
-      label: body.label,
-      sort_order: body.sort_order ?? 0,
-      is_active: body.is_active ?? true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-  }),
-  http.patch(`${API_BASE_4000}/admin/environment-types/:id`, async ({ params, request }) => {
-    const body: any = await request.json();
-    return HttpResponse.json({
-      id: params.id,
-      tenant_id: 'tenant-1',
-      key: body.key ?? 'dev',
-      label: body.label ?? 'Development',
-      sort_order: body.sort_order ?? 0,
-      is_active: body.is_active ?? true,
-      created_at: '2024-01-01T00:00:00Z',
-      updated_at: new Date().toISOString(),
-    });
-  }),
-  http.delete(`${API_BASE_4000}/admin/environment-types/:id`, () => {
-    return new HttpResponse(null, { status: 204 });
-  }),
-  http.post(`${API_BASE_4000}/admin/environment-types/reorder`, () => {
     return HttpResponse.json(mockEnvironmentTypes);
   }),
 
@@ -694,6 +656,63 @@ export const handlers = [
     });
   }),
 
+  // Environment health list (used by EnvironmentsPage status + drift indicators)
+  http.get(`${API_BASE}/observability/environment-health`, () => {
+    return HttpResponse.json([
+      {
+        environment_id: 'env-1',
+        environment_name: 'Development',
+        environment_type: 'development',
+        status: 'healthy',
+        latency_ms: 150,
+        uptime_percent: 99.9,
+        active_workflows: 5,
+        total_workflows: 5,
+        last_deployment_at: null,
+        last_snapshot_at: null,
+        drift_state: 'in_sync',
+        last_checked_at: new Date().toISOString(),
+      },
+      {
+        environment_id: 'env-2',
+        environment_name: 'Production',
+        environment_type: 'production',
+        status: 'healthy',
+        latency_ms: 220,
+        uptime_percent: 99.5,
+        active_workflows: 3,
+        total_workflows: 3,
+        last_deployment_at: null,
+        last_snapshot_at: null,
+        drift_state: 'in_sync',
+        last_checked_at: new Date().toISOString(),
+      },
+    ]);
+  }),
+
+  // Background jobs endpoints (EnvironmentsPage polls for per-environment jobs)
+  http.get(`${API_BASE}/background-jobs`, ({ request }) => {
+    const url = new URL(request.url);
+    // When called as "environment jobs", the UI expects an array.
+    if (url.searchParams.get('resource_type') === 'environment') {
+      return HttpResponse.json([]);
+    }
+    // When called as "all background jobs", the UI expects an object with { jobs, total }.
+    return HttpResponse.json({ jobs: [], total: 0 });
+  }),
+
+  http.get(`${API_BASE}/background-jobs/:jobId`, ({ params }) => {
+    return HttpResponse.json({
+      id: params.jobId,
+      job_type: 'environment_sync',
+      status: 'completed',
+      progress: { current: 1, total: 1, percentage: 100, message: 'Done' },
+      created_at: new Date().toISOString(),
+      started_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+    });
+  }),
+
   // Notifications endpoints (for AlertsPage)
   http.get(`${API_BASE}/notifications/channels`, () => {
     return HttpResponse.json({
@@ -976,6 +995,17 @@ export const handlers = [
     });
   }),
 
+  // Usage history time-series (used by UsagePage chart)
+  http.get(`${API_BASE}/admin/usage/history`, ({ request }) => {
+    const url = new URL(request.url);
+    const days = Number(url.searchParams.get('days') || 30);
+    const points = Array.from({ length: Math.min(Math.max(days, 1), 60) }).map((_, idx) => ({
+      ts: new Date(Date.now() - (days - 1 - idx) * 24 * 60 * 60 * 1000).toISOString(),
+      value: 1000 + idx * 10,
+    }));
+    return HttpResponse.json({ points });
+  }),
+
   http.get(`${API_BASE}/admin/usage/top-tenants`, () => {
     return HttpResponse.json({
       tenants: [
@@ -1238,6 +1268,21 @@ export const handlers = [
     ]);
   }),
 
+  // Providers catalog + subscriptions (used by Settings page)
+  http.get(`${API_BASE}/providers`, () => {
+    return HttpResponse.json([
+      { id: 'prov-1', provider: 'n8n', display_name: 'n8n', plans: [] },
+    ]);
+  }),
+
+  http.get(`${API_BASE}/providers/subscriptions/list`, () => {
+    return HttpResponse.json([]);
+  }),
+
+  http.get(`${API_BASE}/providers/subscriptions/active`, () => {
+    return HttpResponse.json([]);
+  }),
+
   http.get(`${API_BASE}/admin/providers/active`, () => {
     return HttpResponse.json({
       providers: [
@@ -1404,9 +1449,15 @@ export const handlers = [
 
   http.post(`${API_BASE}/support/upload-url`, async () => {
     return HttpResponse.json({
-      upload_url: 'https://storage.example.com/upload?token=abc123',
-      public_url: 'https://storage.example.com/files/screenshot.png',
+      attachment_id: 'att-1',
+      upload_url: 'support/attachments/att-1/upload',
+      public_url: 'support://attachment/att-1',
+      method: 'PUT',
     });
+  }),
+
+  http.put(`${API_BASE}/support/attachments/:attachmentId/upload`, () => {
+    return HttpResponse.json({ success: true });
   }),
 
   // Admin support config

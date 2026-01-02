@@ -1,6 +1,6 @@
-"""Auth0 authentication service for verifying JWT tokens and managing user sessions."""
+"""Supabase authentication service for verifying JWT tokens and managing user sessions."""
 from typing import Optional, Dict, Any
-import httpx
+from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -8,99 +8,37 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import settings
 from app.services.database import db_service
 
-# TEMPORARY: Make security optional to bypass Auth0
 security = HTTPBearer(auto_error=False)
 
 
-class Auth0Service:
-    """Service for Auth0 authentication and user management."""
+class SupabaseAuthService:
+    """Service for Supabase authentication and user management."""
 
     def __init__(self):
-        self.domain = settings.AUTH0_DOMAIN
-        self.api_audience = settings.AUTH0_API_AUDIENCE
-        self.algorithms = ["RS256"]
-        self._jwks: Optional[Dict] = None
-
-    async def get_jwks(self) -> Dict:
-        """Fetch JWKS from Auth0."""
-        if self._jwks is None:
-            jwks_url = f"https://{self.domain}/.well-known/jwks.json"
-            async with httpx.AsyncClient() as client:
-                response = await client.get(jwks_url)
-                self._jwks = response.json()
-        return self._jwks
+        self.jwt_secret = settings.SUPABASE_JWT_SECRET
+        self.algorithms = ["HS256"]
 
     async def verify_token(self, token: str) -> Dict[str, Any]:
-        """Verify an Auth0 JWT token and return the payload."""
+        """Verify a Supabase JWT token and return the payload."""
         try:
-            # Get the signing key
-            jwks = await self.get_jwks()
-            unverified_header = jwt.get_unverified_header(token)
-
-            rsa_key = {}
-            for key in jwks.get("keys", []):
-                if key["kid"] == unverified_header.get("kid"):
-                    rsa_key = {
-                        "kty": key["kty"],
-                        "kid": key["kid"],
-                        "use": key["use"],
-                        "n": key["n"],
-                        "e": key["e"]
-                    }
-                    break
-
-            if not rsa_key:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Unable to find appropriate key"
-                )
-
-            # Verify the token
             payload = jwt.decode(
                 token,
-                rsa_key,
+                self.jwt_secret,
                 algorithms=self.algorithms,
-                audience=self.api_audience,
-                issuer=f"https://{self.domain}/"
+                audience="authenticated"
             )
-
             return payload
-
         except JWTError as e:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Token validation failed: {str(e)}"
             )
 
-    async def get_or_create_user(self, auth0_user: Dict[str, Any]) -> Dict[str, Any]:
-        """Get or create a user based on Auth0 profile."""
-        # Extract user info from Auth0 token
-        auth0_id = auth0_user.get("sub")
-
-        # Try multiple possible locations for email claim
-        email = (
-            auth0_user.get("email") or
-            auth0_user.get(f"https://{self.domain}/email") or
-            auth0_user.get("https://api.n8nops.com/email") or
-            auth0_user.get(f"https://{self.domain}/claims/email")
-        )
-
-        # Debug: log what claims we received
-        print(f"[Auth Debug] Token claims: {list(auth0_user.keys())}")
-        print(f"[Auth Debug] sub={auth0_id}, email={email}")
-
-        if not auth0_id or not email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Missing required user information from Auth0. Got sub={auth0_id}, email={email}. Available claims: {list(auth0_user.keys())}"
-            )
-
-        # Now we can safely extract name (email is guaranteed to exist)
-        name = auth0_user.get("name") or auth0_user.get("nickname") or email.split("@")[0]
-
-        # Check if user exists by auth0_id
+    async def get_or_create_user(self, supabase_user_id: str, email: str, name: Optional[str] = None) -> Dict[str, Any]:
+        """Get or create an app user from Supabase auth user."""
+        # Check if user exists by supabase_auth_id
         existing = db_service.client.table("users").select("*, tenants(*)").eq(
-            "auth0_id", auth0_id
+            "supabase_auth_id", supabase_user_id
         ).execute()
 
         if existing.data and len(existing.data) > 0:
@@ -111,16 +49,16 @@ class Auth0Service:
                 "is_new": False
             }
 
-        # Check if user exists by email (for users created before Auth0)
+        # Check if user exists by email (for existing users without supabase_auth_id)
         existing_by_email = db_service.client.table("users").select("*, tenants(*)").eq(
             "email", email
         ).execute()
 
         if existing_by_email.data and len(existing_by_email.data) > 0:
-            # Update existing user with auth0_id
+            # Link existing user to Supabase auth
             user = existing_by_email.data[0]
             db_service.client.table("users").update({
-                "auth0_id": auth0_id
+                "supabase_auth_id": supabase_user_id
             }).eq("id", user["id"]).execute()
 
             return {
@@ -134,14 +72,14 @@ class Auth0Service:
             "user": None,
             "tenant": None,
             "is_new": True,
-            "auth0_id": auth0_id,
+            "supabase_auth_id": supabase_user_id,
             "email": email,
-            "name": name
+            "name": name or email.split("@")[0]
         }
 
     async def create_user_and_tenant(
         self,
-        auth0_id: str,
+        supabase_auth_id: str,
         email: str,
         name: str,
         organization_name: Optional[str] = None
@@ -173,7 +111,8 @@ class Auth0Service:
             "name": name,
             "role": "admin",
             "status": "active",
-            "auth0_id": auth0_id
+            "is_active": True,
+            "supabase_auth_id": supabase_auth_id
         }
 
         user_response = db_service.client.table("users").insert(user_data).execute()
@@ -195,75 +134,79 @@ class Auth0Service:
         }
 
 
-auth_service = Auth0Service()
+# Impersonation token management
+IMPERSONATION_TOKEN_PREFIX = "impersonate:"
+IMPERSONATION_EXPIRE_MINUTES = 60
+
+
+def create_impersonation_token(admin_user_id: str, target_user_id: str, tenant_id: str) -> str:
+    """Create a JWT token for admin impersonation."""
+    expire = datetime.utcnow() + timedelta(minutes=IMPERSONATION_EXPIRE_MINUTES)
+    payload = {
+        "type": "impersonation",
+        "admin_id": admin_user_id,
+        "target_id": target_user_id,
+        "tenant_id": tenant_id,
+        "exp": expire
+    }
+    token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+    return f"{IMPERSONATION_TOKEN_PREFIX}{token}"
+
+
+def verify_impersonation_token(token: str) -> Dict[str, Any]:
+    """Verify an impersonation token and return the payload."""
+    if not token.startswith(IMPERSONATION_TOKEN_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid impersonation token format"
+        )
+
+    jwt_token = token[len(IMPERSONATION_TOKEN_PREFIX):]
+    try:
+        payload = jwt.decode(jwt_token, settings.SECRET_KEY, algorithms=["HS256"])
+        if payload.get("type") != "impersonation":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token type"
+            )
+        return payload
+    except JWTError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Impersonation token validation failed: {str(e)}"
+        )
+
+
+supabase_auth_service = SupabaseAuthService()
 
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Dict[str, Any]:
     """Dependency to get the current authenticated user."""
-    # TEMPORARY: Bypass Auth0 - use first user from database
-    # If no token provided or token is not a dev token, use first user
-    token = None
-    if credentials:
-        token = credentials.credentials
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated"
+        )
 
-    # Check for dev token (format: dev-token-{user_id})
-    if token and token.startswith("dev-token-"):
-        user_id = token.replace("dev-token-", "")
-        # Get user from database
-        try:
-            user_response = db_service.client.table("users").select("*, tenants(*)").eq(
-                "id", user_id
-            ).execute()
+    token = credentials.credentials
 
-            if not user_response.data or len(user_response.data) == 0:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid dev token - user not found"
-                )
+    # Handle impersonation tokens
+    if token.startswith(IMPERSONATION_TOKEN_PREFIX):
+        impersonation_payload = verify_impersonation_token(token)
+        target_user_id = impersonation_payload.get("target_id")
+        admin_user_id = impersonation_payload.get("admin_id")
 
-            user = user_response.data[0]
-            tenant = user.get("tenants")
-
-            # If join didn't return tenant, fetch it separately
-            if not tenant and user.get("tenant_id"):
-                tenant_response = db_service.client.table("tenants").select("*").eq(
-                    "id", user["tenant_id"]
-                ).execute()
-                if tenant_response.data and len(tenant_response.data) > 0:
-                    tenant = tenant_response.data[0]
-
-            return {
-                "user": {
-                    "id": user["id"],
-                    "email": user["email"],
-                    "name": user["name"],
-                    "role": user.get("role", "admin"),
-                },
-                "tenant": {
-                    "id": tenant["id"],
-                    "name": tenant["name"],
-                    "subscription_tier": tenant.get("subscription_tier", "free"),
-                } if tenant else None
-            }
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Dev token validation failed: {str(e)}"
-            )
-
-    # TEMPORARY: Bypass Auth0 - get first user from database
-    try:
-        # Get first user from database
-        user_response = db_service.client.table("users").select("*, tenants(*)").order("created_at").limit(1).execute()
+        # Get target user
+        user_response = db_service.client.table("users").select("*, tenants(*)").eq(
+            "id", target_user_id
+        ).execute()
 
         if not user_response.data or len(user_response.data) == 0:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="No users found in database"
+                detail="Impersonation target user not found"
             )
 
         user = user_response.data[0]
@@ -288,111 +231,94 @@ async def get_current_user(
                 "id": tenant["id"],
                 "name": tenant["name"],
                 "subscription_tier": tenant.get("subscription_tier", "free"),
-            } if tenant else None
+            } if tenant else None,
+            "impersonating": True,
+            "admin_id": admin_user_id
         }
-    except HTTPException:
-        raise
-    except Exception as e:
+
+    # Verify Supabase JWT
+    payload = await supabase_auth_service.verify_token(token)
+    supabase_user_id = payload.get("sub")
+    email = payload.get("email")
+
+    if not supabase_user_id or not email:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Failed to get first user: {str(e)}"
+            detail="Invalid token payload"
         )
 
-    # Original Auth0 code (disabled temporarily)
-    # # Verify the token with Auth0
-    # auth0_payload = await auth_service.verify_token(token)
-    # # Get or create the user
-    # user_info = await auth_service.get_or_create_user(auth0_payload)
-    # if user_info.get("is_new") and user_info.get("user") is None:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_403_FORBIDDEN,
-    #         detail="onboarding_required",
-    #         headers={"X-Onboarding-Required": "true"}
-    #     )
-    # return user_info
+    # Get or create app user
+    user_info = await supabase_auth_service.get_or_create_user(supabase_user_id, email)
+
+    if user_info.get("is_new") and user_info.get("user") is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="onboarding_required",
+            headers={"X-Onboarding-Required": "true"}
+        )
+
+    user = user_info["user"]
+    tenant = user_info["tenant"]
+
+    # If join didn't return tenant, fetch it separately
+    if not tenant and user.get("tenant_id"):
+        tenant_response = db_service.client.table("tenants").select("*").eq(
+            "id", user["tenant_id"]
+        ).execute()
+        if tenant_response.data and len(tenant_response.data) > 0:
+            tenant = tenant_response.data[0]
+
+    return {
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": user.get("role", "admin"),
+        },
+        "tenant": {
+            "id": tenant["id"],
+            "name": tenant["name"],
+            "subscription_tier": tenant.get("subscription_tier", "free"),
+        } if tenant else None
+    }
 
 
 async def get_current_user_optional(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> Dict[str, Any]:
     """Dependency to get the current user, allowing new users for onboarding."""
-    # TEMPORARY: Bypass Auth0 - use first user from database
-    token = None
-    if credentials:
-        token = credentials.credentials
+    if not credentials:
+        return {
+            "user": None,
+            "tenant": None,
+            "is_new": True
+        }
 
-    # Check for dev token
-    if token and token.startswith("dev-token-"):
-        user_id = token.replace("dev-token-", "")
-        try:
-            user_response = db_service.client.table("users").select("*, tenants(*)").eq(
-                "id", user_id
-            ).execute()
-            if user_response.data and len(user_response.data) > 0:
-                user = user_response.data[0]
-                tenant = user.get("tenants")
-                # If join didn't return tenant, fetch it separately
-                if not tenant and user.get("tenant_id"):
-                    tenant_response = db_service.client.table("tenants").select("*").eq(
-                        "id", user["tenant_id"]
-                    ).execute()
-                    if tenant_response.data and len(tenant_response.data) > 0:
-                        tenant = tenant_response.data[0]
-                return {
-                    "user": {
-                        "id": user["id"],
-                        "email": user["email"],
-                        "name": user["name"],
-                        "role": user.get("role", "admin"),
-                    },
-                    "tenant": {
-                        "id": tenant["id"],
-                        "name": tenant["name"],
-                        "subscription_tier": tenant.get("subscription_tier", "free"),
-                    } if tenant else None,
-                    "is_new": False
-                }
-        except Exception:
-            pass
+    token = credentials.credentials
 
-    # Get first user from database
+    # Handle impersonation tokens
+    if token.startswith(IMPERSONATION_TOKEN_PREFIX):
+        return await get_current_user(credentials)
+
     try:
-        user_response = db_service.client.table("users").select("*, tenants(*)").order("created_at").limit(1).execute()
-        if user_response.data and len(user_response.data) > 0:
-            user = user_response.data[0]
-            tenant = user.get("tenants")
-            # If join didn't return tenant, fetch it separately
-            if not tenant and user.get("tenant_id"):
-                tenant_response = db_service.client.table("tenants").select("*").eq(
-                    "id", user["tenant_id"]
-                ).execute()
-                if tenant_response.data and len(tenant_response.data) > 0:
-                    tenant = tenant_response.data[0]
+        # Verify Supabase JWT
+        payload = await supabase_auth_service.verify_token(token)
+        supabase_user_id = payload.get("sub")
+        email = payload.get("email")
+
+        if not supabase_user_id or not email:
             return {
-                "user": {
-                    "id": user["id"],
-                    "email": user["email"],
-                    "name": user["name"],
-                    "role": user.get("role", "admin"),
-                },
-                "tenant": {
-                    "id": tenant["id"],
-                    "name": tenant["name"],
-                    "subscription_tier": tenant.get("subscription_tier", "free"),
-                } if tenant else None,
-                "is_new": False
+                "user": None,
+                "tenant": None,
+                "is_new": True
             }
-    except Exception:
-        pass
 
-    # Return empty if no user found (for onboarding)
-    return {
-        "user": None,
-        "tenant": None,
-        "is_new": True
-    }
+        # Get or create app user
+        return await supabase_auth_service.get_or_create_user(supabase_user_id, email)
 
-    # Original Auth0 code (disabled temporarily)
-    # token = credentials.credentials
-    # auth0_payload = await auth_service.verify_token(token)
-    # return await auth_service.get_or_create_user(auth0_payload)
+    except HTTPException:
+        return {
+            "user": None,
+            "tenant": None,
+            "is_new": True
+        }

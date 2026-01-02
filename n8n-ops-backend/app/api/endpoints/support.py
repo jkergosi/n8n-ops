@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request
-from typing import Dict, Any
+from typing import Dict, Any, Set
 
 from app.schemas.support import (
     SupportRequestCreate,
@@ -14,6 +14,35 @@ from app.services.auth_service import get_current_user
 from app.services.database import db_service
 
 router = APIRouter()
+
+# Security constants for file uploads
+MAX_UPLOAD_SIZE_MB = 10
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024  # 10MB
+
+# Allowed MIME types for attachments (security: prevent executable uploads)
+ALLOWED_CONTENT_TYPES: Set[str] = {
+    # Images
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+    # Documents
+    "application/pdf",
+    "text/plain",
+    "text/csv",
+    "text/markdown",
+    # Data formats
+    "application/json",
+    "application/xml",
+    "text/xml",
+    # Archives (for log bundles)
+    "application/zip",
+    "application/gzip",
+    # Fallback for unknown but safe binary
+    "application/octet-stream",
+}
+
 
 def _tenant_id(user_info: dict) -> str:
     tenant = user_info.get("tenant") or {}
@@ -140,16 +169,62 @@ async def upload_attachment(
     """
     Upload attachment bytes to private Supabase Storage (server-side upload).
     Client should PUT raw bytes with Content-Type set.
+
+    Security measures:
+    - File size limit: 10MB max
+    - Content-Type validation against allowlist
     """
     try:
         tenant_id = _tenant_id(user_info)
+
+        # Security: Validate Content-Length header before reading body
+        content_length_header = request.headers.get("content-length")
+        if content_length_header:
+            try:
+                content_length = int(content_length_header)
+                if content_length > MAX_UPLOAD_SIZE_BYTES:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE_MB}MB"
+                    )
+            except ValueError:
+                pass  # Invalid content-length header, will validate after reading
+
+        # Security: Validate Content-Type against allowlist
         content_type = request.headers.get("content-type") or "application/octet-stream"
+        # Extract base content type (ignore charset and other parameters)
+        base_content_type = content_type.split(";")[0].strip().lower()
+
+        if base_content_type not in ALLOWED_CONTENT_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=f"File type '{base_content_type}' is not allowed. Allowed types: images, PDFs, text files, JSON, XML, and archives."
+            )
+
+        # Read body with size limit enforcement
         body = await request.body()
+
         if not body:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty upload")
-        await upload_attachment_bytes(tenant_id=tenant_id, attachment_id=attachment_id, content_type=content_type, data=body)
+
+        # Security: Validate actual body size (defense in depth)
+        if len(body) > MAX_UPLOAD_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE_MB}MB"
+            )
+
+        await upload_attachment_bytes(
+            tenant_id=tenant_id,
+            attachment_id=attachment_id,
+            content_type=base_content_type,
+            data=body
+        )
         return {"success": True, "attachment_id": attachment_id}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to upload attachment: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload attachment"  # Generic message to avoid info disclosure
+        )

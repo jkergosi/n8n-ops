@@ -31,11 +31,8 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
-    # Auth0 Configuration
-    AUTH0_DOMAIN: str = ""
-    AUTH0_API_AUDIENCE: str = ""
-    AUTH0_CLIENT_ID: str = ""
-    AUTH0_CLIENT_SECRET: str = ""
+    # Supabase Auth Configuration
+    SUPABASE_JWT_SECRET: str = ""  # From Supabase Dashboard > Settings > API > JWT Secret
 
     # Stripe Configuration
     STRIPE_SECRET_KEY: str = ""

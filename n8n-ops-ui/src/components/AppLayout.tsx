@@ -153,7 +153,7 @@ const navigationSections: NavSection[] = [
 export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout, availableUsers, loginAs } = useAuth();
+  const { user, logout, tenantUsers, loginAs, impersonating, stopImpersonating } = useAuth();
   const { sidebarOpen, toggleSidebar } = useAppStore();
   const { canUseFeature, planName } = useFeatures();
   const { setTheme } = useTheme();
@@ -280,8 +280,16 @@ export function AppLayout() {
   };
 
   const handleUserSwitch = async (userId: string) => {
+    // Don't switch if selecting current user
+    if (userId === user?.id) return;
     await loginAs(userId);
     // Refresh the page to reload data for new user
+    window.location.reload();
+  };
+
+  const handleStopImpersonating = async () => {
+    await stopImpersonating();
+    // Refresh the page to reload data for original user
     window.location.reload();
   };
 
@@ -478,17 +486,34 @@ export function AppLayout() {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Dev User Switcher */}
-              {availableUsers.length > 0 && (
+              {/* Impersonation Indicator */}
+              {impersonating && (
+                <div className="hidden md:flex items-center gap-2">
+                  <div className="flex items-center gap-2 px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 rounded-md text-xs">
+                    <span>Viewing as {user?.name}</span>
+                    <button
+                      onClick={handleStopImpersonating}
+                      className="hover:bg-yellow-200 dark:hover:bg-yellow-800 rounded p-0.5"
+                      title="Stop impersonating"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Admin User Switcher - only show for admins when not impersonating */}
+              {user?.role === 'admin' && !impersonating && tenantUsers.length > 1 && (
                 <div className="hidden md:flex items-center gap-2">
                   <Select value={user?.id} onValueChange={handleUserSwitch}>
                     <SelectTrigger className="w-[180px] h-8 text-xs">
-                      <SelectValue placeholder="Select user" />
+                      <SelectValue placeholder="Switch user" />
                     </SelectTrigger>
                     <SelectContent>
-                      {availableUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.name} ({u.email})
+                      {tenantUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id} disabled={!u.can_be_impersonated && u.id !== user?.id}>
+                          {u.name} ({u.role})
+                          {u.id === user?.id && ' (you)'}
                         </SelectItem>
                       ))}
                     </SelectContent>

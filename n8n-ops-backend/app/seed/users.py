@@ -18,17 +18,19 @@ TEST_PASSWORD = "TestPassword123!"
 async def seed_auth_users(
     supabase_url: str,
     service_role_key: str,
+    db_client = None,
     clean: bool = False,
 ) -> Dict[str, Any]:
     """
     Create test users in Supabase Auth.
 
     Uses the Supabase Admin API to create users that can actually log in.
-    These are linked to the app's users table via the auth0_id field.
+    These are linked to the app's users table via the supabase_auth_id field.
 
     Args:
         supabase_url: Supabase project URL
         service_role_key: Supabase service role key (has admin privileges)
+        db_client: Optional Supabase database client for linking users
         clean: If True, delete existing test users first
 
     Returns:
@@ -88,12 +90,23 @@ async def seed_auth_users(
                 if response.status_code == 200:
                     users = response.json().get("users", [])
                     if users:
+                        auth_user_id = users[0].get("id")
                         results["users_skipped"] += 1
                         results["users"].append({
                             "email": email,
                             "status": "exists",
-                            "id": users[0].get("id"),
+                            "id": auth_user_id,
                         })
+
+                        # Ensure the link exists in app's users table
+                        if db_client and auth_user_id:
+                            try:
+                                db_client.table("users").update({
+                                    "supabase_auth_id": auth_user_id
+                                }).eq("id", user_data["id"]).execute()
+                                print(f"    Ensured supabase_auth_id link for: {email}")
+                            except Exception as link_error:
+                                print(f"    Failed to link supabase_auth_id for {email}: {link_error}")
                         continue
 
                 # Create user via Admin API
@@ -120,13 +133,24 @@ async def seed_auth_users(
 
                 if response.status_code in (200, 201):
                     auth_user = response.json()
+                    auth_user_id = auth_user.get("id")
                     results["users_created"] += 1
                     results["users"].append({
                         "email": email,
                         "status": "created",
-                        "id": auth_user.get("id"),
+                        "id": auth_user_id,
                     })
                     print(f"    Created auth user: {email}")
+
+                    # Link to app's users table
+                    if db_client and auth_user_id:
+                        try:
+                            db_client.table("users").update({
+                                "supabase_auth_id": auth_user_id
+                            }).eq("id", user_data["id"]).execute()
+                            print(f"    Linked supabase_auth_id for: {email}")
+                        except Exception as link_error:
+                            print(f"    Failed to link supabase_auth_id for {email}: {link_error}")
                 else:
                     error = response.json().get("message", response.text)
                     results["users_failed"] += 1

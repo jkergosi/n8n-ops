@@ -5,11 +5,11 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { MappingHealthCheck } from './MappingHealthCheck';
 
-const API_BASE = 'http://localhost:3000/api/v1';
+const API_BASE = '/api/v1';
 
 const mockEnvironments = [
-  { id: 'env-1', name: 'Development', type: 'development', n8n_name: 'Development', n8n_type: 'development' },
-  { id: 'env-2', name: 'Production', type: 'production', n8n_name: 'Production', n8n_type: 'production' },
+  { id: 'env-1', name: 'Development', type: 'development', n8n_name: 'Development', n8n_type: 'development', isActive: true },
+  { id: 'env-2', name: 'Production', type: 'production', n8n_name: 'Production', n8n_type: 'production', isActive: true },
 ];
 
 const mockValidationReport = {
@@ -18,8 +18,8 @@ const mockValidationReport = {
   invalid: 1,
   stale: 1,
   issues: [
-    { mappingId: 'mapping-4', logicalName: 'awsApi:s3-bucket', environmentId: 'env-2', environmentName: 'Production', issue: 'credential_not_found', message: 'Physical credential not found in N8N' },
-    { mappingId: 'mapping-5', logicalName: 'postgresApi:main-db', environmentId: 'env-1', environmentName: 'Development', issue: 'name_changed', message: "Credential name changed from 'Main DB' to 'Primary DB'" },
+    { mapping_id: 'mapping-4', logical_name: 'awsApi:s3-bucket', environment_id: 'env-2', environment_name: 'Production', issue: 'credential_not_found', message: 'Physical credential not found in N8N' },
+    { mapping_id: 'mapping-5', logical_name: 'postgresApi:main-db', environment_id: 'env-1', environment_name: 'Development', issue: 'name_changed', message: "Credential name changed from 'Main DB' to 'Primary DB'" },
   ],
 };
 

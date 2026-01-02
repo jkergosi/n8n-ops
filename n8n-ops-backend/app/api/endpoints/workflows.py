@@ -34,13 +34,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Fallback tenant ID (should not be used in production)
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
-
-
 def get_tenant_id(user_info: dict) -> str:
-    """Extract tenant_id from user_info, with fallback to MOCK_TENANT_ID"""
-    return user_info.get("tenant", {}).get("id", MOCK_TENANT_ID)
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 async def resolve_environment_config(
@@ -53,7 +52,7 @@ async def resolve_environment_config(
     Prefers environment_id, falls back to environment type for backward compatibility.
     """
     if not tenant_id:
-        tenant_id = MOCK_TENANT_ID
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     if environment_id:
         env_config = await db_service.get_environment(environment_id, tenant_id)
         if not env_config:
@@ -584,7 +583,8 @@ async def _backup_workflows_to_github_background(
                     current=idx + 1,
                     total=total,
                     current_workflow_name=full_workflow.get("name"),
-                    message=f"Backing up workflow {idx + 1} of {total}"
+                    message=f"Backing up workflow {idx + 1} of {total}",
+                    tenant_id=tenant_id
                 )
 
                 await github_service.sync_workflow_to_github(
@@ -677,7 +677,8 @@ async def _backup_workflows_to_github_background(
             current=total,
             total=total,
             message=f"Backup completed: {len(synced_workflows)} synced" if not has_errors else f"Backup completed with {len(errors)} errors",
-            errors=errors if has_errors else None
+            errors=errors if has_errors else None,
+            tenant_id=tenant_id
         )
 
         # Create audit log
@@ -718,7 +719,8 @@ async def _backup_workflows_to_github_background(
             current=0,
             total=1,
             message=f"Backup failed: {str(e)}",
-            errors=[str(e)]
+            errors=[str(e)],
+            tenant_id=tenant_id
         )
         # Create audit log for failure
         try:

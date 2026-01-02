@@ -13,4 +13,5 @@ export { TenantOverridesPage } from './TenantOverridesPage';
 export { EntitlementsAuditPage } from './EntitlementsAuditPage';
 export { CredentialHealthPage } from './CredentialHealthPage';
 export { SupportConfigPage } from './SupportConfigPage';
+export { SupportRequestsPage } from './SupportRequestsPage';
 export { DriftPoliciesPage } from './DriftPoliciesPage';

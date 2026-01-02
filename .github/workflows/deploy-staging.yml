@@ -1,0 +1,183 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      skip_migrations:
+        description: 'Skip database migrations'
+        required: false
+        default: 'false'
+        type: boolean
+      run_seed:
+        description: 'Run seed script after deploy'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false  # Don't cancel in-progress deploys
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: n8n-ops-ui/package-lock.json
+
+      - name: Install Python dependencies
+        working-directory: n8n-ops-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      # Pre-deploy backup
+      - name: Create pre-deploy backup
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          BACKUP_FILE="backup_staging_${TIMESTAMP}.dump"
+
+          echo "Creating backup: ${BACKUP_FILE}"
+          pg_dump "${DATABASE_URL}" -Fc -f "${BACKUP_FILE}"
+
+          # Upload to artifact storage
+          echo "BACKUP_FILE=${BACKUP_FILE}" >> $GITHUB_ENV
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-backup-${{ github.run_id }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 7
+
+      # Run migrations
+      - name: Run database migrations
+        if: ${{ github.event.inputs.skip_migrations != 'true' }}
+        working-directory: n8n-ops-backend
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          echo "Running Alembic migrations..."
+
+          # Acquire advisory lock to prevent concurrent migrations
+          psql "${DATABASE_URL}" -c "SELECT pg_advisory_lock(123456789);" || true
+
+          # Run migrations
+          alembic upgrade head
+
+          # Release lock
+          psql "${DATABASE_URL}" -c "SELECT pg_advisory_unlock(123456789);" || true
+
+          echo "Migrations complete"
+
+      # Deploy backend to VPS
+      - name: Deploy backend to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd ${{ secrets.STAGING_BACKEND_PATH }}
+
+            # Pull latest code
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Install dependencies
+            source .venv/bin/activate
+            pip install -r requirements.txt
+
+            # Restart service
+            sudo systemctl restart n8n-ops-staging-backend
+
+            echo "Backend deployed"
+
+      # Build and deploy frontend
+      - name: Install frontend dependencies
+        working-directory: n8n-ops-ui
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: n8n-ops-ui
+        env:
+          VITE_API_BASE_URL: ${{ secrets.STAGING_API_URL }}
+        run: npm run build
+
+      - name: Deploy frontend to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "n8n-ops-ui/dist/*"
+          target: ${{ secrets.STAGING_FRONTEND_PATH }}
+          strip_components: 2
+
+      # Optional: Run seed script
+      - name: Run seed script
+        if: ${{ github.event.inputs.run_seed == 'true' }}
+        working-directory: n8n-ops-backend
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.STAGING_SUPABASE_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_KEY }}
+        run: |
+          python -m app.seed --env staging
+
+      # Health check
+      - name: Health check
+        env:
+          STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
+        run: |
+          echo "Waiting for service to start..."
+          sleep 10
+
+          for i in {1..5}; do
+            response=$(curl -s -o /dev/null -w "%{http_code}" "${STAGING_API_URL}/health" || echo "000")
+            if [ "$response" = "200" ]; then
+              echo "Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i: Got $response, retrying..."
+            sleep 5
+          done
+
+          echo "Health check failed after 5 attempts"
+          exit 1
+
+      # Notify on failure
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Staging deployment failed. Check logs for details."
+          # Add Slack/Discord notification here if needed

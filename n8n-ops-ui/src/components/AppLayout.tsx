@@ -144,6 +144,7 @@ const navigationSections: NavSection[] = [
       { id: 'driftPolicies', name: 'Drift Policies', href: '/admin/drift-policies', icon: AlertTriangle, requiredPlan: 'enterprise', feature: 'drift_policies', lifecycleStage: LifecycleStage.DRIFT, hideForPlans: ['free', 'pro', 'agency'] },
       { id: 'security', name: 'Security', href: '/admin/security', icon: Shield, requiredPlan: 'enterprise', feature: 'sso_saml' },
       { id: 'systemSettings', name: 'System Settings', href: '/admin/settings', icon: Settings },
+      { id: 'supportRequests', name: 'Support Requests', href: '/admin/support', icon: HelpCircle },
       { id: 'supportConfig', name: 'Support Config', href: '/admin/support-config', icon: HelpCircle },
     ],
   },

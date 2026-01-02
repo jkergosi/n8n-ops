@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import type { ComponentType } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -23,7 +25,7 @@ interface SystemMetric {
   label: string;
   value: string;
   status: 'healthy' | 'warning' | 'critical';
-  icon: React.ComponentType<{ className?: string }>;
+  icon: ComponentType<{ className?: string }>;
 }
 
 interface EndpointMetric {

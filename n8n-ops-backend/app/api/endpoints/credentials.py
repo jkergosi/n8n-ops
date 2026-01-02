@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List, Optional
 import json
 import logging
@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 from app.services.database import db_service
 from app.services.provider_registry import ProviderRegistry
+from app.services.auth_service import get_current_user
 from app.schemas.credential import (
     CredentialCreate,
     CredentialUpdate,
@@ -17,8 +18,13 @@ from app.schemas.credential import (
 
 router = APIRouter()
 
-# TODO: Replace with actual tenant ID from authenticated user
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+
+def get_tenant_id(user_info: dict) -> str:
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 def parse_used_by_workflows(credential: dict) -> dict:
@@ -49,21 +55,23 @@ def parse_used_by_workflows(credential: dict) -> dict:
 @router.get("/")
 async def get_credentials(
     environment_type: Optional[str] = None,
-    environment_id: Optional[str] = None
+    environment_id: Optional[str] = None,
+    user_info: dict = Depends(get_current_user),
 ):
     """Get all credentials, optionally filtered by environment type or ID"""
     try:
+        tenant_id = get_tenant_id(user_info)
         # Get all environments first for lookup (include n8n_base_url for N8N links)
         envs_response = db_service.client.table("environments").select(
             "id, n8n_name, n8n_type, n8n_base_url"
-        ).eq("tenant_id", MOCK_TENANT_ID).execute()
+        ).eq("tenant_id", tenant_id).execute()
         env_lookup = {env["id"]: {"id": env["id"], "name": env["n8n_name"], "type": env["n8n_type"], "n8n_base_url": env["n8n_base_url"]} for env in envs_response.data}
 
         # Resolve environment_id from either parameter
         resolved_env_id = environment_id
         if not resolved_env_id and environment_type:
             # Resolve environment type to environment ID
-            env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment_type)
+            env_config = await db_service.get_environment_by_type(tenant_id, environment_type)
             if not env_config:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -75,12 +83,12 @@ async def get_credentials(
             # Get credentials for specific environment
             response = db_service.client.table("credentials").select(
                 "*"
-            ).eq("tenant_id", MOCK_TENANT_ID).eq("environment_id", resolved_env_id).eq("is_deleted", False).order("name").execute()
+            ).eq("tenant_id", tenant_id).eq("environment_id", resolved_env_id).eq("is_deleted", False).order("name").execute()
         else:
             # Get all credentials across all environments
             response = db_service.client.table("credentials").select(
                 "*"
-            ).eq("tenant_id", MOCK_TENANT_ID).eq("is_deleted", False).order("name").execute()
+            ).eq("tenant_id", tenant_id).eq("is_deleted", False).order("name").execute()
 
         # Add environment info and parse used_by_workflows for each credential
         credentials = []
@@ -101,14 +109,14 @@ async def get_credentials(
 
 
 @router.get("/by-environment/{environment_id}")
-async def get_credentials_by_environment(environment_id: str):
+async def get_credentials_by_environment(environment_id: str, user_info: dict = Depends(get_current_user)):
     """Get all credentials directly from N8N for a specific environment.
 
     Used for populating dropdowns when creating credential mappings.
     Returns fresh data from N8N, not from cache.
     """
     try:
-        env = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
+        env = await db_service.get_environment(environment_id, get_tenant_id(user_info))
         if not env:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -139,12 +147,13 @@ async def get_credentials_by_environment(environment_id: str):
 
 
 @router.get("/{credential_id}")
-async def get_credential(credential_id: str):
+async def get_credential(credential_id: str, user_info: dict = Depends(get_current_user)):
     """Get a specific credential by ID"""
     try:
+        tenant_id = get_tenant_id(user_info)
         response = db_service.client.table("credentials").select(
             "*"
-        ).eq("id", credential_id).eq("tenant_id", MOCK_TENANT_ID).single().execute()
+        ).eq("id", credential_id).eq("tenant_id", tenant_id).single().execute()
 
         if not response.data:
             raise HTTPException(
@@ -181,15 +190,16 @@ async def get_credential(credential_id: str):
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
-async def create_credential(credential: CredentialCreate):
+async def create_credential(credential: CredentialCreate, user_info: dict = Depends(get_current_user)):
     """Create a new credential in N8N and cache it in the database.
 
     The credential data (secrets) is sent to N8N where it's encrypted and stored.
     Only metadata is cached locally - actual secrets are never stored in our database.
     """
     try:
+        tenant_id = get_tenant_id(user_info)
         # Get environment to verify it exists and get connection info
-        env = await db_service.get_environment(credential.environment_id, MOCK_TENANT_ID)
+        env = await db_service.get_environment(credential.environment_id, tenant_id)
         if not env:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -208,7 +218,7 @@ async def create_credential(credential: CredentialCreate):
 
         # Cache the credential metadata (without secrets) in our database
         cached_credential = await db_service.upsert_credential(
-            MOCK_TENANT_ID,
+            tenant_id,
             credential.environment_id,
             {
                 "id": n8n_credential.get("id"),
@@ -240,17 +250,18 @@ async def create_credential(credential: CredentialCreate):
 
 
 @router.put("/{credential_id}")
-async def update_credential(credential_id: str, credential: CredentialUpdate):
+async def update_credential(credential_id: str, credential: CredentialUpdate, user_info: dict = Depends(get_current_user)):
     """Update an existing credential in N8N.
 
     Only provided fields will be updated. The credential data (secrets) is sent
     to N8N where it's encrypted. Secrets are never stored locally.
     """
     try:
+        tenant_id = get_tenant_id(user_info)
         # Get existing credential to find the environment
         existing = db_service.client.table("credentials").select(
             "*"
-        ).eq("id", credential_id).eq("tenant_id", MOCK_TENANT_ID).single().execute()
+        ).eq("id", credential_id).eq("tenant_id", tenant_id).single().execute()
 
         if not existing.data:
             raise HTTPException(
@@ -263,7 +274,7 @@ async def update_credential(credential_id: str, credential: CredentialUpdate):
         environment_id = credential_record.get("environment_id")
 
         # Get environment connection info
-        env = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
+        env = await db_service.get_environment(environment_id, tenant_id)
         if not env:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -297,12 +308,12 @@ async def update_credential(credential_id: str, credential: CredentialUpdate):
         }
         db_service.client.table("credentials").update(cache_update).eq(
             "id", credential_id
-        ).eq("tenant_id", MOCK_TENANT_ID).execute()
+        ).eq("tenant_id", tenant_id).execute()
 
         # Return updated credential
         updated_response = db_service.client.table("credentials").select(
             "*"
-        ).eq("id", credential_id).eq("tenant_id", MOCK_TENANT_ID).single().execute()
+        ).eq("id", credential_id).eq("tenant_id", tenant_id).single().execute()
 
         credential_response = updated_response.data
         credential_response["environment"] = {
@@ -325,7 +336,7 @@ async def update_credential(credential_id: str, credential: CredentialUpdate):
 
 
 @router.delete("/{credential_id}")
-async def delete_credential(credential_id: str, delete_from_n8n: bool = True):
+async def delete_credential(credential_id: str, delete_from_n8n: bool = True, user_info: dict = Depends(get_current_user)):
     """Delete a credential.
 
     By default, this deletes the credential from both N8N and our cache.
@@ -333,10 +344,11 @@ async def delete_credential(credential_id: str, delete_from_n8n: bool = True):
     the credential was already deleted in N8N).
     """
     try:
+        tenant_id = get_tenant_id(user_info)
         # Get existing credential
         existing = db_service.client.table("credentials").select(
             "*"
-        ).eq("id", credential_id).eq("tenant_id", MOCK_TENANT_ID).single().execute()
+        ).eq("id", credential_id).eq("tenant_id", tenant_id).single().execute()
 
         if not existing.data:
             raise HTTPException(
@@ -364,7 +376,7 @@ async def delete_credential(credential_id: str, delete_from_n8n: bool = True):
         # Delete from provider if requested
         if delete_from_n8n and n8n_credential_id and ":" not in n8n_credential_id:
             # Only attempt provider deletion if we have a valid ID (not a generated key)
-            env = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
+            env = await db_service.get_environment(environment_id, tenant_id)
             if env:
                 adapter = ProviderRegistry.get_adapter_for_environment(env)
                 try:
@@ -377,7 +389,7 @@ async def delete_credential(credential_id: str, delete_from_n8n: bool = True):
         # Soft delete in our cache
         db_service.client.table("credentials").update({
             "is_deleted": True
-        }).eq("id", credential_id).eq("tenant_id", MOCK_TENANT_ID).execute()
+        }).eq("id", credential_id).eq("tenant_id", tenant_id).execute()
 
         return {"success": True, "message": "Credential deleted successfully"}
 
@@ -391,7 +403,7 @@ async def delete_credential(credential_id: str, delete_from_n8n: bool = True):
 
 
 @router.get("/types/schema")
-async def get_credential_types(environment_id: str):
+async def get_credential_types(environment_id: str, user_info: dict = Depends(get_current_user)):
     """Get available credential types from N8N.
 
     Returns the schema for each credential type, which can be used
@@ -399,7 +411,7 @@ async def get_credential_types(environment_id: str):
     """
     try:
         # Get environment connection info
-        env = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
+        env = await db_service.get_environment(environment_id, get_tenant_id(user_info))
         if not env:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -424,15 +436,16 @@ async def get_credential_types(environment_id: str):
 
 
 @router.post("/sync/{environment_id}")
-async def sync_credentials(environment_id: str):
+async def sync_credentials(environment_id: str, user_info: dict = Depends(get_current_user)):
     """Sync credentials from N8N for a specific environment.
 
     Fetches all credentials from N8N and updates the local cache.
     This only syncs metadata - no secrets are stored locally.
     """
     try:
+        tenant_id = get_tenant_id(user_info)
         # Get environment connection info
-        env = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
+        env = await db_service.get_environment(environment_id, tenant_id)
         if not env:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -460,7 +473,7 @@ async def sync_credentials(environment_id: str):
 
         # Sync to database
         results = await db_service.sync_credentials_from_n8n(
-            MOCK_TENANT_ID,
+            tenant_id,
             environment_id,
             n8n_credentials or []
         )

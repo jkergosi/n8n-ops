@@ -38,7 +38,8 @@ class TestBuildIssueContract:
     """Tests for building Issue Contract v1 from support requests."""
 
     @pytest.mark.unit
-    def test_build_bug_report_contract(self, support_service):
+    @pytest.mark.asyncio
+    async def test_build_bug_report_contract(self, support_service):
         """Should build a valid Issue Contract from a bug report."""
         bug_report = BugReportCreate(
             title="Button not working",
@@ -55,7 +56,7 @@ class TestBuildIssueContract:
             bug_report=bug_report,
         )
 
-        contract = support_service.build_issue_contract(
+        contract = await support_service.build_issue_contract(
             request=request,
             user_email="test@example.com",
             user_id="user-123",
@@ -73,7 +74,8 @@ class TestBuildIssueContract:
         assert contract.impact.frequency == Frequency.ALWAYS
 
     @pytest.mark.unit
-    def test_build_feature_request_contract(self, support_service):
+    @pytest.mark.asyncio
+    async def test_build_feature_request_contract(self, support_service):
         """Should build a valid Issue Contract from a feature request."""
         feature_request = FeatureRequestCreate(
             title="Add dark mode",
@@ -89,7 +91,7 @@ class TestBuildIssueContract:
             feature_request=feature_request,
         )
 
-        contract = support_service.build_issue_contract(
+        contract = await support_service.build_issue_contract(
             request=request,
             user_email="test@example.com",
             user_id="user-123",
@@ -105,7 +107,8 @@ class TestBuildIssueContract:
         assert contract.impact is None  # Feature requests don't have severity
 
     @pytest.mark.unit
-    def test_build_help_request_contract(self, support_service):
+    @pytest.mark.asyncio
+    async def test_build_help_request_contract(self, support_service):
         """Should build a valid Issue Contract from a help request (task)."""
         help_request = HelpRequestCreate(
             title="How do I configure webhooks?",
@@ -118,7 +121,7 @@ class TestBuildIssueContract:
             help_request=help_request,
         )
 
-        contract = support_service.build_issue_contract(
+        contract = await support_service.build_issue_contract(
             request=request,
             user_email="test@example.com",
             user_id="user-123",
@@ -131,7 +134,8 @@ class TestBuildIssueContract:
         assert contract.intent.description == "Need help setting up webhook integration"
 
     @pytest.mark.unit
-    def test_build_contract_with_diagnostics(self, support_service):
+    @pytest.mark.asyncio
+    async def test_build_contract_with_diagnostics(self, support_service):
         """Should include diagnostics in the contract when provided."""
         bug_report = BugReportCreate(
             title="Error on page",
@@ -153,7 +157,7 @@ class TestBuildIssueContract:
             "correlation_id": "corr-456",
         }
 
-        contract = support_service.build_issue_contract(
+        contract = await support_service.build_issue_contract(
             request=request,
             user_email="test@example.com",
             user_id="user-123",
@@ -168,7 +172,8 @@ class TestBuildIssueContract:
         assert contract.context.correlation_id == "corr-456"
 
     @pytest.mark.unit
-    def test_build_contract_missing_data_raises_error(self, support_service):
+    @pytest.mark.asyncio
+    async def test_build_contract_missing_data_raises_error(self, support_service):
         """Should raise ValueError when intent_kind doesn't match provided data."""
         # Bug request but no bug_report data
         request = SupportRequestCreate(
@@ -177,7 +182,7 @@ class TestBuildIssueContract:
         )
 
         with pytest.raises(ValueError) as exc_info:
-            support_service.build_issue_contract(
+            await support_service.build_issue_contract(
                 request=request,
                 user_email="test@example.com",
                 user_id="user-123",
@@ -187,7 +192,8 @@ class TestBuildIssueContract:
         assert "missing corresponding data" in str(exc_info.value)
 
     @pytest.mark.unit
-    def test_build_contract_includes_unique_ids(self, support_service):
+    @pytest.mark.asyncio
+    async def test_build_contract_includes_unique_ids(self, support_service):
         """Should generate unique event_id and created_at timestamp."""
         bug_report = BugReportCreate(
             title="Test bug",
@@ -201,14 +207,14 @@ class TestBuildIssueContract:
             bug_report=bug_report,
         )
 
-        contract1 = support_service.build_issue_contract(
+        contract1 = await support_service.build_issue_contract(
             request=request,
             user_email="test@example.com",
             user_id="user-123",
             tenant_id="tenant-456",
         )
 
-        contract2 = support_service.build_issue_contract(
+        contract2 = await support_service.build_issue_contract(
             request=request,
             user_email="test@example.com",
             user_id="user-123",
@@ -245,7 +251,7 @@ class TestForwardToN8n:
             bug_report=bug_report,
         )
 
-        contract = support_service.build_issue_contract(
+        contract = await support_service.build_issue_contract(
             request=request,
             user_email="test@example.com",
             user_id="user-123",
@@ -278,7 +284,7 @@ class TestForwardToN8n:
             bug_report=bug_report,
         )
 
-        contract = support_service.build_issue_contract(
+        contract = await support_service.build_issue_contract(
             request=request,
             user_email="test@example.com",
             user_id="user-123",

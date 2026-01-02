@@ -26,7 +26,10 @@ from app.core.config import settings
 class SupportService:
     """Service for support request intake and n8n forwarding"""
 
-    def build_issue_contract(
+    # Migration: 947a226f2ac2 - add_support_storage_and_attachments
+    # See: alembic/versions/947a226f2ac2_add_support_storage_and_attachments.py
+
+    async def build_issue_contract(
         self,
         request: SupportRequestCreate,
         user_email: str,
@@ -65,6 +68,7 @@ class SupportService:
                 frequency=bug.frequency
             )
             attachments = bug.attachments
+            attachment_ids = bug.attachment_ids or []
 
         elif request.intent_kind == IntentKind.FEATURE and request.feature_request:
             feature = request.feature_request
@@ -81,6 +85,7 @@ class SupportService:
             )
             impact = None
             attachments = None
+            attachment_ids = []
 
         elif request.intent_kind == IntentKind.TASK and request.help_request:
             help_req = request.help_request
@@ -91,14 +96,46 @@ class SupportService:
             )
             impact = None
             attachments = help_req.attachments
+            attachment_ids = help_req.attachment_ids or []
 
         else:
             raise ValueError(f"Invalid request: intent_kind {request.intent_kind} missing corresponding data")
 
         # Build evidence
         evidence = None
+        if attachment_ids:
+            from app.services.support_attachments_service import create_signed_download_url
+            # Fetch attachment metadata for names/types
+            rows_resp = (
+                db_service.client.table("support_attachments")
+                .select("id, filename, content_type")
+                .eq("tenant_id", tenant_id)
+                .in_("id", attachment_ids)
+                .execute()
+            )
+            rows = rows_resp.data or []
+            rows_by_id = {r["id"]: r for r in rows}
+            signed_attachments = []
+            for aid in attachment_ids:
+                row = rows_by_id.get(aid)
+                if not row:
+                    continue
+                signed_url = await create_signed_download_url(tenant_id, aid, expires_seconds=3600)
+                signed_attachments.append(
+                    {
+                        "name": row.get("filename") or "attachment",
+                        "url": signed_url,
+                        "content_type": row.get("content_type") or "application/octet-stream",
+                    }
+                )
+            if signed_attachments:
+                evidence = IssueContractEvidence(attachments=signed_attachments)
         if attachments:
-            evidence = IssueContractEvidence(attachments=attachments)
+            # Merge explicit attachments (legacy)
+            if evidence and evidence.attachments:
+                evidence.attachments = (evidence.attachments or []) + attachments
+            else:
+                evidence = IssueContractEvidence(attachments=attachments)
 
         return IssueContractV1(
             schema_version="1.0",

@@ -9,19 +9,25 @@ from app.schemas.environment_type import (
 )
 from app.services.database import db_service
 from app.core.entitlements_gate import require_entitlement
+from app.services.auth_service import get_current_user
 
 router = APIRouter()
 
-# TODO: Replace with real auth when implemented
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+def get_tenant_id(user_info: dict) -> str:
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 @router.get("/", response_model=List[EnvironmentTypeResponse])
 async def list_environment_types(
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("environment_basic")),
 ):
     try:
-        types = await db_service.get_environment_types(MOCK_TENANT_ID, ensure_defaults=True)
+        types = await db_service.get_environment_types(get_tenant_id(user_info), ensure_defaults=True)
         return types
     except Exception as e:
         raise HTTPException(
@@ -33,12 +39,13 @@ async def list_environment_types(
 @router.post("/", response_model=EnvironmentTypeResponse, status_code=status.HTTP_201_CREATED)
 async def create_environment_type(
     payload: EnvironmentTypeCreate,
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("environment_basic")),
 ):
     try:
         created = await db_service.create_environment_type(
             {
-                "tenant_id": MOCK_TENANT_ID,
+                "tenant_id": get_tenant_id(user_info),
                 "key": payload.key,
                 "label": payload.label,
                 "sort_order": payload.sort_order,
@@ -57,11 +64,12 @@ async def create_environment_type(
 async def update_environment_type(
     environment_type_id: str,
     payload: EnvironmentTypeUpdate,
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("environment_basic")),
 ):
     try:
         update_data = {k: v for k, v in payload.dict(exclude_unset=True).items() if v is not None}
-        updated = await db_service.update_environment_type(environment_type_id, MOCK_TENANT_ID, update_data)
+        updated = await db_service.update_environment_type(environment_type_id, get_tenant_id(user_info), update_data)
         if not updated:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Environment type not found")
         return updated
@@ -77,10 +85,11 @@ async def update_environment_type(
 @router.delete("/{environment_type_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_environment_type(
     environment_type_id: str,
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("environment_basic")),
 ):
     try:
-        await db_service.delete_environment_type(environment_type_id, MOCK_TENANT_ID)
+        await db_service.delete_environment_type(environment_type_id, get_tenant_id(user_info))
         return None
     except Exception as e:
         raise HTTPException(
@@ -92,12 +101,14 @@ async def delete_environment_type(
 @router.post("/reorder", response_model=List[EnvironmentTypeResponse])
 async def reorder_environment_types(
     payload: EnvironmentTypeReorderRequest,
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("environment_basic")),
 ):
     try:
+        tenant_id = get_tenant_id(user_info)
         if not payload.ordered_ids:
-            return await db_service.get_environment_types(MOCK_TENANT_ID, ensure_defaults=True)
-        updated = await db_service.reorder_environment_types(MOCK_TENANT_ID, payload.ordered_ids)
+            return await db_service.get_environment_types(tenant_id, ensure_defaults=True)
+        updated = await db_service.reorder_environment_types(tenant_id, payload.ordered_ids)
         return updated
     except Exception as e:
         raise HTTPException(

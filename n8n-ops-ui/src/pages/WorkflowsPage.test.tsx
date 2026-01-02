@@ -7,7 +7,7 @@ import { render } from '@/test/test-utils';
 import { server } from '@/test/mocks/server';
 import { mockWorkflows, mockEnvironments } from '@/test/mocks/handlers';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 describe('WorkflowsPage', () => {
   beforeEach(() => {
@@ -231,16 +231,29 @@ describe('WorkflowsPage', () => {
         expect(screen.getByText('Test Workflow 1')).toBeInTheDocument();
       });
 
-      // Find and click Edit button for first workflow
-      const editButtons = screen.getAllByRole('button', { name: /edit/i });
-      await userEvent.click(editButtons[0]);
+      // Open Actions menu for first workflow and click "Edit Directly"
+      const row = screen.getByText('Test Workflow 1').closest('tr');
+      expect(row).toBeTruthy();
+
+      await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /actions/i }));
+      await userEvent.click(screen.getByRole('menuitem', { name: /edit directly/i }));
+
+      // Some environments show a drift warning that must be acknowledged first
+      const warningDialog = await screen
+        .findByRole('alertdialog', { name: /direct edit warning/i }, { timeout: 500 })
+        .catch(() => null);
+      if (warningDialog) {
+        const checkbox = within(warningDialog).getByLabelText(/i understand this will create drift/i);
+        await userEvent.click(checkbox);
+        await userEvent.click(within(warningDialog).getByRole('button', { name: /edit anyway/i }));
+      }
 
       // Dialog should open
       await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: /edit workflow/i })).toBeInTheDocument();
       });
 
-      const dialog = screen.getByRole('dialog');
+      const dialog = screen.getByRole('dialog', { name: /edit workflow/i });
       expect(within(dialog).getByText(/edit workflow/i)).toBeInTheDocument();
     });
 
@@ -252,15 +265,27 @@ describe('WorkflowsPage', () => {
       });
 
       // Open edit dialog
-      const editButtons = screen.getAllByRole('button', { name: /edit/i });
-      await userEvent.click(editButtons[0]);
+      const row = screen.getByText('Test Workflow 1').closest('tr');
+      expect(row).toBeTruthy();
+
+      await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /actions/i }));
+      await userEvent.click(screen.getByRole('menuitem', { name: /edit directly/i }));
+
+      const warningDialog = await screen
+        .findByRole('alertdialog', { name: /direct edit warning/i }, { timeout: 500 })
+        .catch(() => null);
+      if (warningDialog) {
+        const checkbox = within(warningDialog).getByLabelText(/i understand this will create drift/i);
+        await userEvent.click(checkbox);
+        await userEvent.click(within(warningDialog).getByRole('button', { name: /edit anyway/i }));
+      }
 
       await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: /edit workflow/i })).toBeInTheDocument();
       });
 
       // Click Cancel
-      const cancelButton = within(screen.getByRole('dialog')).getByRole('button', {
+      const cancelButton = within(screen.getByRole('dialog', { name: /edit workflow/i })).getByRole('button', {
         name: /cancel/i,
       });
       await userEvent.click(cancelButton);
@@ -280,17 +305,19 @@ describe('WorkflowsPage', () => {
         expect(screen.getByText('Test Workflow 1')).toBeInTheDocument();
       });
 
-      // Find and click Delete button
-      const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
-      await userEvent.click(deleteButtons[0]);
+      // Open Actions menu for first workflow and click "Permanently Delete"
+      const row = screen.getByText('Test Workflow 1').closest('tr');
+      expect(row).toBeTruthy();
+
+      await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /actions/i }));
+      await userEvent.click(screen.getByRole('menuitem', { name: /permanently delete/i }));
 
       // Confirmation dialog should open
       await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
+        expect(screen.getByRole('alertdialog', { name: /permanently delete workflow/i })).toBeInTheDocument();
       });
 
-      const dialog = screen.getByRole('dialog');
-      expect(within(dialog).getByText(/delete workflow/i)).toBeInTheDocument();
+      const dialog = screen.getByRole('alertdialog', { name: /permanently delete workflow/i });
       expect(within(dialog).getByText(/cannot be undone/i)).toBeInTheDocument();
     });
 
@@ -301,23 +328,28 @@ describe('WorkflowsPage', () => {
         expect(screen.getByText('Test Workflow 1')).toBeInTheDocument();
       });
 
-      // Open delete confirmation
-      const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
-      await userEvent.click(deleteButtons[0]);
+      // Open permanently delete confirmation
+      const row = screen.getByText('Test Workflow 1').closest('tr');
+      expect(row).toBeTruthy();
+
+      await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /actions/i }));
+      await userEvent.click(screen.getByRole('menuitem', { name: /permanently delete/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
+        expect(screen.getByRole('alertdialog', { name: /permanently delete workflow/i })).toBeInTheDocument();
       });
 
-      // Confirm deletion
-      const confirmButton = within(screen.getByRole('dialog')).getByRole('button', {
-        name: /yes, delete/i,
-      });
+      // Confirm deletion by typing DELETE and clicking Delete Permanently
+      const dialog = screen.getByRole('alertdialog', { name: /permanently delete workflow/i });
+      const confirmInput = within(dialog).getByLabelText(/type delete/i);
+      await userEvent.type(confirmInput, 'DELETE');
+
+      const confirmButton = within(dialog).getByRole('button', { name: /delete permanently/i });
       await userEvent.click(confirmButton);
 
       // Dialog should close after deletion
       await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.queryByRole('alertdialog', { name: /permanently delete workflow/i })).not.toBeInTheDocument();
       });
     });
   });

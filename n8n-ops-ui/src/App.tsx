@@ -53,6 +53,7 @@ import {
   EntitlementsAuditPage,
   CredentialHealthPage,
   SupportConfigPage,
+  SupportRequestsPage,
   DriftPoliciesPage,
 } from '@/pages/admin';
 import {
@@ -270,6 +271,7 @@ function App() {
                 <Route path="/admin/entitlements/overrides" element={<RoleProtectedRoute><TenantOverridesPage /></RoleProtectedRoute>} />
                 <Route path="/admin/entitlements/audit" element={<RoleProtectedRoute><EntitlementsAuditPage /></RoleProtectedRoute>} />
                 <Route path="/admin/support-config" element={<RoleProtectedRoute><SupportConfigPage /></RoleProtectedRoute>} />
+                <Route path="/admin/support" element={<RoleProtectedRoute><SupportRequestsPage /></RoleProtectedRoute>} />
               </Route>
               </Routes>
             </BrowserRouter>

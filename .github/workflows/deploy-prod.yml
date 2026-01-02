@@ -1,0 +1,227 @@
+name: Deploy to Production
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      skip_migrations:
+        description: 'Skip database migrations'
+        required: false
+        default: 'false'
+        type: boolean
+      confirm_deploy:
+        description: 'Type "deploy-prod" to confirm'
+        required: true
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false  # Never cancel production deploys
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate manual deploy confirmation
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ "${{ github.event.inputs.confirm_deploy }}" != "deploy-prod" ]; then
+            echo "::error::Manual deploy requires typing 'deploy-prod' to confirm"
+            exit 1
+          fi
+
+  deploy-production:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production  # Requires approval
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: n8n-ops-ui/package-lock.json
+
+      - name: Install Python dependencies
+        working-directory: n8n-ops-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      # Pre-deploy backup (CRITICAL for production)
+      - name: Create pre-deploy backup
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          BACKUP_FILE="backup_prod_${TIMESTAMP}.dump"
+
+          echo "Creating production backup: ${BACKUP_FILE}"
+          pg_dump "${DATABASE_URL}" -Fc -f "${BACKUP_FILE}"
+
+          # Verify backup file size
+          BACKUP_SIZE=$(stat -f%z "${BACKUP_FILE}" 2>/dev/null || stat -c%s "${BACKUP_FILE}")
+          if [ "$BACKUP_SIZE" -lt 1000 ]; then
+            echo "::error::Backup file too small, aborting deploy"
+            exit 1
+          fi
+
+          echo "Backup size: ${BACKUP_SIZE} bytes"
+          echo "BACKUP_FILE=${BACKUP_FILE}" >> $GITHUB_ENV
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-backup-${{ github.run_id }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 30  # Keep prod backups longer
+
+      # Run migrations with extra safety
+      - name: Run database migrations
+        if: ${{ github.event.inputs.skip_migrations != 'true' }}
+        working-directory: n8n-ops-backend
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          echo "Running Alembic migrations on PRODUCTION..."
+
+          # Show current migration state
+          echo "Current migration state:"
+          alembic current || true
+
+          # Show pending migrations
+          echo "Pending migrations:"
+          alembic history -r current:head || true
+
+          # Acquire advisory lock
+          psql "${DATABASE_URL}" -c "SELECT pg_advisory_lock(123456789);"
+
+          # Run migrations
+          alembic upgrade head
+          MIGRATION_STATUS=$?
+
+          # Release lock
+          psql "${DATABASE_URL}" -c "SELECT pg_advisory_unlock(123456789);"
+
+          if [ $MIGRATION_STATUS -ne 0 ]; then
+            echo "::error::Migration failed!"
+            exit 1
+          fi
+
+          echo "Migrations complete"
+
+      # Deploy backend to VPS
+      - name: Deploy backend to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd ${{ secrets.PROD_BACKEND_PATH }}
+
+            # Create rollback point
+            git stash
+            PREVIOUS_COMMIT=$(git rev-parse HEAD)
+            echo "Rollback commit: ${PREVIOUS_COMMIT}" > .rollback_commit
+
+            # Pull latest code
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Install dependencies
+            source .venv/bin/activate
+            pip install -r requirements.txt
+
+            # Restart service with zero-downtime (if using systemd with multiple workers)
+            sudo systemctl reload n8n-ops-prod-backend || sudo systemctl restart n8n-ops-prod-backend
+
+            echo "Backend deployed"
+
+      # Build and deploy frontend
+      - name: Install frontend dependencies
+        working-directory: n8n-ops-ui
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: n8n-ops-ui
+        env:
+          VITE_API_BASE_URL: ${{ secrets.PROD_API_URL }}
+        run: npm run build
+
+      - name: Deploy frontend to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "n8n-ops-ui/dist/*"
+          target: ${{ secrets.PROD_FRONTEND_PATH }}
+          strip_components: 2
+
+      # Health check with more retries for production
+      - name: Health check
+        env:
+          PROD_API_URL: ${{ secrets.PROD_API_URL }}
+        run: |
+          echo "Waiting for production service to start..."
+          sleep 15
+
+          for i in {1..10}; do
+            response=$(curl -s -o /dev/null -w "%{http_code}" "${PROD_API_URL}/health" || echo "000")
+            if [ "$response" = "200" ]; then
+              echo "Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i/10: Got $response, retrying..."
+            sleep 10
+          done
+
+          echo "::error::Health check failed after 10 attempts"
+          exit 1
+
+      # Create release notes
+      - name: Generate deployment summary
+        run: |
+          echo "## Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Backup" >> $GITHUB_STEP_SUMMARY
+          echo "Pre-deploy backup available in artifacts: \`${{ env.BACKUP_FILE }}\`" >> $GITHUB_STEP_SUMMARY
+
+      # Notify on completion
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "Production deployment successful!"
+          # Add Slack/Discord notification here
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::PRODUCTION DEPLOYMENT FAILED"
+          echo "Check backup artifact for rollback: prod-backup-${{ github.run_id }}"
+          # Add urgent Slack/PagerDuty notification here

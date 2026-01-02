@@ -4,7 +4,7 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { CredentialHealthPage } from './CredentialHealthPage';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 const mockEnvironments = [
   { id: 'env-1', tenant_id: 'tenant-1', n8n_name: 'Development', n8n_type: 'development', n8n_base_url: 'https://dev.n8n.example.com', is_active: true },
@@ -65,7 +65,7 @@ describe('CredentialHealthPage', () => {
     it('should display the page description', async () => {
       render(<CredentialHealthPage />);
 
-      expect(screen.getByText(/manage logical credentials and their environment mappings/i)).toBeInTheDocument();
+      expect(screen.getByText(/manage credential aliases and their environment mappings/i)).toBeInTheDocument();
     });
   });
 

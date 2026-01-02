@@ -5,7 +5,7 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { CredentialsPage } from './CredentialsPage';
 
-const API_BASE = 'http://localhost:3000/api/v1';
+const API_BASE = '/api/v1';
 
 const mockEnvironments = [
   {
@@ -161,7 +161,7 @@ describe('CredentialsPage', () => {
     it('should display page description', async () => {
       render(<CredentialsPage />);
 
-      expect(screen.getByText(/manage physical credentials/i)).toBeInTheDocument();
+      expect(screen.getByText(/manage credentials for your n8n workflows across environments/i)).toBeInTheDocument();
     });
 
     it('should display Refresh button', async () => {
@@ -176,10 +176,10 @@ describe('CredentialsPage', () => {
       expect(screen.getByRole('button', { name: /sync from n8n/i })).toBeInTheDocument();
     });
 
-    it('should display Create Physical Credential button', async () => {
+    it('should display Create Credential button', async () => {
       render(<CredentialsPage />);
 
-      expect(screen.getByRole('button', { name: /create physical credential/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /create credential/i })).toBeInTheDocument();
     });
 
     it('should display Credentials card', async () => {
@@ -323,9 +323,10 @@ describe('CredentialsPage', () => {
         expect(screen.getByText('Slack Production')).toBeInTheDocument();
       });
 
-      // Check for environment filter
-      const environmentSelect = screen.getByDisplayValue('All Environments');
-      expect(environmentSelect).toBeInTheDocument();
+      // Check for environment filter (unlabeled <select> in filters row)
+      const selects = screen.getAllByRole('combobox');
+      expect(selects.length).toBeGreaterThanOrEqual(2);
+      expect(selects.some((s) => (s as HTMLSelectElement).value === 'all')).toBe(true);
     });
 
     it('should have type filter dropdown', async () => {
@@ -373,7 +374,7 @@ describe('CredentialsPage', () => {
   });
 
   describe('User Interactions - Create Physical Credential', () => {
-    it('should open create dialog when clicking Create Physical Credential button', async () => {
+    it('should open create dialog when clicking Create Credential button', async () => {
       const user = userEvent.setup();
       render(<CredentialsPage />);
 
@@ -381,7 +382,7 @@ describe('CredentialsPage', () => {
         expect(screen.getByText('Slack Production')).toBeInTheDocument();
       });
 
-      const createButton = screen.getByRole('button', { name: /create physical credential/i });
+      const createButton = screen.getByRole('button', { name: /create credential/i });
       await user.click(createButton);
 
       await waitFor(() => {
@@ -389,7 +390,7 @@ describe('CredentialsPage', () => {
       });
 
       const dialog = screen.getByRole('dialog');
-      expect(within(dialog).getByText(/create physical credential/i)).toBeInTheDocument();
+      expect(within(dialog).getByText(/create credential/i)).toBeInTheDocument();
     });
 
     it('should have name input in create dialog', async () => {
@@ -400,7 +401,7 @@ describe('CredentialsPage', () => {
         expect(screen.getByText('Slack Production')).toBeInTheDocument();
       });
 
-      const createButton = screen.getByRole('button', { name: /create physical credential/i });
+      const createButton = screen.getByRole('button', { name: /create credential/i });
       await user.click(createButton);
 
       await waitFor(() => {
@@ -418,7 +419,7 @@ describe('CredentialsPage', () => {
         expect(screen.getByText('Slack Production')).toBeInTheDocument();
       });
 
-      const createButton = screen.getByRole('button', { name: /create physical credential/i });
+      const createButton = screen.getByRole('button', { name: /create credential/i });
       await user.click(createButton);
 
       await waitFor(() => {
@@ -437,7 +438,7 @@ describe('CredentialsPage', () => {
         expect(screen.getByText('Slack Production')).toBeInTheDocument();
       });
 
-      const createButton = screen.getByRole('button', { name: /create physical credential/i });
+      const createButton = screen.getByRole('button', { name: /create credential/i });
       await user.click(createButton);
 
       await waitFor(() => {
@@ -457,7 +458,7 @@ describe('CredentialsPage', () => {
         expect(screen.getByText('Slack Production')).toBeInTheDocument();
       });
 
-      const createButton = screen.getByRole('button', { name: /create physical credential/i });
+      const createButton = screen.getByRole('button', { name: /create credential/i });
       await user.click(createButton);
 
       await waitFor(() => {
@@ -572,7 +573,7 @@ describe('CredentialsPage', () => {
         expect(screen.getByRole('alertdialog')).toBeInTheDocument();
       });
 
-      expect(screen.getByText(/delete physical credential/i)).toBeInTheDocument();
+      expect(screen.getByText(/delete credential/i)).toBeInTheDocument();
     });
 
     it('should show warning for credentials used by workflows', async () => {

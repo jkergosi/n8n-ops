@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw';
 
-const API_BASE = 'http://localhost:3000/api/v1';
-const API_BASE_4000 = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
+const API_BASE_4000 = '/api/v1';
 
 // Default fixtures
 export const mockUsers = [
@@ -498,6 +498,7 @@ export const handlers = [
     return HttpResponse.json([
       { id: 'free', name: 'Free', price: 0 },
       { id: 'pro', name: 'Pro', price: 29 },
+      { id: 'agency', name: 'Agency', price: 149 },
       { id: 'enterprise', name: 'Enterprise', price: 99 },
     ]);
   }),
@@ -609,10 +610,11 @@ export const handlers = [
   }),
 
   // Credentials endpoints
-  http.get(`${API_BASE}/credentials`, () => {
+  http.get(`${API_BASE}/credentials/`, () => {
     return HttpResponse.json([
-      { id: 'cred-1', name: 'Slack API', type: 'slackApi', created_at: '2024-01-01T00:00:00Z' },
-      { id: 'cred-2', name: 'GitHub Token', type: 'githubApi', created_at: '2024-01-02T00:00:00Z' },
+      { id: 'n8n-cred-1', name: 'Dev Slack', type: 'slackApi', created_at: '2024-01-01T00:00:00Z' },
+      { id: 'n8n-cred-2', name: 'Dev GitHub', type: 'githubApi', created_at: '2024-01-02T00:00:00Z' },
+      { id: 'n8n-cred-3', name: 'Dev PostgreSQL', type: 'postgresApi', created_at: '2024-01-03T00:00:00Z' },
     ]);
   }),
 

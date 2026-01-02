@@ -4,7 +4,7 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { PlansPage } from './PlansPage';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 describe('PlansPage', () => {
   beforeEach(() => {
@@ -23,8 +23,12 @@ describe('PlansPage', () => {
         return HttpResponse.json({
           mrr: 15000,
           arr: 180000,
-          total_subscriptions: 100,
-          churn_rate: 2.5,
+          totalSubscriptions: 100,
+          activeSubscriptions: 90,
+          trialSubscriptions: 10,
+          churnRate: 2.5,
+          avgRevenuePerUser: 150,
+          mrrGrowth: 5.2,
         });
       }),
       http.get(`${API_BASE}/auth/status`, () => {

@@ -82,7 +82,7 @@ class TestPromotionsAPIGet:
                 "stages": []
             })
 
-            response = client.get("/api/v1/promotions/promo-1", headers=auth_headers)
+            response = client.get("/api/v1/promotions/initiate/promo-1", headers=auth_headers)
 
             # Complex dependencies may cause 500
             assert response.status_code in [200, 500]
@@ -142,6 +142,10 @@ class TestPromotionsAPIApproval:
             "tenant_id": "tenant-1",
             "status": "pending_approval",
             "pipeline_id": "pipeline-1",
+            "source_environment_id": "env-1",
+            "target_environment_id": "env-2",
+            "workflow_selections": [],
+            "gate_results": {},
         }
 
         with patch("app.api.endpoints.promotions.db_service") as mock_db:
@@ -149,19 +153,26 @@ class TestPromotionsAPIApproval:
             mock_db.get_pipeline = AsyncMock(return_value={
                 "id": "pipeline-1",
                 "stages": [{
-                    "approvals": {"approval_type": "1 of N"}
+                    "source_environment_id": "env-1",
+                    "target_environment_id": "env-2",
+                    "approvals": {"required_approvals": "1 of N"},
+                    "policy_flags": {},
                 }]
             })
             mock_db.update_promotion = AsyncMock(return_value={
                 **mock_promotion,
                 "status": "approved",
             })
+            # Used in auto-execute path
+            mock_db.get_promotion.side_effect = [mock_promotion, mock_promotion]
 
             with patch("app.api.endpoints.promotions.notification_service") as mock_notify:
                 mock_notify.emit_event = AsyncMock(return_value=None)
 
                 with patch("app.api.endpoints.promotions.promotion_service") as mock_promo_svc:
                     mock_promo_svc._create_audit_log = AsyncMock(return_value=None)
+                    mock_promo_svc.create_snapshot = AsyncMock(return_value=("snap-1", None))
+                    mock_promo_svc.execute_promotion = AsyncMock(return_value=MagicMock(status=MagicMock(value="completed"), dict=lambda: {}))
 
                     # Request body must include action
                     response = client.post(

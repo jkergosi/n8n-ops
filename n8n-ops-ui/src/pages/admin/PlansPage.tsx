@@ -334,7 +334,14 @@ export function PlansPage() {
                       <Edit className="h-4 w-4" />
                     </Button>
                   </div>
-                  <CardTitle className="capitalize">{plan}</CardTitle>
+                  <CardTitle>
+                    {{
+                      free: 'Free',
+                      pro: 'Pro',
+                      agency: 'Agency',
+                      enterprise: 'Enterprise',
+                    }[plan]}
+                  </CardTitle>
                   <CardDescription>
                     {plan === 'free' && 'Get started for free'}
                     {plan === 'pro' && 'For growing teams'}

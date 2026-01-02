@@ -37,6 +37,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const isTest = import.meta.env.MODE === 'test';
   const [user, setUser] = useState<User | null>(null);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
@@ -50,7 +51,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const initComplete = authStatus !== 'initializing';
 
   // Debug logging
-  console.log('[Auth] Current state:', { authStatus, isLoading, initComplete, hasUser: !!user, hasTenant: !!tenant });
+  if (!isTest) {
+    console.log('[Auth] Current state:', { authStatus, isLoading, initComplete, hasUser: !!user, hasTenant: !!tenant });
+  }
 
   // Load available users and auto-login on mount
   useEffect(() => {
@@ -95,24 +98,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               try {
                 const { data: statusData } = await apiClient.getAuthStatus();
                 if (statusData.entitlements) {
-                  console.log('[Auth] Loaded entitlements:', statusData.entitlements);
+                  if (!isTest) console.log('[Auth] Loaded entitlements:', statusData.entitlements);
                   setEntitlements(statusData.entitlements);
                 } else {
-                  console.warn('[Auth] No entitlements in status response');
+                  if (!isTest) console.warn('[Auth] No entitlements in status response');
                 }
               } catch (entitlementError) {
-                console.warn('Failed to fetch entitlements:', entitlementError);
+                if (!isTest) console.warn('Failed to fetch entitlements:', entitlementError);
               }
 
               // Mark as authenticated after all state is set
               setAuthStatus('authenticated');
             } else {
               // No user/tenant data returned
-              console.warn('[Auth] No user or tenant data in login response');
+              if (!isTest) console.warn('[Auth] No user or tenant data in login response');
               setAuthStatus('unauthenticated');
             }
           } catch (loginError) {
-            console.error('Failed to login as user:', loginError);
+            if (!isTest) console.error('Failed to login as user:', loginError);
             // Even if login fails, try to set user from what we know
             // But also set a dummy tenant to allow dev mode to work
             setUser({
@@ -131,12 +134,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } else {
           // No users exist
-          console.log('No users in database');
+          if (!isTest) console.log('No users in database');
           setNeedsOnboarding(false);
           setAuthStatus('unauthenticated');
         }
       } catch (error) {
-        console.error('Failed to init auth:', error);
+        if (!isTest) console.error('Failed to init auth:', error);
         setNeedsOnboarding(false);
         setAuthStatus('unauthenticated');
       }
@@ -181,14 +184,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setEntitlements(statusData.entitlements);
           }
         } catch (entitlementError) {
-          console.warn('Failed to fetch entitlements:', entitlementError);
+          if (!isTest) console.warn('Failed to fetch entitlements:', entitlementError);
         }
         setAuthStatus('authenticated');
       } else {
         setAuthStatus('unauthenticated');
       }
     } catch (error) {
-      console.error('Failed to login as user:', error);
+      if (!isTest) console.error('Failed to login as user:', error);
       setAuthStatus('unauthenticated');
     }
   }, []);
@@ -205,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setEntitlements(data.entitlements);
       }
     } catch (error) {
-      console.error('Failed to refresh entitlements:', error);
+      if (!isTest) console.error('Failed to refresh entitlements:', error);
     }
   }, []);
 

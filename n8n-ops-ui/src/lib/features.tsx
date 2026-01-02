@@ -446,6 +446,7 @@ interface FeaturesProviderProps {
 
 export function FeaturesProvider({ children }: FeaturesProviderProps) {
   const { user, entitlements } = useAuth();
+  const isTest = import.meta.env.MODE === 'test';
   const [planName, setPlanName] = useState<string>('free');
   const [features, setFeatures] = useState<PlanFeatures>(PLAN_FEATURES.free);
   const [usage, setUsage] = useState<UsageData | null>(null);
@@ -467,13 +468,13 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
         let envLimits = 1; // Default fallback
         if (entitlements?.features?.environment_limits !== undefined && entitlements.features.environment_limits !== null) {
           envLimits = entitlements.features.environment_limits as number;
-          console.log('[Features] Using environment_limits from entitlements:', envLimits);
+          if (!isTest) console.log('[Features] Using environment_limits from entitlements:', envLimits);
         } else if (baseFeatures.max_environments && baseFeatures.max_environments !== 'unlimited') {
           envLimits = baseFeatures.max_environments as number;
-          console.log('[Features] Using environment_limits from baseFeatures:', envLimits);
+          if (!isTest) console.log('[Features] Using environment_limits from baseFeatures:', envLimits);
         }
-        console.log('[Features] Entitlements:', entitlements);
-        console.log('[Features] Plan:', userPlan, 'envLimits:', envLimits, 'baseFeatures.max_environments:', baseFeatures.max_environments);
+        if (!isTest) console.log('[Features] Entitlements:', entitlements);
+        if (!isTest) console.log('[Features] Plan:', userPlan, 'envLimits:', envLimits, 'baseFeatures.max_environments:', baseFeatures.max_environments);
 
         // Merge with entitlements from database if available
         if (entitlements?.features) {
@@ -540,7 +541,7 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
             workflows: {},
           });
         } catch (error) {
-          console.warn('Failed to load environment count, using defaults:', error);
+          if (!isTest) console.warn('Failed to load environment count, using defaults:', error);
           setUsage({
             environments: { current: 0, max: envLimits },
             team_members: { current: 1, max: baseFeatures.max_team_members || 3 },
@@ -548,7 +549,7 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
           });
         }
       } catch (error) {
-        console.error('Failed to load features:', error);
+        if (!isTest) console.error('Failed to load features:', error);
       } finally {
         setIsLoading(false);
       }
@@ -613,7 +614,7 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
 
   const refreshUsage = async (): Promise<void> => {
     // TODO: Implement API call to refresh usage data
-    console.log('Refreshing usage data...');
+    if (!isTest) console.log('Refreshing usage data...');
   };
 
   const value: FeaturesContextValue = {

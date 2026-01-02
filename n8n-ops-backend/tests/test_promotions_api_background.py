@@ -47,32 +47,34 @@ async def test_execute_promotion_creates_job(client, auth_headers):
         }):
             with patch.object(db_service, 'update_promotion', return_value=promotion_data):
                 with patch.object(db_service, 'create_deployment', return_value={"id": deployment_id}):
-                    with patch('app.api.endpoints.promotions.background_job_service') as mock_job_service:
-                        mock_job_service.create_job = AsyncMock(return_value={
-                            "id": job_id,
-                            "status": BackgroundJobStatus.PENDING
-                        })
-                        # Mock all methods used in background task
-                        mock_job_service.update_job_status = AsyncMock(return_value={"id": job_id, "status": BackgroundJobStatus.RUNNING})
-                        mock_job_service.update_progress = AsyncMock(return_value={"id": job_id, "status": BackgroundJobStatus.RUNNING})
-                        
-                        response = client.post(
-                            f"/api/v1/promotions/execute/{promotion_data['id']}",
-                            headers=auth_headers
-                        )
-                        
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert "job_id" in data
-                        assert "promotion_id" in data
-                        assert "deployment_id" in data
-                        assert data["status"] == "running"
-                        
-                        # Verify job was created
-                        mock_job_service.create_job.assert_called_once()
-                        call_kwargs = mock_job_service.create_job.call_args[1]
-                        assert call_kwargs["job_type"] == BackgroundJobType.PROMOTION_EXECUTE
-                        assert call_kwargs["resource_id"] == promotion_data["id"]
+                    with patch.object(db_service, 'create_deployment_workflows_batch', AsyncMock(return_value=None)):
+                        with patch('app.api.endpoints.promotions.background_job_service') as mock_job_service:
+                            mock_job_service.create_job = AsyncMock(return_value={
+                                "id": job_id,
+                                "status": BackgroundJobStatus.PENDING
+                            })
+                            # Mock all methods used in background task
+                            mock_job_service.update_job_status = AsyncMock(return_value={"id": job_id, "status": BackgroundJobStatus.RUNNING})
+                            mock_job_service.update_progress = AsyncMock(return_value={"id": job_id, "status": BackgroundJobStatus.RUNNING})
+                            
+                            with patch("app.api.endpoints.promotions.check_drift_policy_blocking", AsyncMock(return_value={"blocked": False, "reason": None, "details": {}})):
+                                response = client.post(
+                                    f"/api/v1/promotions/execute/{promotion_data['id']}",
+                                    headers=auth_headers
+                                )
+                            
+                            assert response.status_code == 200
+                            data = response.json()
+                            assert "job_id" in data
+                            assert "promotion_id" in data
+                            assert "deployment_id" in data
+                            assert data["status"] == "running"
+                            
+                            # Verify job was created
+                            mock_job_service.create_job.assert_called_once()
+                            call_kwargs = mock_job_service.create_job.call_args[1]
+                            assert call_kwargs["job_type"] == BackgroundJobType.PROMOTION_EXECUTE
+                            assert call_kwargs["resource_id"] == promotion_data["id"]
 
 
 @pytest.mark.asyncio

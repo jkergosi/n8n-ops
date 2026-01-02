@@ -33,15 +33,12 @@ class ManualSnapshotRequest(BaseModel):
 
 router = APIRouter()
 
-# Fallback tenant ID (should not be used in production)
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
-
-from app.services.auth_service import get_current_user
-
-
 def get_tenant_id(user_info: dict) -> str:
-    """Extract tenant_id from user_info, with fallback to MOCK_TENANT_ID"""
-    return user_info.get("tenant", {}).get("id", MOCK_TENANT_ID)
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 @router.get("/", response_model=List[SnapshotResponse])

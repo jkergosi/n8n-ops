@@ -23,6 +23,7 @@ MOCK_ENVIRONMENT = {
     "git_pat": "ghp_test_token",
     "n8n_encryption_key": "test_encryption_key",
     "is_active": True,
+    "policy_flags": {"allow_restore_in_dev": True},
 }
 
 MOCK_ENVIRONMENT_NO_GIT = {
@@ -227,7 +228,7 @@ class TestGetRestorePreview:
 
             mock_github = MagicMock()
             mock_github.is_configured.return_value = True
-            mock_github.get_all_workflows_from_github = AsyncMock(return_value=[])
+            mock_github.get_all_workflows_from_github = AsyncMock(return_value={})
             MockGitHubService.return_value = mock_github
 
             mock_adapter = MagicMock()

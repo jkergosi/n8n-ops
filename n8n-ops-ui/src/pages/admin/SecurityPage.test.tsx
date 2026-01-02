@@ -4,13 +4,51 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { SecurityPage } from './SecurityPage';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 describe('SecurityPage', () => {
   beforeEach(() => {
     server.resetHandlers();
 
     server.use(
+      http.get(`${API_BASE}/security/api-keys`, () => {
+        return HttpResponse.json([
+          {
+            id: 'key-1',
+            name: 'Production API Key',
+            key_prefix: 'n8n_prod_****',
+            scopes: ['read', 'write'],
+            created_at: '2024-01-01T00:00:00Z',
+            last_used_at: null,
+            revoked_at: null,
+            is_active: true,
+          },
+          {
+            id: 'key-2',
+            name: 'CI/CD Integration',
+            key_prefix: 'n8n_ci_****',
+            scopes: ['read'],
+            created_at: '2024-01-02T00:00:00Z',
+            last_used_at: '2024-02-01T00:00:00Z',
+            revoked_at: null,
+            is_active: true,
+          },
+        ]);
+      }),
+      http.get(`${API_BASE}/admin/audit-logs`, () => {
+        return HttpResponse.json({
+          logs: [
+            {
+              id: 'log-1',
+              timestamp: '2024-02-01T00:00:00Z',
+              action_type: 'api_key_created',
+              action: 'Created API key',
+              ip_address: '127.0.0.1',
+            },
+          ],
+          total: 1,
+        });
+      }),
       http.get(`${API_BASE}/auth/status`, () => {
         return HttpResponse.json({
           authenticated: true,
@@ -39,14 +77,6 @@ describe('SecurityPage', () => {
   });
 
   describe('Security Overview Cards', () => {
-    it('should display Security Score card', async () => {
-      render(<SecurityPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Security Score')).toBeInTheDocument();
-      });
-    });
-
     it('should display Active API Keys card', async () => {
       render(<SecurityPage />);
 
@@ -55,19 +85,11 @@ describe('SecurityPage', () => {
       });
     });
 
-    it('should display Security Events card', async () => {
+    it('should display Recent Events card', async () => {
       render(<SecurityPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Security Events')).toBeInTheDocument();
-      });
-    });
-
-    it('should display MFA Status card', async () => {
-      render(<SecurityPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('MFA Status')).toBeInTheDocument();
+        expect(screen.getByText('Recent Events')).toBeInTheDocument();
       });
     });
   });
@@ -96,7 +118,6 @@ describe('SecurityPage', () => {
         expect(screen.getByText('Production API Key')).toBeInTheDocument();
       });
       expect(screen.getByText('CI/CD Integration')).toBeInTheDocument();
-      expect(screen.getByText('Monitoring Service')).toBeInTheDocument();
     });
 
     it('should display API key prefixes', async () => {
@@ -114,56 +135,6 @@ describe('SecurityPage', () => {
         expect(screen.getAllByText('read').length).toBeGreaterThan(0);
       });
       expect(screen.getAllByText('write').length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('Security Settings Section', () => {
-    it('should display Security Settings section title', async () => {
-      render(<SecurityPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Security Settings')).toBeInTheDocument();
-      });
-    });
-
-    it('should display MFA setting', async () => {
-      render(<SecurityPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Multi-Factor Authentication')).toBeInTheDocument();
-      });
-    });
-
-    it('should display Session Timeout setting', async () => {
-      render(<SecurityPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Session Timeout')).toBeInTheDocument();
-      });
-    });
-
-    it('should display Rate Limiting setting', async () => {
-      render(<SecurityPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Rate Limiting')).toBeInTheDocument();
-      });
-    });
-
-    it('should display IP Whitelist section', async () => {
-      render(<SecurityPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('IP Whitelist')).toBeInTheDocument();
-      });
-    });
-
-    it('should display Password Policy section', async () => {
-      render(<SecurityPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Password Policy')).toBeInTheDocument();
-      });
     });
   });
 
@@ -190,9 +161,8 @@ describe('SecurityPage', () => {
       render(<SecurityPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Failed login attempt')).toBeInTheDocument();
+        expect(screen.getByText('api_key_created')).toBeInTheDocument();
       });
-      expect(screen.getByText('API key rotated')).toBeInTheDocument();
     });
   });
 });

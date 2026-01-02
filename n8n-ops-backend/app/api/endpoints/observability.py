@@ -13,18 +13,25 @@ from app.schemas.observability import (
 )
 from app.services.observability_service import observability_service
 from app.core.entitlements_gate import require_entitlement
+from app.services.auth_service import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Mock tenant ID for development (same as other endpoints)
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+
+def get_tenant_id(user_info: dict) -> str:
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 @router.get("/overview", response_model=ObservabilityOverview)
 async def get_observability_overview(
     time_range: TimeRange = TimeRange.TWENTY_FOUR_HOURS,
     environment_id: Optional[str] = None,
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("observability_basic"))
 ):
     """
@@ -35,9 +42,10 @@ async def get_observability_overview(
     - **environment_id**: Optional environment ID to filter by
     """
     try:
-        logger.info(f"Getting observability overview: time_range={time_range}, environment_id={environment_id}, tenant_id={MOCK_TENANT_ID}")
+        tenant_id = get_tenant_id(user_info)
+        logger.info(f"Getting observability overview: time_range={time_range}, environment_id={environment_id}, tenant_id={tenant_id}")
         overview = await observability_service.get_observability_overview(
-            MOCK_TENANT_ID,
+            tenant_id,
             time_range,
             environment_id=environment_id
         )
@@ -53,6 +61,7 @@ async def get_observability_overview(
 @router.get("/kpi", response_model=KPIMetrics)
 async def get_kpi_metrics(
     time_range: TimeRange = TimeRange.TWENTY_FOUR_HOURS,
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("observability_basic"))
 ):
     """
@@ -60,8 +69,9 @@ async def get_kpi_metrics(
     Includes total executions, success rate, average duration, and failed count.
     """
     try:
+        tenant_id = get_tenant_id(user_info)
         metrics = await observability_service.get_kpi_metrics(
-            MOCK_TENANT_ID,
+            tenant_id,
             time_range
         )
         return metrics
@@ -77,6 +87,7 @@ async def get_workflow_performance(
     time_range: TimeRange = TimeRange.TWENTY_FOUR_HOURS,
     limit: int = 10,
     sort_by: str = "executions",
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("observability_basic"))
 ):
     """
@@ -93,8 +104,9 @@ async def get_workflow_performance(
         )
 
     try:
+        tenant_id = get_tenant_id(user_info)
         performance = await observability_service.get_workflow_performance(
-            MOCK_TENANT_ID,
+            tenant_id,
             time_range,
             limit,
             sort_by
@@ -109,6 +121,7 @@ async def get_workflow_performance(
 
 @router.get("/environment-health", response_model=List[EnvironmentHealth])
 async def get_environment_health(
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("environment_health"))
 ):
     """
@@ -116,7 +129,8 @@ async def get_environment_health(
     Includes latency, uptime, workflow counts, and last deployment/snapshot info.
     """
     try:
-        health = await observability_service.get_environment_health(MOCK_TENANT_ID)
+        tenant_id = get_tenant_id(user_info)
+        health = await observability_service.get_environment_health(tenant_id)
         return health
     except Exception as e:
         raise HTTPException(
@@ -128,6 +142,7 @@ async def get_environment_health(
 @router.get("/promotion-stats", response_model=PromotionSyncStats)
 async def get_promotion_stats(
     days: int = 7,
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
@@ -140,8 +155,9 @@ async def get_promotion_stats(
         )
 
     try:
+        tenant_id = get_tenant_id(user_info)
         stats = await observability_service.get_promotion_sync_stats(
-            MOCK_TENANT_ID,
+            tenant_id,
             days
         )
         return stats
@@ -155,6 +171,7 @@ async def get_promotion_stats(
 @router.post("/health-check/{environment_id}", response_model=HealthCheckResponse)
 async def trigger_health_check(
     environment_id: str,
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("environment_health"))
 ):
     """
@@ -162,8 +179,9 @@ async def trigger_health_check(
     Returns the health check result with latency and status.
     """
     try:
+        tenant_id = get_tenant_id(user_info)
         result = await observability_service.check_environment_health(
-            MOCK_TENANT_ID,
+            tenant_id,
             environment_id
         )
         return result

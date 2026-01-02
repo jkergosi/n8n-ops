@@ -225,10 +225,10 @@ class TestEnvironmentsAPITestConnection:
             "n8n_api_key": "test-api-key",
         }
 
-        with patch("app.api.endpoints.environments.N8NClient") as mock_client:
+        with patch("app.api.endpoints.environments.ProviderRegistry") as mock_registry:
             mock_instance = MagicMock()
             mock_instance.test_connection = AsyncMock(return_value=True)
-            mock_client.return_value = mock_instance
+            mock_registry.get_adapter.return_value = mock_instance
 
             response = client.post(
                 "/api/v1/environments/test-connection",
@@ -248,10 +248,10 @@ class TestEnvironmentsAPITestConnection:
             "n8n_api_key": "bad-api-key",
         }
 
-        with patch("app.api.endpoints.environments.N8NClient") as mock_client:
+        with patch("app.api.endpoints.environments.ProviderRegistry") as mock_registry:
             mock_instance = MagicMock()
             mock_instance.test_connection = AsyncMock(return_value=False)
-            mock_client.return_value = mock_instance
+            mock_registry.get_adapter.return_value = mock_instance
 
             response = client.post(
                 "/api/v1/environments/test-connection",

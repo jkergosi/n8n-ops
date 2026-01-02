@@ -16,8 +16,12 @@ from app.services.auth_service import get_current_user
 
 router = APIRouter()
 
-# TODO: Replace with actual tenant ID from authenticated user
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+def get_tenant_id(user_info: dict) -> str:
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 # Request/Response models
@@ -89,14 +93,15 @@ def extract_workflow_id_from_comment(workflow_data: Dict[str, Any]) -> Optional[
 
 
 @router.get("/{environment_id}/preview", response_model=RestorePreviewResponse)
-async def get_restore_preview(environment_id: str):
+async def get_restore_preview(environment_id: str, user_info: dict = Depends(get_current_user)):
     """
     Get a preview of what will be restored from GitHub to the N8N instance.
     Shows which workflows are new vs updates.
     """
     try:
+        tenant_id = get_tenant_id(user_info)
         # Get environment configuration
-        env_config = await db_service.get_environment(environment_id, MOCK_TENANT_ID)
+        env_config = await db_service.get_environment(environment_id, tenant_id)
         if not env_config:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -218,7 +223,7 @@ async def execute_restore(
     Creates snapshots of existing workflows before updating them.
     """
     try:
-        tenant_id = user_info.get("tenant", {}).get("id", MOCK_TENANT_ID)
+        tenant_id = get_tenant_id(user_info)
         user = user_info.get("user", {})
         user_role = user.get("role", "user")
         
@@ -328,12 +333,12 @@ async def execute_restore(
                         try:
                             # Get current version count
                             existing_snapshots = await db_service.get_workflow_snapshots(
-                                MOCK_TENANT_ID, original_id
+                                tenant_id, original_id
                             )
                             next_version = len(existing_snapshots) + 1
 
                             snapshot_data = {
-                                "tenant_id": MOCK_TENANT_ID,
+                                "tenant_id": tenant_id,
                                 "workflow_id": original_id,
                                 "workflow_name": existing.get("name"),
                                 "version": next_version,
@@ -383,11 +388,11 @@ async def execute_restore(
         # Sync workflows to database cache
         try:
             updated_workflows = await adapter.get_workflows()
-            await db_service.sync_workflows_from_n8n(MOCK_TENANT_ID, environment_id, updated_workflows)
+            await db_service.sync_workflows_from_n8n(tenant_id, environment_id, updated_workflows)
 
             # Update workflow count
             await db_service.update_environment_workflow_count(
-                environment_id, MOCK_TENANT_ID, len(updated_workflows)
+                environment_id, tenant_id, len(updated_workflows)
             )
         except Exception as sync_err:
             errors.append(f"Failed to sync workflows to cache: {str(sync_err)}")
@@ -412,10 +417,10 @@ async def execute_restore(
 
 
 @router.get("/snapshots/{workflow_id}", response_model=List[SnapshotResponse])
-async def get_workflow_snapshots(workflow_id: str):
+async def get_workflow_snapshots(workflow_id: str, user_info: dict = Depends(get_current_user)):
     """Get all snapshots for a specific workflow"""
     try:
-        snapshots = await db_service.get_workflow_snapshots(MOCK_TENANT_ID, workflow_id)
+        snapshots = await db_service.get_workflow_snapshots(get_tenant_id(user_info), workflow_id)
 
         return [
             SnapshotResponse(
@@ -437,14 +442,15 @@ async def get_workflow_snapshots(workflow_id: str):
 
 
 @router.post("/rollback")
-async def rollback_workflow(request: RollbackRequest):
+async def rollback_workflow(request: RollbackRequest, user_info: dict = Depends(get_current_user)):
     """
     Rollback a workflow to a previous snapshot.
     Requires the snapshot ID.
     """
     try:
+        tenant_id = get_tenant_id(user_info)
         # Get the snapshot
-        snapshots = await db_service.get_workflow_snapshots(MOCK_TENANT_ID)
+        snapshots = await db_service.get_workflow_snapshots(tenant_id)
         snapshot = next(
             (s for s in snapshots if s.get("id") == request.snapshot_id),
             None
@@ -468,7 +474,7 @@ async def rollback_workflow(request: RollbackRequest):
 
         # Get the environment for this workflow
         # We need to find which environment has this workflow
-        environments = await db_service.get_environments(MOCK_TENANT_ID)
+        environments = await db_service.get_environments(tenant_id)
 
         adapter = None
         env_id = None
@@ -495,12 +501,12 @@ async def rollback_workflow(request: RollbackRequest):
         try:
             current_workflow = await adapter.get_workflow(workflow_id)
             existing_snapshots = await db_service.get_workflow_snapshots(
-                MOCK_TENANT_ID, workflow_id
+                tenant_id, workflow_id
             )
             next_version = len(existing_snapshots) + 1
 
             rollback_snapshot_data = {
-                "tenant_id": MOCK_TENANT_ID,
+                "tenant_id": tenant_id,
                 "workflow_id": workflow_id,
                 "workflow_name": current_workflow.get("name"),
                 "version": next_version,
@@ -518,7 +524,7 @@ async def rollback_workflow(request: RollbackRequest):
         # Update database cache
         if env_id:
             updated_workflows = await adapter.get_workflows()
-            await db_service.sync_workflows_from_n8n(MOCK_TENANT_ID, env_id, updated_workflows)
+            await db_service.sync_workflows_from_n8n(tenant_id, env_id, updated_workflows)
 
         return {
             "success": True,

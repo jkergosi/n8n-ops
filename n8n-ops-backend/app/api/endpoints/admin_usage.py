@@ -92,6 +92,18 @@ class GlobalUsageResponse(BaseModel):
     recent_growth: dict
 
 
+class UsageHistoryPoint(BaseModel):
+    date: str  # YYYY-MM-DD (UTC)
+    value: int
+
+
+class UsageHistoryResponse(BaseModel):
+    metric: str
+    provider: Optional[str] = None
+    days: int
+    points: List[UsageHistoryPoint]
+
+
 class TopTenantsResponse(BaseModel):
     """Response for top tenants by metric."""
     metric: str
@@ -304,6 +316,52 @@ async def get_global_usage(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get global usage: {str(e)}"
+        )
+
+
+@router.get("/history", response_model=UsageHistoryResponse)
+async def get_usage_history(
+    metric: str = Query("executions", description="Metric to chart: executions"),
+    days: int = Query(30, ge=7, le=90, description="Number of days (UTC)"),
+    provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all"),
+    user_info: dict = Depends(get_current_user),
+):
+    """
+    Time-series usage data for admin charts.
+    """
+    try:
+        if metric != "executions":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported metric")
+
+        end_dt = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        start_dt = end_dt - timedelta(days=days)
+
+        query = db_service.client.table("executions").select("started_at, provider")
+        query = query.gte("started_at", start_dt.isoformat()).lt("started_at", end_dt.isoformat())
+        query = apply_provider_filter(query, provider)
+        result = await query.execute()
+
+        counts: Dict[str, int] = {}
+        for row in (result.data or []):
+            ts = row.get("started_at")
+            if not ts:
+                continue
+            day = str(ts)[:10]
+            counts[day] = counts.get(day, 0) + 1
+
+        points: List[UsageHistoryPoint] = []
+        for i in range(days):
+            day_dt = start_dt + timedelta(days=i)
+            day_str = day_dt.strftime("%Y-%m-%d")
+            points.append(UsageHistoryPoint(date=day_str, value=counts.get(day_str, 0)))
+
+        return UsageHistoryResponse(metric=metric, provider=provider, days=days, points=points)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get usage history: {str(e)}"
         )
 
 

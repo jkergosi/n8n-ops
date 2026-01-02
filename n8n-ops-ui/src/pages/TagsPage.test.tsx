@@ -6,7 +6,7 @@ import { TagsPage } from './TagsPage';
 import { render } from '@/test/test-utils';
 import { server } from '@/test/mocks/server';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 const mockTags = [
   {
@@ -33,7 +33,7 @@ describe('TagsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     server.use(
-      http.get(`${API_BASE}/tags`, () => {
+      http.get(`${API_BASE}/tags/:environmentId`, () => {
         return HttpResponse.json(mockTags);
       })
     );
@@ -42,7 +42,19 @@ describe('TagsPage', () => {
   describe('Loading State', () => {
     it('should show loading state initially', async () => {
       server.use(
-        http.get(`${API_BASE}/tags`, async () => {
+        http.get(`${API_BASE}/environments`, () => {
+          return HttpResponse.json([
+            {
+              id: 'env-1',
+              tenant_id: 'tenant-1',
+              n8n_name: 'Development',
+              n8n_type: 'development',
+              n8n_base_url: 'https://dev.example.com',
+              is_active: true,
+            },
+          ]);
+        }),
+        http.get(`${API_BASE}/tags/:environmentId`, async () => {
           await new Promise((r) => setTimeout(r, 100));
           return HttpResponse.json(mockTags);
         })
@@ -50,7 +62,9 @@ describe('TagsPage', () => {
 
       render(<TagsPage />);
 
-      expect(screen.getByText(/loading/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/loading tags/i)).toBeInTheDocument();
+      });
     });
   });
 
@@ -86,7 +100,7 @@ describe('TagsPage', () => {
   describe('Empty State', () => {
     it('should show empty state when no tags exist', async () => {
       server.use(
-        http.get(`${API_BASE}/tags`, () => {
+        http.get(`${API_BASE}/tags/:environmentId`, () => {
           return HttpResponse.json([]);
         })
       );
@@ -173,7 +187,7 @@ describe('TagsPage', () => {
   describe('Error State', () => {
     it('should handle API error gracefully', async () => {
       server.use(
-        http.get(`${API_BASE}/tags`, () => {
+        http.get(`${API_BASE}/tags/:environmentId`, () => {
           return new HttpResponse(JSON.stringify({ detail: 'Server error' }), {
             status: 500,
           });

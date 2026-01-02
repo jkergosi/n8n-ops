@@ -7,7 +7,7 @@ import { render } from '@/test/test-utils';
 import { server } from '@/test/mocks/server';
 import { mockEnvironments } from '@/test/mocks/handlers';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 const mockExecutions = [
   {
@@ -52,6 +52,18 @@ describe('ExecutionsPage', () => {
   describe('Loading State', () => {
     it('should show loading state initially', async () => {
       server.use(
+        http.get(`${API_BASE}/environments`, () => {
+          return HttpResponse.json([
+            {
+              id: 'env-1',
+              tenant_id: 'tenant-1',
+              n8n_name: 'Development',
+              n8n_type: 'development',
+              n8n_base_url: 'https://dev.example.com',
+              is_active: true,
+            },
+          ]);
+        }),
         http.get(`${API_BASE}/executions`, async () => {
           await new Promise((r) => setTimeout(r, 100));
           return HttpResponse.json(mockExecutions);
@@ -60,7 +72,9 @@ describe('ExecutionsPage', () => {
 
       render(<ExecutionsPage />);
 
-      expect(screen.getByText(/loading/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/loading executions/i)).toBeInTheDocument();
+      });
     });
   });
 
@@ -75,17 +89,17 @@ describe('ExecutionsPage', () => {
       render(<ExecutionsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Test Workflow 1')).toBeInTheDocument();
+        expect(screen.getAllByText('Test Workflow 1').length).toBeGreaterThan(0);
       });
 
-      expect(screen.getByText('Test Workflow 2')).toBeInTheDocument();
+      expect(screen.getAllByText('Test Workflow 2').length).toBeGreaterThan(0);
     });
 
     it('should show execution status badges', async () => {
       render(<ExecutionsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Test Workflow 1')).toBeInTheDocument();
+        expect(screen.getAllByText('Test Workflow 1').length).toBeGreaterThan(0);
       });
 
       // Check for status badges
@@ -118,7 +132,7 @@ describe('ExecutionsPage', () => {
       render(<ExecutionsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Test Workflow 1')).toBeInTheDocument();
+        expect(screen.getAllByText('Test Workflow 1').length).toBeGreaterThan(0);
       });
 
       // Select status filter
@@ -136,7 +150,7 @@ describe('ExecutionsPage', () => {
       render(<ExecutionsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Test Workflow 1')).toBeInTheDocument();
+        expect(screen.getAllByText('Test Workflow 1').length).toBeGreaterThan(0);
       });
 
       const searchInput = screen.getByPlaceholderText(/search/i);
@@ -149,7 +163,7 @@ describe('ExecutionsPage', () => {
       render(<ExecutionsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Test Workflow 1')).toBeInTheDocument();
+        expect(screen.getAllByText('Test Workflow 1').length).toBeGreaterThan(0);
       });
 
       // Check for sortable headers
@@ -163,7 +177,7 @@ describe('ExecutionsPage', () => {
       render(<ExecutionsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Test Workflow 1')).toBeInTheDocument();
+        expect(screen.getAllByText('Test Workflow 1').length).toBeGreaterThan(0);
       });
 
       expect(screen.getByText(/showing/i)).toBeInTheDocument();

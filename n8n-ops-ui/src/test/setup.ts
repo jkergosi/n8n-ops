@@ -73,6 +73,20 @@ Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 // Mock scrollTo
 window.scrollTo = vi.fn();
 
+// Radix UI (Select/Popover) uses Pointer Events APIs that are missing in happy-dom
+if (!('hasPointerCapture' in Element.prototype)) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (Element.prototype as any).hasPointerCapture = () => false;
+}
+if (!('setPointerCapture' in Element.prototype)) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (Element.prototype as any).setPointerCapture = () => {};
+}
+if (!('releasePointerCapture' in Element.prototype)) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (Element.prototype as any).releasePointerCapture = () => {};
+}
+
 // Mock EventSource (SSE) for happy-dom
 class EventSourceMock {
   url: string;
@@ -97,3 +111,6 @@ class EventSourceMock {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (globalThis as any).EventSource = EventSourceMock as unknown as typeof EventSource;
+// happy-dom sometimes reads from window.EventSource
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(window as any).EventSource = EventSourceMock as unknown as typeof EventSource;

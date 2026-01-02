@@ -6,7 +6,7 @@ import { N8NUsersPage } from './N8NUsersPage';
 import { render } from '@/test/test-utils';
 import { server } from '@/test/mocks/server';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 // API returns array directly, api-client wraps it with { data: ... }
 const mockN8NUsers = [
@@ -42,10 +42,24 @@ const mockN8NUsers = [
   },
 ];
 
-// API returns array directly for environments
+// Backend environments are snake_case; apiClient.getEnvironments() transforms to camelCase
 const mockEnvironments = [
-  { id: 'env-1', name: 'Development', type: 'dev' },
-  { id: 'env-2', name: 'Staging', type: 'staging' },
+  {
+    id: 'env-1',
+    tenant_id: 'tenant-1',
+    n8n_name: 'Development',
+    n8n_type: 'development',
+    n8n_base_url: 'https://dev.example.com',
+    is_active: true,
+  },
+  {
+    id: 'env-2',
+    tenant_id: 'tenant-1',
+    n8n_name: 'Staging',
+    n8n_type: 'staging',
+    n8n_base_url: 'https://staging.example.com',
+    is_active: true,
+  },
 ];
 
 describe('N8NUsersPage', () => {

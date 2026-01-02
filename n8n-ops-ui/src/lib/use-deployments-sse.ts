@@ -49,7 +49,9 @@ interface UseDeploymentsSSEReturn {
 export function useDeploymentsSSE(
   options: UseDeploymentsSSEOptions = {}
 ): UseDeploymentsSSEReturn {
+  const isTest = import.meta.env.MODE === 'test';
   const { enabled = true, deploymentId } = options;
+  const effectiveEnabled = enabled && !isTest;
   const queryClient = useQueryClient();
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -213,7 +215,7 @@ export function useDeploymentsSSE(
   );
 
   const connect = useCallback(() => {
-    if (!enabled) return;
+    if (!effectiveEnabled) return;
 
     // Clear any existing connection
     if (eventSourceRef.current) {
@@ -230,35 +232,37 @@ export function useDeploymentsSSE(
       ? `${endpoint}?lastEventId=${lastEventIdRef.current}`
       : endpoint;
 
-    console.log('[SSE] Connecting to:', url);
+    if (!isTest) console.log('[SSE] Connecting to:', url);
     const eventSource = new EventSource(url, { withCredentials: true });
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
-      console.log('[SSE] Connected');
+      if (!isTest) console.log('[SSE] Connected');
       setIsConnected(true);
       setConnectionError(null);
       reconnectAttemptRef.current = 0;
     };
 
     eventSource.onerror = (event) => {
-      console.error('[SSE] Connection error:', event);
+      if (!isTest) console.error('[SSE] Connection error:', event);
       setIsConnected(false);
       eventSource.close();
 
       // Attempt reconnection with exponential backoff
       if (reconnectAttemptRef.current < MAX_RECONNECT_ATTEMPTS) {
         const delay = getReconnectDelay();
-        console.log(
-          `[SSE] Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current + 1}/${MAX_RECONNECT_ATTEMPTS})`
-        );
+        if (!isTest) {
+          console.log(
+            `[SSE] Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current + 1}/${MAX_RECONNECT_ATTEMPTS})`
+          );
+        }
         reconnectTimeoutRef.current = setTimeout(() => {
           reconnectAttemptRef.current++;
           connect();
         }, delay);
       } else {
         setConnectionError('Failed to connect to real-time updates. Please refresh the page.');
-        console.error('[SSE] Max reconnection attempts reached');
+        if (!isTest) console.error('[SSE] Max reconnection attempts reached');
       }
     };
 
@@ -306,17 +310,18 @@ export function useDeploymentsSSE(
       }
     });
   }, [
-    enabled,
+    effectiveEnabled,
     deploymentId,
     getReconnectDelay,
     handleSnapshot,
     handleDeploymentUpsert,
     handleDeploymentProgress,
     handleCountsUpdate,
+    isTest,
   ]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!effectiveEnabled) {
       // Clean up if disabled
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -334,7 +339,7 @@ export function useDeploymentsSSE(
 
     return () => {
       if (eventSourceRef.current) {
-        console.log('[SSE] Disconnecting');
+        if (!isTest) console.log('[SSE] Disconnecting');
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
@@ -343,7 +348,7 @@ export function useDeploymentsSSE(
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [enabled, connect]);
+  }, [effectiveEnabled, connect, isTest]);
 
   return { isConnected, connectionError };
 }

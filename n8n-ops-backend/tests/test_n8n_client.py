@@ -478,7 +478,7 @@ class TestGetCredentials:
     @pytest.mark.asyncio
     @pytest.mark.unit
     async def test_get_credentials_falls_back_to_workflow_extraction(self, client):
-        """Should fall back to extracting credentials from workflows if API fails."""
+        """Should return empty list (no fallback) if credentials API is forbidden."""
         credentials_error = MagicMock()
         credentials_error.status_code = 403
         credentials_error.raise_for_status.side_effect = httpx.HTTPStatusError(
@@ -487,36 +487,16 @@ class TestGetCredentials:
             response=credentials_error
         )
 
-        workflows_response = MagicMock()
-        workflows_response.json.return_value = {
-            "data": [
-                {
-                    "id": "wf-1",
-                    "name": "Workflow 1",
-                    "nodes": [
-                        {
-                            "type": "n8n-nodes-base.httpRequest",
-                            "credentials": {
-                                "apiKey": {"id": "cred-1", "name": "My API Key"}
-                            }
-                        }
-                    ]
-                }
-            ]
-        }
-        workflows_response.raise_for_status = MagicMock()
-
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
-            mock_client.get = AsyncMock(side_effect=[credentials_error, workflows_response])
+            mock_client.get = AsyncMock(side_effect=[credentials_error])
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
             mock_client_class.return_value = mock_client
 
             result = await client.get_credentials()
 
-        assert len(result) == 1
-        assert result[0]["name"] == "My API Key"
+        assert result == []
 
 
 class TestExtractCredentialUsageFromWorkflows:

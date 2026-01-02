@@ -68,7 +68,9 @@ export interface UploadUrlRequest {
 
 export interface UploadUrlResponse {
   upload_url: string;
-  public_url: string;
+  public_url?: string | null;
+  attachment_id?: string;
+  method?: string;
 }
 
 // Admin config types
@@ -84,6 +86,8 @@ export interface SupportConfig {
   jsm_feature_request_type_id?: string;
   jsm_help_request_type_id?: string;
   jsm_widget_embed_code?: string;
+  storage_bucket?: string;
+  storage_prefix?: string;
   updated_at?: string;
 }
 
@@ -98,6 +102,8 @@ export interface SupportConfigUpdate {
   jsm_feature_request_type_id?: string;
   jsm_help_request_type_id?: string;
   jsm_widget_embed_code?: string;
+  storage_bucket?: string;
+  storage_prefix?: string;
 }
 
 export interface TestConnectionResult {

@@ -30,17 +30,23 @@ from app.schemas.deployment import (
     SnapshotResponse,
 )
 from app.core.entitlements_gate import require_entitlement
+from app.services.auth_service import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# TODO: Replace with actual tenant ID from authenticated user
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
-
 # SSE constants
 KEEPALIVE_INTERVAL = 15  # seconds
 EVENT_WAIT_TIMEOUT = 5  # seconds
+
+
+def get_tenant_id(user_info: dict) -> str:
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 def _attach_progress_fields(deployment: dict, workflows: Optional[list] = None) -> dict:
@@ -233,6 +239,7 @@ def _format_keepalive() -> str:
 @router.get("/deployments")
 async def sse_deployments_stream(
     request: Request,
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
@@ -241,7 +248,7 @@ async def sse_deployments_stream(
     On connect: sends snapshot with current deployments + counters.
     After: streams incremental events (deployment.upsert, deployment.progress, counts.update).
     """
-    tenant_id = MOCK_TENANT_ID
+    tenant_id = get_tenant_id(user_info)
 
     async def event_generator():
         subscription_id = None
@@ -323,6 +330,7 @@ async def sse_deployments_stream(
 async def sse_deployment_detail_stream(
     deployment_id: str,
     request: Request,
+    user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
@@ -331,7 +339,7 @@ async def sse_deployment_detail_stream(
     On connect: sends snapshot with single deployment + workflows + snapshots.
     After: streams events for this specific deployment.
     """
-    tenant_id = MOCK_TENANT_ID
+    tenant_id = get_tenant_id(user_info)
 
     # Verify deployment exists
     snapshot = await _build_deployment_detail_snapshot(tenant_id, deployment_id)
@@ -420,7 +428,7 @@ async def sse_deployment_detail_stream(
 
 # === Helper functions for emitting events ===
 
-async def emit_deployment_upsert(deployment: dict, tenant_id: str = MOCK_TENANT_ID):
+async def emit_deployment_upsert(deployment: dict, tenant_id: str):
     """
     Emit a deployment.upsert event.
     Call this when a deployment is created or its status changes.
@@ -442,12 +450,14 @@ async def emit_deployment_progress(
     progress_current: int,
     progress_total: int,
     current_workflow_name: Optional[str] = None,
-    tenant_id: str = MOCK_TENANT_ID
+    tenant_id: str = ""
 ):
     """
     Emit a deployment.progress event.
     Call this during deployment execution after each workflow.
     """
+    if not tenant_id:
+        return
     event = SSEEvent(
         type="deployment.progress",
         tenant_id=tenant_id,
@@ -463,7 +473,7 @@ async def emit_deployment_progress(
     await sse_pubsub.publish(event)
 
 
-async def emit_counts_update(tenant_id: str = MOCK_TENANT_ID):
+async def emit_counts_update(tenant_id: str):
     """
     Emit a counts.update event.
     Call this when deployment completes to update counters.
@@ -512,9 +522,11 @@ async def emit_sync_progress(
     total: int,
     message: Optional[str] = None,
     errors: Optional[dict] = None,
-    tenant_id: str = MOCK_TENANT_ID
+    tenant_id: str = ""
 ):
     """Emit a sync.progress event."""
+    if not tenant_id:
+        return
     from app.schemas.sse import SyncProgressPayload
     payload = SyncProgressPayload(
         job_id=job_id,
@@ -544,9 +556,11 @@ async def emit_backup_progress(
     current_workflow_name: Optional[str] = None,
     message: Optional[str] = None,
     errors: Optional[list] = None,
-    tenant_id: str = MOCK_TENANT_ID
+    tenant_id: str = ""
 ):
     """Emit a backup.progress event."""
+    if not tenant_id:
+        return
     from app.schemas.sse import BackupProgressPayload
     payload = BackupProgressPayload(
         job_id=job_id,
@@ -576,9 +590,11 @@ async def emit_restore_progress(
     current_workflow_name: Optional[str] = None,
     message: Optional[str] = None,
     errors: Optional[list] = None,
-    tenant_id: str = MOCK_TENANT_ID
+    tenant_id: str = ""
 ):
     """Emit a restore.progress event."""
+    if not tenant_id:
+        return
     from app.schemas.sse import RestoreProgressPayload
     payload = RestoreProgressPayload(
         job_id=job_id,

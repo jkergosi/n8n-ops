@@ -153,13 +153,12 @@ async def check_drift_policy_blocking(
         # On error, don't block - fail open
         return {"blocked": False, "reason": None, "details": {"error": str(e)}}
 
-# Fallback tenant ID (should not be used in production)
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
-
-
 def get_tenant_id(user_info: dict) -> str:
-    """Extract tenant_id from user_info, with fallback to MOCK_TENANT_ID"""
-    return user_info.get("tenant", {}).get("id", MOCK_TENANT_ID)
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 @router.post("/initiate", response_model=PromotionInitiateResponse)
@@ -887,7 +886,8 @@ async def execute_deployment(
                     promotion=promotion,
                     source_env=source_env,
                     target_env=target_env,
-                    selected_workflows=selected_workflows
+                    selected_workflows=selected_workflows,
+                    tenant_id=tenant_id
                 )
             logger.info(f"[Job {job_id}] Background task added for promotion {promotion_id}, deployment {deployment_id}")
         else:
@@ -976,9 +976,9 @@ async def get_promotion_job(
         )
 
 
-@router.post("/approvals/{deployment_id}/approve")
+@router.post("/approvals/{promotion_id}/approve")
 async def approve_deployment(
-    deployment_id: str,
+    promotion_id: str,
     request: PromotionApprovalRequest,
     user_info: dict = Depends(get_current_user),
     _: None = Depends(require_entitlement("workflow_ci_cd"))
@@ -990,12 +990,13 @@ async def approve_deployment(
     try:
         tenant_id = get_tenant_id(user_info)
         # Get promotion (still uses promotion_id in DB)
-        promotion = await db_service.get_promotion(deployment_id, tenant_id)
+        promotion = await db_service.get_promotion(promotion_id, tenant_id)
         if not promotion:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Promotion not found"
             )
+        promotion_id = promotion.get("id") or promotion_id
         
         if promotion.get("status") != "pending_approval":
             raise HTTPException(
@@ -1024,7 +1025,8 @@ async def approve_deployment(
         
         # Get existing approvals for this promotion
         existing_approvals = promotion.get("approvals", []) or []
-        approver_id = "current_user"  # TODO: Get from auth
+        user = user_info.get("user") or {}
+        approver_id = user.get("id") or "current_user"
         
         if request.action == "reject":
             # Rejection requires comment
@@ -1311,7 +1313,7 @@ async def get_workflow_diff(
         )
 
 
-@router.get("/initiate/{deployment_id}", response_model=PromotionDetail)
+@router.get("/initiate/{promotion_id}", response_model=PromotionDetail)
 async def get_promotion(
     promotion_id: str,
     user_info: dict = Depends(get_current_user),
@@ -1321,16 +1323,8 @@ async def get_promotion(
     Get details of a specific promotion.
     """
     tenant_id = get_tenant_id(user_info)
-    logger.info(f"[GET_DEPLOYMENT_INITIATION] Route hit with deployment_id={deployment_id}")
-    # Prevent this route from matching /workflows/... paths
-    if deployment_id == "workflows":
-        logger.warning(f"[GET_DEPLOYMENT_INITIATION] Blocked attempt to access workflows path as deployment_id")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Deployment {deployment_id} not found"
-        )
     try:
-        promo = await db_service.get_promotion(deployment_id, tenant_id)
+        promo = await db_service.get_promotion(promotion_id, tenant_id)
         if not promo:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

@@ -33,13 +33,13 @@ from app.services.auth_service import get_current_user
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Fallback tenant ID (should not be used in production)
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
-
 
 def get_tenant_id(user_info: dict) -> str:
-    """Extract tenant_id from user_info, with fallback to MOCK_TENANT_ID"""
-    return user_info.get("tenant", {}).get("id", MOCK_TENANT_ID)
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 @router.get("/test")
@@ -440,7 +440,8 @@ async def _sync_environment_background(
             current_step="initializing",
             current=0,
             total=5,
-            message="Starting sync..."
+            message="Starting sync...",
+            tenant_id=tenant_id
         )
 
         # Create provider adapter
@@ -468,7 +469,8 @@ async def _sync_environment_background(
                 current_step="workflows",
                 current=1,
                 total=5,
-                message="Syncing workflows..."
+                message="Syncing workflows...",
+                tenant_id=tenant_id
             )
             workflows = await adapter.get_workflows()
             
@@ -540,7 +542,8 @@ async def _sync_environment_background(
                 current_step="executions",
                 current=2,
                 total=5,
-                message="Syncing executions..."
+                message="Syncing executions...",
+                tenant_id=tenant_id
             )
             executions = await adapter.get_executions(limit=250)
             synced_executions = await db_service.sync_executions_from_n8n(
@@ -562,7 +565,8 @@ async def _sync_environment_background(
                 current_step="credentials",
                 current=3,
                 total=5,
-                message="Syncing credentials..."
+                message="Syncing credentials...",
+                tenant_id=tenant_id
             )
             credentials = await adapter.get_credentials()
             synced_credentials = await db_service.sync_credentials_from_n8n(
@@ -583,7 +587,8 @@ async def _sync_environment_background(
                 current_step="users",
                 current=4,
                 total=5,
-                message="Syncing users..."
+                message="Syncing users...",
+                tenant_id=tenant_id
             )
             users = await adapter.get_users()
             if not users:
@@ -607,7 +612,8 @@ async def _sync_environment_background(
                 current_step="tags",
                 current=5,
                 total=5,
-                message="Syncing tags..."
+                message="Syncing tags...",
+                tenant_id=tenant_id
             )
             tags = await adapter.get_tags()
             synced_tags = await db_service.sync_tags_from_n8n(
@@ -656,7 +662,8 @@ async def _sync_environment_background(
             current=5,
             total=5,
             message="Sync completed successfully" if not has_errors else "Sync completed with errors",
-            errors=sync_results if has_errors else None
+            errors=sync_results if has_errors else None,
+            tenant_id=tenant_id
         )
 
         # Create audit log
@@ -696,7 +703,8 @@ async def _sync_environment_background(
             current=0,
             total=5,
             message=f"Sync failed: {str(e)}",
-            errors={"error": str(e)}
+            errors={"error": str(e)},
+            tenant_id=tenant_id
         )
         # Create audit log for failure
         try:

@@ -12,18 +12,24 @@ from app.core.feature_gate import require_feature
 from app.core.entitlements_gate import require_entitlement
 from app.services.database import db_service
 from app.schemas.pipeline import PipelineCreate, PipelineUpdate, PipelineResponse
+from app.services.auth_service import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# TODO: Replace with actual tenant ID from authenticated user
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+def get_tenant_id(user_info: dict) -> str:
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 @router.get("/", response_model=List[PipelineResponse])
 async def get_pipelines(
     include_inactive: bool = Query(True, description="Include inactive/deactivated pipelines"),
+    user_info: dict = Depends(get_current_user),
     _: None = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
@@ -35,7 +41,7 @@ async def get_pipelines(
     """
     try:
         logger.info(f"API get_pipelines called: include_inactive={include_inactive} (type: {type(include_inactive).__name__})")
-        pipelines = await db_service.get_pipelines(MOCK_TENANT_ID, include_inactive=include_inactive)
+        pipelines = await db_service.get_pipelines(get_tenant_id(user_info), include_inactive=include_inactive)
         logger.info(f"Database returned {len(pipelines)} pipelines")
         
         # Debug: log pipeline statuses before transformation
@@ -77,13 +83,14 @@ async def get_pipelines(
 @router.get("/{pipeline_id}", response_model=PipelineResponse)
 async def get_pipeline(
     pipeline_id: str,
+    user_info: dict = Depends(get_current_user),
     _: None = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
     Get a specific pipeline by ID.
     """
     try:
-        pipeline = await db_service.get_pipeline(pipeline_id, MOCK_TENANT_ID)
+        pipeline = await db_service.get_pipeline(pipeline_id, get_tenant_id(user_info))
         if not pipeline:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -115,6 +122,7 @@ async def get_pipeline(
 @router.post("/", response_model=PipelineResponse)
 async def create_pipeline(
     pipeline: PipelineCreate,
+    user_info: dict = Depends(get_current_user),
     _: None = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
@@ -173,7 +181,7 @@ async def create_pipeline(
         
         # Prepare data for database
         pipeline_data = {
-            "tenant_id": MOCK_TENANT_ID,
+            "tenant_id": get_tenant_id(user_info),
             "name": pipeline.name,
             "description": pipeline.description,
             "is_active": pipeline.is_active,
@@ -213,14 +221,16 @@ async def create_pipeline(
 async def update_pipeline(
     pipeline_id: str,
     pipeline: PipelineUpdate,
+    user_info: dict = Depends(get_current_user),
     _: None = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
     Update an existing pipeline.
     """
     try:
+        tenant_id = get_tenant_id(user_info)
         # Get existing pipeline
-        existing = await db_service.get_pipeline(pipeline_id, MOCK_TENANT_ID)
+        existing = await db_service.get_pipeline(pipeline_id, tenant_id)
         if not existing:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -292,7 +302,7 @@ async def update_pipeline(
         update_data["last_modified_by"] = None  # TODO: Get from auth
         update_data["last_modified_at"] = datetime.utcnow().isoformat()
         
-        updated = await db_service.update_pipeline(pipeline_id, MOCK_TENANT_ID, update_data)
+        updated = await db_service.update_pipeline(pipeline_id, tenant_id, update_data)
         
         return {
             "id": updated.get("id"),
@@ -319,20 +329,22 @@ async def update_pipeline(
 @router.delete("/{pipeline_id}")
 async def delete_pipeline(
     pipeline_id: str,
+    user_info: dict = Depends(get_current_user),
     _: None = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
     Delete a pipeline.
     """
     try:
-        existing = await db_service.get_pipeline(pipeline_id, MOCK_TENANT_ID)
+        tenant_id = get_tenant_id(user_info)
+        existing = await db_service.get_pipeline(pipeline_id, tenant_id)
         if not existing:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Pipeline not found"
             )
         
-        await db_service.delete_pipeline(pipeline_id, MOCK_TENANT_ID)
+        await db_service.delete_pipeline(pipeline_id, tenant_id)
         
         return {"success": True, "message": "Pipeline deleted successfully"}
     except HTTPException:

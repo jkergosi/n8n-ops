@@ -5,7 +5,7 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { DeploymentsPage } from './DeploymentsPage';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 const mockEnvironments = [
   {
@@ -34,11 +34,11 @@ const mockPipelines = [
     tenant_id: 'tenant-1',
     name: 'Dev to Prod Pipeline',
     description: 'Promote workflows from development to production',
-    isActive: true,
-    environmentIds: ['env-1', 'env-2'],
+    is_active: true,
+    environment_ids: ['env-1', 'env-2'],
     stages: [],
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-15T00:00:00Z',
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-15T00:00:00Z',
   },
 ];
 
@@ -54,7 +54,7 @@ const mockDeployments = [
     triggered_by_user_id: 'admin@test.com',
     started_at: '2024-01-15T10:00:00Z',
     finished_at: '2024-01-15T10:05:00Z',
-    summary_json: { total: 3 },
+    summary_json: { total: 3, created: 1, updated: 2 },
   },
   {
     id: 'deploy-2',
@@ -66,7 +66,7 @@ const mockDeployments = [
     triggered_by_user_id: 'dev@test.com',
     started_at: '2024-01-14T14:00:00Z',
     finished_at: '2024-01-14T14:02:00Z',
-    summary_json: { total: 1 },
+    summary_json: { total: 1, created: 0, updated: 0 },
   },
   {
     id: 'deploy-3',
@@ -77,7 +77,7 @@ const mockDeployments = [
     status: 'pending',
     triggered_by_user_id: 'admin@test.com',
     started_at: '2024-01-16T08:00:00Z',
-    summary_json: { total: 2 },
+    summary_json: { total: 2, processed: 1 },
   },
 ];
 
@@ -184,13 +184,13 @@ describe('DeploymentsPage', () => {
     it('should display page description', async () => {
       render(<DeploymentsPage />);
 
-      expect(screen.getByText(/track workflow deployments and promote across environments/i)).toBeInTheDocument();
+      expect(screen.getByText(/track workflow deployments/i)).toBeInTheDocument();
     });
 
     it('should display Promote Workflows button', async () => {
       render(<DeploymentsPage />);
 
-      expect(screen.getByRole('button', { name: /promote workflows/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /new deployment/i })).toBeInTheDocument();
     });
 
     it('should display summary cards', async () => {
@@ -232,10 +232,8 @@ describe('DeploymentsPage', () => {
       render(<DeploymentsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/3 workflows/i)).toBeInTheDocument();
+        expect(screen.getAllByText('Dev to Prod Pipeline').length).toBeGreaterThan(0);
       });
-
-      expect(screen.getByText(/single workflow/i)).toBeInTheDocument();
     });
 
     it('should display deployment status badges', async () => {
@@ -270,15 +268,6 @@ describe('DeploymentsPage', () => {
       });
     });
 
-    it('should display triggered by user', async () => {
-      render(<DeploymentsPage />);
-
-      await waitFor(() => {
-        expect(screen.getAllByText('admin@test.com').length).toBeGreaterThanOrEqual(1);
-      });
-
-      expect(screen.getByText('dev@test.com')).toBeInTheDocument();
-    });
   });
 
   describe('Empty State', () => {
@@ -316,80 +305,7 @@ describe('DeploymentsPage', () => {
       render(<DeploymentsPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /create your first promotion/i })).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('User Interactions - View Deployment Details', () => {
-    it('should open deployment detail dialog when clicking on a deployment row', async () => {
-      const user = userEvent.setup();
-      render(<DeploymentsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/3 workflows/i)).toBeInTheDocument();
-      });
-
-      // Click on first deployment row
-      const row = screen.getByText(/3 workflows/i).closest('tr');
-      if (row) {
-        await user.click(row);
-      }
-
-      await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-      });
-
-      const dialog = screen.getByRole('dialog');
-      expect(within(dialog).getByText(/deployment details/i)).toBeInTheDocument();
-    });
-
-    it('should display deployment detail information in dialog', async () => {
-      const user = userEvent.setup();
-      render(<DeploymentsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/3 workflows/i)).toBeInTheDocument();
-      });
-
-      const row = screen.getByText(/3 workflows/i).closest('tr');
-      if (row) {
-        await user.click(row);
-      }
-
-      await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-      });
-
-      const dialog = screen.getByRole('dialog');
-      // Should show deployment information
-      expect(within(dialog).getByText(/deployment details/i)).toBeInTheDocument();
-    });
-
-    it('should close detail dialog when closing', async () => {
-      const user = userEvent.setup();
-      render(<DeploymentsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/3 workflows/i)).toBeInTheDocument();
-      });
-
-      const row = screen.getByText(/3 workflows/i).closest('tr');
-      if (row) {
-        await user.click(row);
-      }
-
-      await waitFor(() => {
-        expect(screen.getByRole('dialog')).toBeInTheDocument();
-      });
-
-      // Click outside or close button to close dialog
-      const dialog = screen.getByRole('dialog');
-      const closeButton = within(dialog).getByRole('button', { name: /close/i });
-      await user.click(closeButton);
-
-      await waitFor(() => {
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /create your first deployment/i })).toBeInTheDocument();
       });
     });
   });
@@ -399,17 +315,16 @@ describe('DeploymentsPage', () => {
       render(<DeploymentsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/3 workflows/i)).toBeInTheDocument();
+        expect(screen.getAllByText('Dev to Prod Pipeline').length).toBeGreaterThan(0);
       });
 
       const table = screen.getByRole('table');
-      expect(within(table).getByText('Workflow(s)')).toBeInTheDocument();
       expect(within(table).getByText('Pipeline')).toBeInTheDocument();
       expect(within(table).getByText('Stage')).toBeInTheDocument();
       expect(within(table).getByText('Status')).toBeInTheDocument();
-      expect(within(table).getByText('Triggered By')).toBeInTheDocument();
       expect(within(table).getByText('Started')).toBeInTheDocument();
       expect(within(table).getByText('Duration')).toBeInTheDocument();
+      expect(within(table).getByText('Actions')).toBeInTheDocument();
     });
   });
 

@@ -130,6 +130,7 @@ class BugReportCreate(BaseModel):
     frequency: Optional[Frequency] = None
     include_diagnostics: bool = True
     attachments: Optional[List[IssueContractAttachment]] = None
+    attachment_ids: Optional[List[str]] = None
 
 
 class FeatureRequestCreate(BaseModel):
@@ -146,6 +147,7 @@ class HelpRequestCreate(BaseModel):
     details: str = Field(..., min_length=1, max_length=5000)
     include_diagnostics: bool = True
     attachments: Optional[List[IssueContractAttachment]] = None
+    attachment_ids: Optional[List[str]] = None
 
 
 class SupportRequestCreate(BaseModel):
@@ -170,7 +172,9 @@ class UploadUrlRequest(BaseModel):
 
 class UploadUrlResponse(BaseModel):
     upload_url: str
-    public_url: str
+    public_url: Optional[str] = None
+    attachment_id: Optional[str] = None
+    method: Optional[str] = None
 
 
 # Admin config models
@@ -185,6 +189,8 @@ class SupportConfigBase(BaseModel):
     jsm_feature_request_type_id: Optional[str] = None
     jsm_help_request_type_id: Optional[str] = None
     jsm_widget_embed_code: Optional[str] = None
+    storage_bucket: Optional[str] = None
+    storage_prefix: Optional[str] = None
 
 
 class SupportConfigUpdate(SupportConfigBase):

@@ -6,7 +6,7 @@ import { WorkflowDetailPage } from './WorkflowDetailPage';
 import { render } from '@/test/test-utils';
 import { server } from '@/test/mocks/server';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 // Comprehensive mock workflow with full analysis data matching WorkflowAnalysis interface
 const mockWorkflow = {
@@ -15,6 +15,8 @@ const mockWorkflow = {
   name: 'Test Workflow',
   active: true,
   environment_id: 'env-1',
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-15T00:00:00Z',
   nodes: [
     { id: 'node-1', name: 'Schedule Trigger', type: 'n8n-nodes-base.scheduleTrigger', position: [0, 0] },
     { id: 'node-2', name: 'HTTP Request', type: 'n8n-nodes-base.httpRequest', position: [200, 0] },
@@ -131,7 +133,7 @@ vi.mock('react-router-dom', async () => {
   return {
     ...actual,
     useParams: () => ({ id: 'wf-1' }),
-    useSearchParams: () => [new URLSearchParams({ environment: 'dev' })],
+    useSearchParams: () => [new URLSearchParams({ environment: 'development' })],
   };
 });
 
@@ -149,13 +151,22 @@ describe('WorkflowDetailPage', () => {
         return HttpResponse.json({ data: { has_drift: false } });
       }),
       http.get(`${API_BASE}/environments`, () => {
-        return HttpResponse.json([{ id: 'env-1', type: 'dev', baseUrl: 'https://dev.example.com' }]);
+        return HttpResponse.json([
+          {
+            id: 'env-1',
+            tenant_id: 'tenant-1',
+            n8n_name: 'Development',
+            n8n_type: 'development',
+            n8n_base_url: 'https://dev.example.com',
+            is_active: true,
+          },
+        ]);
       }),
       http.get(`${API_BASE}/executions`, () => {
         return HttpResponse.json([]);
       }),
-      http.get(`${API_BASE}/workflows/:id/credential-dependencies`, () => {
-        return HttpResponse.json({ data: { credentials: [] } });
+      http.get(`${API_BASE}/admin/credentials/workflows/:id/dependencies`, () => {
+        return HttpResponse.json({ credentials: [] });
       }),
       http.get(`${API_BASE}/auth/status`, () => {
         return HttpResponse.json({

@@ -4,7 +4,7 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { TenantsPage } from './TenantsPage';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 const mockTenants = [
   {
@@ -201,9 +201,9 @@ describe('TenantsPage', () => {
       render(<TenantsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('active')).toBeInTheDocument();
+        expect(screen.getAllByText('active').length).toBeGreaterThan(0);
       });
-      expect(screen.getByText('suspended')).toBeInTheDocument();
+      expect(screen.getAllByText('suspended').length).toBeGreaterThan(0);
     });
 
     it('should display table headers', async () => {
@@ -229,7 +229,7 @@ describe('TenantsPage', () => {
       render(<TenantsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/no tenants found/i)).toBeInTheDocument();
+        expect(screen.getByText(/no tenants/i)).toBeInTheDocument();
       });
     });
 
@@ -243,7 +243,7 @@ describe('TenantsPage', () => {
       render(<TenantsPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/no tenants found/i)).toBeInTheDocument();
+        expect(screen.getByText(/no tenants/i)).toBeInTheDocument();
       });
     });
   });

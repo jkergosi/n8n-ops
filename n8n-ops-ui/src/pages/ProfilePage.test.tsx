@@ -39,7 +39,9 @@ describe('ProfilePage', () => {
     it('should display user information card', async () => {
       render(<ProfilePage />);
 
-      expect(screen.getByText(/account information/i)).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { name: /account information/i })
+      ).toBeInTheDocument();
     });
 
     it('should display user name', async () => {
@@ -121,7 +123,7 @@ describe('ProfilePage', () => {
       await userEvent.click(editButton);
 
       // Admin users can see role field
-      expect(screen.getByText(/role/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/role/i)).toBeInTheDocument();
     });
   });
 

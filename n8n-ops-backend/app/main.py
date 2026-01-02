@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy, environment_capabilities, drift_reports, admin_retention
+from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, dev, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy, environment_capabilities, drift_reports, admin_retention, security
 from app.services.background_job_service import background_job_service
 from datetime import datetime, timedelta
 import logging
@@ -155,6 +155,12 @@ app.include_router(
     notifications.router,
     prefix=f"{settings.API_V1_PREFIX}/notifications",
     tags=["notifications"]
+)
+
+app.include_router(
+    security.router,
+    prefix=f"{settings.API_V1_PREFIX}/security",
+    tags=["security"]
 )
 
 app.include_router(
@@ -360,8 +366,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     if isinstance(exc, HTTPException):
         raise exc
     
-    # Extract tenant_id from request if available (from headers, query params, or path)
-    tenant_id = None
+    tenant_id: str | None = None
     try:
         # Try to get tenant_id from various sources
         tenant_id = request.headers.get("x-tenant-id")
@@ -373,27 +378,25 @@ async def global_exception_handler(request: Request, exc: Exception):
                 if env_idx + 1 < len(path_parts):
                     # Could potentially look up tenant from environment_id
                     pass
-        # Fallback to system tenant if not found
-        if not tenant_id:
-            tenant_id = "00000000-0000-0000-0000-000000000000"  # MOCK_TENANT_ID
     except Exception:
-        tenant_id = "00000000-0000-0000-0000-000000000000"
+        tenant_id = None
     
     # Emit system.error event
     try:
-        from app.services.notification_service import notification_service
-        await notification_service.emit_event(
-            tenant_id=tenant_id,
-            event_type="system.error",
-            environment_id=None,
-            metadata={
-                "path": str(request.url.path),
-                "method": request.method,
-                "error_message": str(exc),
-                "error_type": type(exc).__name__,
-                "traceback": traceback.format_exc()
-            }
-        )
+        if tenant_id:
+            from app.services.notification_service import notification_service
+            await notification_service.emit_event(
+                tenant_id=tenant_id,
+                event_type="system.error",
+                environment_id=None,
+                metadata={
+                    "path": str(request.url.path),
+                    "method": request.method,
+                    "error_message": str(exc),
+                    "error_type": type(exc).__name__,
+                    "traceback": traceback.format_exc()
+                }
+            )
     except Exception as event_error:
         logger.error(f"Failed to emit system.error event: {str(event_error)}")
     

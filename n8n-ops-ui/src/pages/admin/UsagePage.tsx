@@ -117,16 +117,15 @@ export function UsagePage() {
 
   const isLoading = usageLoading || topLoading || atLimitLoading;
 
-  // Mock historical data for chart (in real app, this would come from API)
+  const { data: historyData } = useQuery({
+    queryKey: ['admin-usage-history', providerFilter],
+    queryFn: () => apiClient.getAdminUsageHistory({ metric: 'executions', days: 30, provider: providerFilter }),
+  });
+
   const historicalData = useMemo(() => {
-    // Generate some realistic-looking mock data for the last 30 days
-    const baseExecutions = stats.total_executions_month / 30;
-    return Array.from({ length: 30 }, (_, i) => {
-      const dayVariance = Math.sin(i * 0.3) * 0.3 + 1;
-      const weekendDip = (i % 7 === 5 || i % 7 === 6) ? 0.6 : 1;
-      return Math.floor(baseExecutions * dayVariance * weekendDip * (0.8 + Math.random() * 0.4));
-    });
-  }, [stats.total_executions_month]);
+    const points = historyData?.data?.points || [];
+    return points.map((p: any) => p.value);
+  }, [historyData?.data]);
 
   // Export functions
   const handleExportTopTenants = () => {

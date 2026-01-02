@@ -1,28 +1,34 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List, Optional
 from datetime import datetime
 
 from app.services.database import db_service
+from app.services.auth_service import get_current_user
 
 router = APIRouter()
 
-# TODO: Replace with actual tenant ID from authenticated user
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+def get_tenant_id(user_info: dict) -> str:
+    tenant = user_info.get("tenant") or {}
+    tenant_id = tenant.get("id")
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant_id
 
 
 @router.get("/")
-async def get_n8n_users(environment_type: Optional[str] = None):
+async def get_n8n_users(environment_type: Optional[str] = None, user_info: dict = Depends(get_current_user)):
     """Get all N8N users, optionally filtered by environment type (dev, staging, production)"""
     try:
+        tenant_id = get_tenant_id(user_info)
         # Get all environments first for lookup
         envs_response = db_service.client.table("environments").select(
             "id, n8n_name, n8n_type"
-        ).eq("tenant_id", MOCK_TENANT_ID).execute()
+        ).eq("tenant_id", tenant_id).execute()
         env_lookup = {env["id"]: {"id": env["id"], "name": env["n8n_name"], "type": env["n8n_type"]} for env in envs_response.data}
 
         if environment_type:
             # Resolve environment type to environment ID
-            env_config = await db_service.get_environment_by_type(MOCK_TENANT_ID, environment_type)
+            env_config = await db_service.get_environment_by_type(tenant_id, environment_type)
             if not env_config:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -33,12 +39,12 @@ async def get_n8n_users(environment_type: Optional[str] = None):
             # Get users for specific environment
             response = db_service.client.table("n8n_users").select(
                 "*"
-            ).eq("tenant_id", MOCK_TENANT_ID).eq("environment_id", environment_id).eq("is_deleted", False).order("email").execute()
+            ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq("is_deleted", False).order("email").execute()
         else:
             # Get all users across all environments
             response = db_service.client.table("n8n_users").select(
                 "*"
-            ).eq("tenant_id", MOCK_TENANT_ID).eq("is_deleted", False).order("email").execute()
+            ).eq("tenant_id", tenant_id).eq("is_deleted", False).order("email").execute()
 
         # Add environment info to each user
         users = []
@@ -58,12 +64,13 @@ async def get_n8n_users(environment_type: Optional[str] = None):
 
 
 @router.get("/{user_id}")
-async def get_n8n_user(user_id: str):
+async def get_n8n_user(user_id: str, user_info: dict = Depends(get_current_user)):
     """Get a specific N8N user by ID"""
     try:
+        tenant_id = get_tenant_id(user_info)
         response = db_service.client.table("n8n_users").select(
             "*"
-        ).eq("id", user_id).eq("tenant_id", MOCK_TENANT_ID).single().execute()
+        ).eq("id", user_id).eq("tenant_id", tenant_id).single().execute()
 
         if not response.data:
             raise HTTPException(

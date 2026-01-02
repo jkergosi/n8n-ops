@@ -5,7 +5,7 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { TeamPage } from './TeamPage';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 // Mock team members for different scenarios
 const mockTeamMembers = [

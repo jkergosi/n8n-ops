@@ -4,7 +4,7 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { SystemBillingPage } from './SystemBillingPage';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 describe('SystemBillingPage', () => {
   beforeEach(() => {
@@ -31,12 +31,12 @@ describe('SystemBillingPage', () => {
           { plan: 'enterprise', count: 5 },
         ]);
       }),
-      http.get(`${API_BASE}/admin/billing/charges`, () => {
+      http.get(`${API_BASE}/admin/billing/recent-charges`, () => {
         return HttpResponse.json([
           { id: 'ch_1', tenantName: 'Acme Corp', amount: 99, status: 'succeeded', createdAt: '2024-01-15T10:00:00Z' },
         ]);
       }),
-      http.get(`${API_BASE}/admin/billing/failed`, () => {
+      http.get(`${API_BASE}/admin/billing/failed-payments`, () => {
         return HttpResponse.json([]);
       }),
       http.get(`${API_BASE}/admin/billing/dunning`, () => {
@@ -59,13 +59,13 @@ describe('SystemBillingPage', () => {
     it('should display the page title', async () => {
       render(<SystemBillingPage />);
 
-      expect(screen.getByRole('heading', { level: 1, name: /billing overview/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: /system billing/i })).toBeInTheDocument();
     });
 
     it('should display the page description', async () => {
       render(<SystemBillingPage />);
 
-      expect(screen.getByText(/monitor revenue metrics and subscription health/i)).toBeInTheDocument();
+      expect(screen.getByText(/monitor revenue and billing across all tenants/i)).toBeInTheDocument();
     });
 
     it('should display Refresh button', async () => {
@@ -77,7 +77,7 @@ describe('SystemBillingPage', () => {
     it('should display Export button', async () => {
       render(<SystemBillingPage />);
 
-      expect(screen.getByRole('button', { name: /export/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /export transactions/i })).toBeInTheDocument();
     });
   });
 
@@ -115,48 +115,40 @@ describe('SystemBillingPage', () => {
     });
   });
 
-  describe('Subscription Distribution', () => {
-    it('should display Subscription Distribution section', async () => {
+  describe('Plan Distribution', () => {
+    it('should display Plan Distribution section', async () => {
       render(<SystemBillingPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Subscription Distribution')).toBeInTheDocument();
+        expect(screen.getByText('Plan Distribution')).toBeInTheDocument();
       });
     });
 
-    it('should display distribution by subscription plan', async () => {
+    it('should display distribution by plan', async () => {
       render(<SystemBillingPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/breakdown by subscription plan/i)).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe('Recent Charges', () => {
-    it('should display Recent Charges section', async () => {
-      render(<SystemBillingPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Recent Charges')).toBeInTheDocument();
+        expect(screen.getByText(/monthly revenue breakdown by plan/i)).toBeInTheDocument();
       });
     });
   });
 
-  describe('Failed Payments & Dunning', () => {
-    it('should display Failed Payments section', async () => {
+  describe('Recent Transactions', () => {
+    it('should display Recent Transactions section', async () => {
       render(<SystemBillingPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Failed Payments')).toBeInTheDocument();
+        expect(screen.getByText('Recent Transactions')).toBeInTheDocument();
       });
     });
+  });
 
-    it('should display Dunning Management section', async () => {
+  describe('Dunning', () => {
+    it('should display Dunning controls', async () => {
       render(<SystemBillingPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Dunning Management')).toBeInTheDocument();
+        expect(screen.getByText(/show dunning only/i)).toBeInTheDocument();
       });
     });
   });
@@ -176,3 +168,4 @@ describe('SystemBillingPage', () => {
     });
   });
 });
+

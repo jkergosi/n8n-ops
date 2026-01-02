@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@/test/test-utils';
+import { render, screen, waitFor, userEvent } from '@/test/test-utils';
 import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { TenantDetailPage } from './TenantDetailPage';
+import { Routes, Route } from 'react-router-dom';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 const mockTenant = {
   id: 'tenant-1',
@@ -48,6 +49,9 @@ describe('TenantDetailPage', () => {
       http.get(`${API_BASE}/tenants/:id/overrides`, () => {
         return HttpResponse.json({ overrides: mockOverrides });
       }),
+      http.get(`${API_BASE}/tenants/:id/entitlements/overrides`, () => {
+        return HttpResponse.json({ overrides: mockOverrides });
+      }),
       http.get(`${API_BASE}/tenants/:id/users`, () => {
         return HttpResponse.json({ users: [] });
       }),
@@ -69,23 +73,38 @@ describe('TenantDetailPage', () => {
 
   describe('Page Header', () => {
     it('should display Back to Tenants link', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
-        expect(screen.getByRole('link', { name: /back to tenants/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /back to tenants/i })).toBeInTheDocument();
       });
     });
 
     it('should display tenant name', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
-        expect(screen.getByText('Acme Corp')).toBeInTheDocument();
+        expect(screen.getAllByText('Acme Corp').length).toBeGreaterThan(0);
       });
     });
 
     it('should display status badge', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByText('active')).toBeInTheDocument();
@@ -93,7 +112,12 @@ describe('TenantDetailPage', () => {
     });
 
     it('should display plan badge', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByText('pro')).toBeInTheDocument();
@@ -101,7 +125,12 @@ describe('TenantDetailPage', () => {
     });
 
     it('should display Edit button', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument();
@@ -111,7 +140,12 @@ describe('TenantDetailPage', () => {
 
   describe('Tabs', () => {
     it('should display Overview tab', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByRole('tab', { name: /overview/i })).toBeInTheDocument();
@@ -119,7 +153,12 @@ describe('TenantDetailPage', () => {
     });
 
     it('should display Users tab', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByRole('tab', { name: /users/i })).toBeInTheDocument();
@@ -127,7 +166,12 @@ describe('TenantDetailPage', () => {
     });
 
     it('should display Usage tab', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByRole('tab', { name: /usage/i })).toBeInTheDocument();
@@ -135,7 +179,12 @@ describe('TenantDetailPage', () => {
     });
 
     it('should display Billing tab', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByRole('tab', { name: /billing/i })).toBeInTheDocument();
@@ -143,17 +192,27 @@ describe('TenantDetailPage', () => {
     });
 
     it('should display Activity tab', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
-        expect(screen.getByRole('tab', { name: /activity/i })).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: /notes/i })).toBeInTheDocument();
       });
     });
   });
 
   describe('Overview Tab', () => {
     it('should display Tenant Information section', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByText('Tenant Information')).toBeInTheDocument();
@@ -161,15 +220,25 @@ describe('TenantDetailPage', () => {
     });
 
     it('should display tenant email', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
-        expect(screen.getByText('admin@acme.com')).toBeInTheDocument();
+        expect(screen.getAllByText('admin@acme.com').length).toBeGreaterThan(0);
       });
     });
 
     it('should display Quick Stats section', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByText('Quick Stats')).toBeInTheDocument();
@@ -177,7 +246,12 @@ describe('TenantDetailPage', () => {
     });
 
     it('should display Notes section', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByText('Notes')).toBeInTheDocument();
@@ -185,10 +259,21 @@ describe('TenantDetailPage', () => {
     });
 
     it('should display Feature Overrides section', async () => {
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
-        expect(screen.getByText('Feature Overrides')).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: /plan & features/i })).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole('tab', { name: /plan & features/i }));
+
+      await waitFor(() => {
+        expect(screen.getAllByText('Feature Overrides').length).toBeGreaterThan(0);
       });
     });
   });
@@ -202,7 +287,12 @@ describe('TenantDetailPage', () => {
         })
       );
 
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       expect(screen.getByText(/loading tenant/i)).toBeInTheDocument();
     });
@@ -218,7 +308,12 @@ describe('TenantDetailPage', () => {
         })
       );
 
-      render(<TenantDetailPage />);
+      render(
+        <Routes>
+          <Route path="/admin/tenants/:tenantId" element={<TenantDetailPage />} />
+        </Routes>,
+        { initialRoute: '/admin/tenants/tenant-1' }
+      );
 
       await waitFor(() => {
         expect(screen.getByText(/tenant not found/i)).toBeInTheDocument();

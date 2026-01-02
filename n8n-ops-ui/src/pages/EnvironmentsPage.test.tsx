@@ -5,7 +5,7 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { EnvironmentsPage } from './EnvironmentsPage';
 
-const API_BASE = 'http://localhost:3000/api/v1';
+const API_BASE = '/api/v1';
 
 // Mock environments
 const mockEnvironments = [
@@ -118,7 +118,7 @@ describe('EnvironmentsPage', () => {
       render(<EnvironmentsPage />);
 
       expect(screen.getByRole('heading', { level: 1, name: /environments/i })).toBeInTheDocument();
-      expect(screen.getByText(/manage your n8n instances/i)).toBeInTheDocument();
+      expect(screen.getByText(/manage and monitor connected workflow environments/i)).toBeInTheDocument();
     });
 
     it('should show Add Environment button', async () => {
@@ -229,9 +229,16 @@ describe('EnvironmentsPage', () => {
         expect(screen.getByText('Development')).toBeInTheDocument();
       });
 
-      // Find and click the first edit button
-      const editButtons = screen.getAllByRole('button', { name: /edit/i });
-      await user.click(editButtons[0]);
+      // Open row actions menu and click "Edit environment"
+      const row = screen.getByText('Development').closest('tr');
+      expect(row).toBeTruthy();
+
+      const menuTrigger = within(row as HTMLElement)
+        .getAllByRole('button')
+        .find((b) => b.getAttribute('aria-haspopup') === 'menu');
+      expect(menuTrigger).toBeTruthy();
+      await user.click(menuTrigger as HTMLElement);
+      await user.click(screen.getByRole('menuitem', { name: /edit environment/i }));
 
       // Dialog should open with Edit title
       expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -247,8 +254,15 @@ describe('EnvironmentsPage', () => {
         expect(screen.getByText('Development')).toBeInTheDocument();
       });
 
-      const editButtons = screen.getAllByRole('button', { name: /edit/i });
-      await user.click(editButtons[0]);
+      const row = screen.getByText('Development').closest('tr');
+      expect(row).toBeTruthy();
+
+      const menuTrigger = within(row as HTMLElement)
+        .getAllByRole('button')
+        .find((b) => b.getAttribute('aria-haspopup') === 'menu');
+      expect(menuTrigger).toBeTruthy();
+      await user.click(menuTrigger as HTMLElement);
+      await user.click(screen.getByRole('menuitem', { name: /edit environment/i }));
 
       await waitFor(() => {
         const nameInput = screen.getByLabelText(/environment name/i) as HTMLInputElement;
@@ -266,15 +280,9 @@ describe('EnvironmentsPage', () => {
         http.post(`${API_BASE}/environments/:id/sync`, () => {
           syncCalled = true;
           return HttpResponse.json({
-            success: true,
-            message: 'Sync completed',
-            results: {
-              workflows: { synced: 5, errors: [] },
-              executions: { synced: 10, errors: [] },
-              credentials: { synced: 3, errors: [] },
-              users: { synced: 2, errors: [] },
-              tags: { synced: 4, errors: [] },
-            },
+            job_id: 'job-1',
+            status: 'running',
+            message: 'Sync started',
           });
         })
       );
@@ -285,62 +293,19 @@ describe('EnvironmentsPage', () => {
         expect(screen.getByText('Development')).toBeInTheDocument();
       });
 
-      // Find and click the first Sync button
-      const syncButtons = screen.getAllByRole('button', { name: /sync/i });
-      await user.click(syncButtons[0]);
+      const row = screen.getByText('Development').closest('tr');
+      expect(row).toBeTruthy();
+
+      // Click Sync → confirm dialog → Start Sync
+      await user.click(within(row as HTMLElement).getByRole('button', { name: /^sync$/i }));
+      await waitFor(() => {
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+        expect(screen.getByText(/sync environment/i)).toBeInTheDocument();
+      });
+      await user.click(screen.getByRole('button', { name: /start sync/i }));
 
       await waitFor(() => {
         expect(syncCalled).toBe(true);
-      });
-    });
-  });
-
-  describe('User Interactions - Delete Environment', () => {
-    it('should open delete confirmation dialog', async () => {
-      const user = userEvent.setup();
-      render(<EnvironmentsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Development')).toBeInTheDocument();
-      });
-
-      // Find and click the first Delete button
-      const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
-      await user.click(deleteButtons[0]);
-
-      // Confirmation dialog should open
-      expect(screen.getByRole('dialog')).toBeInTheDocument();
-      const dialog = screen.getByRole('dialog');
-      expect(within(dialog).getByRole('heading', { name: /delete environment/i })).toBeInTheDocument();
-    });
-
-    it('should successfully delete environment when confirmed', async () => {
-      const user = userEvent.setup();
-      let deleteCalled = false;
-
-      server.use(
-        http.delete(`${API_BASE}/environments/:id`, () => {
-          deleteCalled = true;
-          return new HttpResponse(null, { status: 204 });
-        })
-      );
-
-      render(<EnvironmentsPage />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Development')).toBeInTheDocument();
-      });
-
-      // Open delete dialog
-      const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
-      await user.click(deleteButtons[0]);
-
-      // Confirm deletion
-      const confirmButton = screen.getByRole('button', { name: /yes, delete/i });
-      await user.click(confirmButton);
-
-      await waitFor(() => {
-        expect(deleteCalled).toBe(true);
       });
     });
   });

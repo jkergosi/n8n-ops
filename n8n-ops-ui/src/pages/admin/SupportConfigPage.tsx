@@ -22,6 +22,8 @@ interface SupportConfigFormData {
   jsm_feature_request_type_id: string;
   jsm_help_request_type_id: string;
   jsm_widget_embed_code: string;
+  storage_bucket: string;
+  storage_prefix: string;
 }
 
 export function SupportConfigPage() {
@@ -45,6 +47,8 @@ export function SupportConfigPage() {
     jsm_feature_request_type_id: '',
     jsm_help_request_type_id: '',
     jsm_widget_embed_code: '',
+    storage_bucket: '',
+    storage_prefix: '',
   });
 
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -67,6 +71,8 @@ export function SupportConfigPage() {
         jsm_feature_request_type_id: configData.data.jsm_feature_request_type_id || '',
         jsm_help_request_type_id: configData.data.jsm_help_request_type_id || '',
         jsm_widget_embed_code: configData.data.jsm_widget_embed_code || '',
+        storage_bucket: configData.data.storage_bucket || '',
+        storage_prefix: configData.data.storage_prefix || '',
       });
     }
   }, [configData]);
@@ -141,6 +147,10 @@ export function SupportConfigPage() {
           <TabsTrigger value="request-types" className="gap-2">
             <FileText className="h-4 w-4" />
             Request Types
+          </TabsTrigger>
+          <TabsTrigger value="storage" className="gap-2">
+            <Save className="h-4 w-4" />
+            Storage
           </TabsTrigger>
         </TabsList>
 
@@ -328,6 +338,40 @@ export function SupportConfigPage() {
               <p className="text-sm text-muted-foreground pt-2">
                 You can find request type IDs in your JSM project settings under Request Types.
               </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="storage" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Supabase Storage (Private)</CardTitle>
+              <CardDescription>
+                Configure where support attachments are stored. Bucket should be private.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="storage_bucket">Bucket</Label>
+                <Input
+                  id="storage_bucket"
+                  placeholder="support-attachments"
+                  value={formData.storage_bucket}
+                  onChange={(e) => setFormData({ ...formData, storage_bucket: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="storage_prefix">Prefix</Label>
+                <Input
+                  id="storage_prefix"
+                  placeholder="support"
+                  value={formData.storage_prefix}
+                  onChange={(e) => setFormData({ ...formData, storage_prefix: e.target.value })}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Objects are stored under: <code className="bg-muted px-1 rounded">{'{prefix}/{tenant_id}/{attachment_id}/{filename}'}</code>
+                </p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

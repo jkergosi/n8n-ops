@@ -46,6 +46,8 @@ export function ReportBugPage() {
 
   const [showSuccess, setShowSuccess] = useState(false);
   const [jsmKey, setJsmKey] = useState('');
+  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   // Fetch config for portal URL
   const { data: configData } = useQuery({
@@ -79,6 +81,7 @@ export function ReportBugPage() {
           severity: data.severity || undefined,
           frequency: data.frequency || undefined,
           include_diagnostics: data.includeDiagnostics,
+          attachment_ids: attachmentIds.length ? attachmentIds : undefined,
         },
         diagnostics,
       });
@@ -111,6 +114,24 @@ export function ReportBugPage() {
     }
 
     mutation.mutate(formData);
+  };
+
+  const handleAddFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      const ids: string[] = [];
+      for (const file of Array.from(files)) {
+        const resp = await apiClient.uploadSupportAttachment(file);
+        ids.push(resp.data.attachment_id);
+      }
+      setAttachmentIds((prev) => [...prev, ...ids]);
+      toast.success(`Uploaded ${ids.length} attachment${ids.length === 1 ? '' : 's'}`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || e?.message || 'Failed to upload attachment');
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
@@ -251,12 +272,29 @@ export function ReportBugPage() {
               />
             </div>
 
+            {/* Attachments */}
+            <div className="space-y-2">
+              <Label htmlFor="attachments">Attachments (optional)</Label>
+              <Input
+                id="attachments"
+                type="file"
+                multiple
+                disabled={uploading}
+                onChange={(e) => handleAddFiles(e.target.files)}
+              />
+              {attachmentIds.length > 0 ? (
+                <div className="text-sm text-muted-foreground">{attachmentIds.length} file(s) attached</div>
+              ) : (
+                <div className="text-sm text-muted-foreground">Upload screenshots or logs.</div>
+              )}
+            </div>
+
             {/* Submit button */}
             <div className="flex justify-end gap-4">
               <Button type="button" variant="outline" onClick={() => navigate('/support')}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={mutation.isPending}>
+              <Button type="submit" disabled={mutation.isPending || uploading}>
                 {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Submit Bug Report
               </Button>

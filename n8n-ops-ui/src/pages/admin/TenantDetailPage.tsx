@@ -253,8 +253,9 @@ export function TenantDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center justify-center h-64 gap-3">
         <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Loading tenant...</p>
       </div>
     );
   }
@@ -270,19 +271,22 @@ export function TenantDetailPage() {
     );
   }
 
+  const planName = (tenant.subscriptionPlan || (tenant as any).subscription_plan || (tenant as any).subscription_tier || 'free') as string;
+  const statusName = (tenant.status || (tenant as any).status || 'active') as string;
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/admin/tenants')}>
+          <Button variant="ghost" size="icon" aria-label="Back to Tenants" onClick={() => navigate('/admin/tenants')}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold">{tenant.name}</h1>
-              <Badge className={statusColors[tenant.status]}>{tenant.status}</Badge>
-              <Badge className={planColors[tenant.subscriptionPlan]}>{tenant.subscriptionPlan}</Badge>
+              <Badge className={statusColors[statusName] || statusColors.active}>{statusName}</Badge>
+              <Badge className={planColors[planName] || planColors.free}>{planName}</Badge>
             </div>
             <p className="text-muted-foreground">{tenant.email}</p>
           </div>
@@ -392,8 +396,8 @@ export function TenantDetailPage() {
                     <p className="text-sm text-muted-foreground">Users</p>
                   </div>
                   <div className="text-center p-4 bg-muted rounded-lg">
-                    <Badge className={planColors[tenant.subscriptionPlan]} variant="outline">
-                      {tenant.subscriptionPlan.toUpperCase()}
+                    <Badge className={planColors[planName] || planColors.free} variant="outline">
+                      {String(planName).toUpperCase()}
                     </Badge>
                     <p className="text-sm text-muted-foreground mt-1">Plan</p>
                   </div>
@@ -470,8 +474,8 @@ export function TenantDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-4">
-                <Badge className={`${planColors[tenant.subscriptionPlan]} text-lg px-4 py-2`}>
-                  {tenant.subscriptionPlan.toUpperCase()}
+                <Badge className={`${planColors[planName] || planColors.free} text-lg px-4 py-2`}>
+                  {String(planName).toUpperCase()}
                 </Badge>
                 <Button variant="outline" asChild>
                   <Link to="/admin/plans">Change Plan</Link>

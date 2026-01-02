@@ -36,7 +36,7 @@ class TestSupportAPICreate:
         }
 
         with patch("app.api.endpoints.support.support_service") as mock_service:
-            mock_service.build_issue_contract = MagicMock(return_value={
+            mock_service.build_issue_contract = AsyncMock(return_value={
                 "schema_version": "1.0",
                 "intent": {"kind": "bug", "title": "Button not working"}
             })
@@ -68,7 +68,7 @@ class TestSupportAPICreate:
         }
 
         with patch("app.api.endpoints.support.support_service") as mock_service:
-            mock_service.build_issue_contract = MagicMock(return_value={
+            mock_service.build_issue_contract = AsyncMock(return_value={
                 "schema_version": "1.0",
                 "intent": {"kind": "feature", "title": "Add dark mode"}
             })
@@ -97,7 +97,7 @@ class TestSupportAPICreate:
         }
 
         with patch("app.api.endpoints.support.support_service") as mock_service:
-            mock_service.build_issue_contract = MagicMock(return_value={
+            mock_service.build_issue_contract = AsyncMock(return_value={
                 "schema_version": "1.0",
                 "intent": {"kind": "task", "title": "How do I configure webhooks?"}
             })
@@ -158,39 +158,69 @@ class TestSupportAPIUpload:
 
     @pytest.mark.api
     def test_get_upload_url_success(self, client: TestClient, auth_headers):
-        """POST /support/upload-url should return signed upload URL."""
+        """POST /support/upload-url should return an upload endpoint for the created attachment."""
         upload_request = {
             "filename": "screenshot.png",
             "content_type": "image/png",
         }
 
-        response = client.post(
-            "/api/v1/support/upload-url",
-            json=upload_request,
-            headers=auth_headers
-        )
+        with patch("app.api.endpoints.support.create_attachment_record") as mock_create:
+            mock_create.return_value = {
+                "id": "att-1",
+                "object_path": "support/tenant/att-1/screenshot.png",
+                "content_type": "image/png",
+                "filename": "screenshot.png",
+            }
+            response = client.post(
+                "/api/v1/support/upload-url",
+                json=upload_request,
+                headers=auth_headers
+            )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert "upload_url" in data
-        assert "public_url" in data
+            assert response.status_code == 200
+            data = response.json()
+            assert data["attachment_id"] == "att-1"
+            assert "upload_url" in data
+            assert data["method"] == "PUT"
 
     @pytest.mark.api
     def test_get_upload_url_invalid_content_type(self, client: TestClient, auth_headers):
-        """POST /support/upload-url with unsupported content type should still work."""
+        """POST /support/upload-url accepts content type but may be validated later by storage."""
         upload_request = {
             "filename": "file.pdf",
             "content_type": "application/pdf",
         }
 
-        response = client.post(
-            "/api/v1/support/upload-url",
-            json=upload_request,
-            headers=auth_headers
-        )
+        with patch("app.api.endpoints.support.create_attachment_record") as mock_create:
+            mock_create.return_value = {
+                "id": "att-2",
+                "object_path": "support/tenant/att-2/file.pdf",
+                "content_type": "application/pdf",
+                "filename": "file.pdf",
+            }
+            response = client.post(
+                "/api/v1/support/upload-url",
+                json=upload_request,
+                headers=auth_headers
+            )
 
-        # Should still succeed - backend doesn't restrict content types
-        assert response.status_code in [200, 422]
+            assert response.status_code in [200, 422]
+
+
+class TestSupportAPIAttachmentUpload:
+    """Tests for PUT /api/v1/support/attachments/{id}/upload endpoint."""
+
+    @pytest.mark.api
+    def test_upload_attachment_success(self, client: TestClient, auth_headers):
+        with patch("app.api.endpoints.support.upload_attachment_bytes", new_callable=AsyncMock) as mock_upload:
+            mock_upload.return_value = None
+            response = client.put(
+                "/api/v1/support/attachments/att-1/upload",
+                data=b"hello",
+                headers={**auth_headers, "Content-Type": "text/plain"},
+            )
+            assert response.status_code == 200
+            assert response.json()["success"] is True
 
 
 class TestAdminSupportConfig:

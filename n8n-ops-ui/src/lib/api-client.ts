@@ -1741,6 +1741,31 @@ class ApiClient {
     };
   }
 
+  // Workflow credential dependencies (admin credentials)
+  async getWorkflowCredentialDependencies(
+    workflowId: string,
+    provider: string = 'n8n'
+  ): Promise<{ data: any }> {
+    const response = await this.client.get(
+      `/admin/credentials/workflows/${workflowId}/dependencies`,
+      { params: { provider } }
+    );
+    return { data: response.data };
+  }
+
+  async refreshWorkflowCredentialDependencies(
+    workflowId: string,
+    environmentId: string,
+    provider: string = 'n8n'
+  ): Promise<{ data: any }> {
+    const response = await this.client.post(
+      `/admin/credentials/workflows/${workflowId}/dependencies/refresh`,
+      null,
+      { params: { environment_id: environmentId, provider } }
+    );
+    return { data: response.data };
+  }
+
   async discoverCredentials(environmentId: string, provider: string = 'n8n'): Promise<{ data: any[] }> {
     const response = await this.client.post(`/admin/credentials/discover/${environmentId}`, null, {
       params: { provider },
@@ -2084,6 +2109,25 @@ class ApiClient {
     return { data: response.data };
   }
 
+  // Security (tenant API keys)
+  async getTenantApiKeys(): Promise<{ data: Array<{ id: string; name: string; key_prefix: string; scopes: string[]; created_at: string; last_used_at?: string | null; revoked_at?: string | null; is_active: boolean }> }> {
+    const response = await this.client.get('/security/api-keys');
+    return { data: response.data };
+  }
+
+  async createTenantApiKey(payload: { name: string; scopes?: string[] }): Promise<{ data: { api_key: string; key: { id: string; name: string; key_prefix: string; scopes: string[]; created_at: string; last_used_at?: string | null; revoked_at?: string | null; is_active: boolean } } }> {
+    const response = await this.client.post('/security/api-keys', {
+      name: payload.name,
+      scopes: payload.scopes ?? [],
+    });
+    return { data: response.data };
+  }
+
+  async revokeTenantApiKey(keyId: string): Promise<{ data: { id: string; name: string; key_prefix: string; scopes: string[]; created_at: string; last_used_at?: string | null; revoked_at?: string | null; is_active: boolean } }> {
+    const response = await this.client.delete(`/security/api-keys/${keyId}`);
+    return { data: response.data };
+  }
+
   // Admin Billing
   async getBillingMetrics(): Promise<{ data: BillingMetrics }> {
     const response = await this.client.get('/admin/billing/metrics');
@@ -2390,17 +2434,15 @@ class ApiClient {
 
   async createNotificationChannel(data: {
     name: string;
-    type: 'n8n_workflow';
-    configJson: { environmentId: string; workflowId: string; webhookPath: string };
+    type: ChannelType;
+    configJson: Record<string, unknown>;
+    isEnabled: boolean;
   }): Promise<{ data: NotificationChannel }> {
     const response = await this.client.post('/notifications/channels', {
       name: data.name,
       type: data.type,
-      config_json: {
-        environment_id: data.configJson.environmentId,
-        workflow_id: data.configJson.workflowId,
-        webhook_path: data.configJson.webhookPath,
-      },
+      config_json: data.configJson,
+      is_enabled: data.isEnabled,
     });
     return {
       data: {
@@ -2515,7 +2557,10 @@ class ApiClient {
     limit?: number;
     eventType?: string;
   }): Promise<{ data: AlertEvent[] }> {
-    const response = await this.client.get('/notifications/events', { params });
+    const requestParams: any = {};
+    if (params?.limit !== undefined) requestParams.limit = params.limit;
+    if (params?.eventType) requestParams.event_type = params.eventType;
+    const response = await this.client.get('/notifications/events', { params: requestParams });
     return {
       data: (response.data || []).map((e: any) => ({
         id: e.id,
@@ -2894,6 +2939,11 @@ class ApiClient {
     return { data: response.data };
   }
 
+  async getAdminUsageHistory(params?: { metric?: 'executions'; days?: number; provider?: Provider | 'all' }): Promise<{ data: any }> {
+    const response = await this.client.get('/admin/usage/history', { params });
+    return { data: response.data };
+  }
+
   // Support endpoints
   async createSupportRequest(data: {
     intent_kind: 'bug' | 'feature' | 'task';
@@ -2906,6 +2956,7 @@ class ApiClient {
       frequency?: string;
       include_diagnostics: boolean;
       attachments?: Array<{ name: string; url: string; content_type: string }>;
+      attachment_ids?: string[];
     };
     feature_request?: {
       title: string;
@@ -2920,6 +2971,7 @@ class ApiClient {
       details: string;
       include_diagnostics: boolean;
       attachments?: Array<{ name: string; url: string; content_type: string }>;
+      attachment_ids?: string[];
     };
     diagnostics?: Record<string, any>;
   }): Promise<{ data: { jsm_request_key: string } }> {
@@ -2928,13 +2980,28 @@ class ApiClient {
   }
 
   async getSupportUploadUrl(filename: string, contentType: string): Promise<{
-    data: { upload_url: string; public_url: string };
+    data: { upload_url: string; public_url?: string | null; attachment_id?: string; method?: string };
   }> {
     const response = await this.client.post('/support/upload-url', {
       filename,
       content_type: contentType,
     });
     return { data: response.data };
+  }
+
+  async uploadSupportAttachment(file: File): Promise<{ data: { attachment_id: string } }> {
+    const { data } = await this.getSupportUploadUrl(file.name, file.type || 'application/octet-stream');
+    const attachmentId = data.attachment_id;
+    const uploadUrl = data.upload_url;
+    if (!attachmentId || !uploadUrl) throw new Error('Upload URL not returned');
+
+    await this.client.put(uploadUrl, file, {
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+    });
+
+    return { data: { attachment_id: attachmentId } };
   }
 
   // Admin Support Config endpoints
@@ -2951,6 +3018,8 @@ class ApiClient {
       jsm_feature_request_type_id?: string;
       jsm_help_request_type_id?: string;
       jsm_widget_embed_code?: string;
+      storage_bucket?: string;
+      storage_prefix?: string;
       updated_at?: string;
     };
   }> {
@@ -2969,6 +3038,8 @@ class ApiClient {
     jsm_feature_request_type_id?: string;
     jsm_help_request_type_id?: string;
     jsm_widget_embed_code?: string;
+    storage_bucket?: string;
+    storage_prefix?: string;
   }): Promise<{
     data: {
       tenant_id: string;
@@ -2982,10 +3053,22 @@ class ApiClient {
       jsm_feature_request_type_id?: string;
       jsm_help_request_type_id?: string;
       jsm_widget_embed_code?: string;
+      storage_bucket?: string;
+      storage_prefix?: string;
       updated_at?: string;
     };
   }> {
     const response = await this.client.put('/admin/support/config', data);
+    return { data: response.data };
+  }
+
+  async getAdminSupportRequests(limit: number = 50): Promise<{ data: { data: any[] } }> {
+    const response = await this.client.get('/admin/support/requests', { params: { limit } });
+    return { data: response.data };
+  }
+
+  async getAdminSupportAttachmentDownloadUrl(attachmentId: string, expiresSeconds: number = 3600): Promise<{ data: { url: string } }> {
+    const response = await this.client.get(`/admin/support/attachments/${attachmentId}/download-url`, { params: { expires_seconds: expiresSeconds } });
     return { data: response.data };
   }
 

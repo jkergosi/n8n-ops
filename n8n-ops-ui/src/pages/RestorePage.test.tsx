@@ -6,38 +6,36 @@ import { RestorePage } from './RestorePage';
 import { render } from '@/test/test-utils';
 import { server } from '@/test/mocks/server';
 
-const API_BASE = 'http://localhost:4000/api/v1';
+const API_BASE = '/api/v1';
 
 const mockPreview = {
-  data: {
-    environment_id: 'env-1',
-    environment_name: 'Development',
-    github_repo: 'org/repo',
-    github_branch: 'main',
-    total_new: 3,
-    total_update: 2,
-    has_encryption_key: true,
-    workflows: [
-      {
-        workflow_id: 'wf-1',
-        name: 'New Workflow 1',
-        status: 'new',
-        nodes_count: 5,
-      },
-      {
-        workflow_id: 'wf-2',
-        name: 'Existing Workflow',
-        status: 'update',
-        nodes_count: 10,
-      },
-      {
-        workflow_id: 'wf-3',
-        name: 'New Workflow 2',
-        status: 'new',
-        nodes_count: 3,
-      },
-    ],
-  },
+  environment_id: 'env-1',
+  environment_name: 'Development',
+  github_repo: 'org/repo',
+  github_branch: 'main',
+  total_new: 3,
+  total_update: 2,
+  has_encryption_key: true,
+  workflows: [
+    {
+      workflow_id: 'wf-1',
+      name: 'New Workflow 1',
+      status: 'new',
+      nodes_count: 5,
+    },
+    {
+      workflow_id: 'wf-2',
+      name: 'Existing Workflow',
+      status: 'update',
+      nodes_count: 10,
+    },
+    {
+      workflow_id: 'wf-3',
+      name: 'New Workflow 2',
+      status: 'new',
+      nodes_count: 3,
+    },
+  ],
 };
 
 // Mock useParams
@@ -211,7 +209,9 @@ describe('RestorePage', () => {
       render(<RestorePage />);
 
       await waitFor(() => {
-        expect(screen.getByText(/workflows to restore/i)).toBeInTheDocument();
+        expect(
+          screen.getByRole('heading', { name: /workflows to restore/i })
+        ).toBeInTheDocument();
       });
     });
 
@@ -292,7 +292,7 @@ describe('RestorePage', () => {
       render(<RestorePage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /try again|back/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
       });
     });
   });
@@ -302,12 +302,10 @@ describe('RestorePage', () => {
       server.use(
         http.get(`${API_BASE}/restore/preview/env-1`, () => {
           return HttpResponse.json({
-            data: {
-              ...mockPreview.data,
-              workflows: [],
-              total_new: 0,
-              total_update: 0,
-            },
+            ...mockPreview,
+            workflows: [],
+            total_new: 0,
+            total_update: 0,
           });
         })
       );

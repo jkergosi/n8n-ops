@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -33,14 +34,17 @@ import {
   Globe,
   Clock,
 } from 'lucide-react';
+import { apiClient } from '@/lib/api-client';
+import { toast } from 'sonner';
 
 interface ApiKey {
   id: string;
   name: string;
   prefix: string;
-  lastUsed: string;
+  lastUsed?: string | null;
   created: string;
   scopes: string[];
+  isActive: boolean;
 }
 
 interface SecurityEvent {
@@ -52,84 +56,6 @@ interface SecurityEvent {
   timestamp: string;
 }
 
-const mockApiKeys: ApiKey[] = [
-  {
-    id: '1',
-    name: 'Production API Key',
-    prefix: 'n8n_prod_****',
-    lastUsed: '2024-03-15T14:30:00Z',
-    created: '2024-01-15',
-    scopes: ['read', 'write', 'admin'],
-  },
-  {
-    id: '2',
-    name: 'CI/CD Integration',
-    prefix: 'n8n_ci_****',
-    lastUsed: '2024-03-15T10:00:00Z',
-    created: '2024-02-01',
-    scopes: ['read', 'write'],
-  },
-  {
-    id: '3',
-    name: 'Monitoring Service',
-    prefix: 'n8n_mon_****',
-    lastUsed: '2024-03-14T22:00:00Z',
-    created: '2024-02-15',
-    scopes: ['read'],
-  },
-];
-
-const mockSecurityEvents: SecurityEvent[] = [
-  {
-    id: '1',
-    type: 'warning',
-    event: 'Failed login attempt',
-    details: 'Multiple failed attempts for user admin@acme.com',
-    ip: '192.168.1.100',
-    timestamp: '2024-03-15T14:32:00Z',
-  },
-  {
-    id: '2',
-    type: 'success',
-    event: 'API key rotated',
-    details: 'Production API key was successfully rotated',
-    ip: '10.0.0.1',
-    timestamp: '2024-03-15T10:15:00Z',
-  },
-  {
-    id: '3',
-    type: 'error',
-    event: 'Rate limit exceeded',
-    details: 'IP 203.0.113.45 exceeded rate limit for /api/v1/workflows',
-    ip: '203.0.113.45',
-    timestamp: '2024-03-15T08:45:00Z',
-  },
-  {
-    id: '4',
-    type: 'success',
-    event: 'New admin user created',
-    details: 'User security@company.com granted admin access',
-    ip: '10.0.0.1',
-    timestamp: '2024-03-14T16:00:00Z',
-  },
-];
-
-const securitySettings = {
-  mfaRequired: true,
-  sessionTimeout: 30,
-  ipWhitelist: ['10.0.0.0/8', '192.168.0.0/16'],
-  rateLimiting: {
-    enabled: true,
-    requestsPerMinute: 100,
-  },
-  passwordPolicy: {
-    minLength: 12,
-    requireUppercase: true,
-    requireNumbers: true,
-    requireSpecial: true,
-  },
-};
-
 export function SecurityPage() {
   useEffect(() => {
     document.title = 'Security - WorkflowOps';
@@ -137,10 +63,82 @@ export function SecurityPage() {
       document.title = 'WorkflowOps';
     };
   }, []);
+  const queryClient = useQueryClient();
   const [createKeyOpen, setCreateKeyOpen] = useState(false);
+  const [createdKeyOpen, setCreatedKeyOpen] = useState(false);
+  const [createdKeyValue, setCreatedKeyValue] = useState('');
   const [keyForm, setKeyForm] = useState({
     name: '',
     scopes: [] as string[],
+  });
+
+  const { data: apiKeysResp, isLoading: apiKeysLoading } = useQuery({
+    queryKey: ['security', 'api-keys'],
+    queryFn: () => apiClient.getTenantApiKeys(),
+  });
+
+  const { data: auditResp, isLoading: auditLoading } = useQuery({
+    queryKey: ['security', 'audit-logs'],
+    queryFn: () => apiClient.getAuditLogs({ page: 1, page_size: 50 }),
+  });
+
+  const apiKeys: ApiKey[] = useMemo(() => {
+    const rows = apiKeysResp?.data || [];
+    return rows.map((k) => ({
+      id: k.id,
+      name: k.name,
+      prefix: k.key_prefix,
+      lastUsed: k.last_used_at ?? null,
+      created: k.created_at,
+      scopes: k.scopes || [],
+      isActive: k.is_active,
+    }));
+  }, [apiKeysResp?.data]);
+
+  const activeApiKeysCount = useMemo(
+    () => apiKeys.filter((k) => k.isActive).length,
+    [apiKeys]
+  );
+
+  const securityEvents: SecurityEvent[] = useMemo(() => {
+    const logs = auditResp?.data?.logs || [];
+    return logs.map((l) => {
+      const actionType = (l.action_type || '').toUpperCase();
+      const type: SecurityEvent['type'] =
+        actionType.includes('FAILED') ? 'error' :
+        actionType.includes('SUSPENDED') ? 'warning' :
+        'success';
+      return {
+        id: l.id,
+        type,
+        event: l.action_type,
+        details: l.action || '',
+        ip: l.ip_address || '-',
+        timestamp: l.timestamp,
+      };
+    });
+  }, [auditResp?.data?.logs]);
+
+  const createKeyMutation = useMutation({
+    mutationFn: () => apiClient.createTenantApiKey({ name: keyForm.name, scopes: keyForm.scopes }),
+    onSuccess: (res) => {
+      setCreatedKeyValue(res.data.api_key);
+      setCreatedKeyOpen(true);
+      setCreateKeyOpen(false);
+      setKeyForm({ name: '', scopes: [] });
+      queryClient.invalidateQueries({ queryKey: ['security', 'api-keys'] });
+      toast.success('API key created');
+    },
+    onError: () => toast.error('Failed to create API key'),
+  });
+
+  const revokeKeyMutation = useMutation({
+    mutationFn: (keyId: string) => apiClient.revokeTenantApiKey(keyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['security', 'api-keys'] });
+      toast.success('API key revoked');
+    },
+    onError: () => toast.error('Failed to revoke API key'),
   });
 
   const getEventIcon = (type: string) => {
@@ -168,20 +166,7 @@ export function SecurityPage() {
       </div>
 
       {/* Security Overview */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
-                <Shield className="h-6 w-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Security Score</p>
-                <p className="text-2xl font-bold">92/100</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -190,7 +175,7 @@ export function SecurityPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active API Keys</p>
-                <p className="text-2xl font-bold">{mockApiKeys.length}</p>
+                <p className="text-2xl font-bold">{apiKeysLoading ? '—' : activeApiKeysCount}</p>
               </div>
             </div>
           </CardContent>
@@ -202,21 +187,8 @@ export function SecurityPage() {
                 <AlertTriangle className="h-6 w-6 text-yellow-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Security Events</p>
-                <p className="text-2xl font-bold">24</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
-                <Lock className="h-6 w-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">MFA Status</p>
-                <p className="text-2xl font-bold">Enforced</p>
+                <p className="text-sm text-muted-foreground">Recent Events</p>
+                <p className="text-2xl font-bold">{auditLoading ? '—' : securityEvents.length}</p>
               </div>
             </div>
           </CardContent>
@@ -242,7 +214,7 @@ export function SecurityPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {mockApiKeys.map((key) => (
+            {apiKeys.map((key) => (
               <div key={key.id} className="flex items-center justify-between p-4 rounded-lg border">
                 <div>
                   <p className="font-medium">{key.name}</p>
@@ -256,96 +228,47 @@ export function SecurityPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" title="Rotate key">
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" title="Delete key">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Revoke key"
+                    onClick={() => revokeKeyMutation.mutate(key.id)}
+                    disabled={revokeKeyMutation.isPending}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
             ))}
+            {!apiKeysLoading && apiKeys.length === 0 && (
+              <div className="text-sm text-muted-foreground">No API keys yet</div>
+            )}
           </CardContent>
         </Card>
 
-        {/* Security Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Lock className="h-5 w-5" />
-              Security Settings
-            </CardTitle>
-            <CardDescription>Configure security policies</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Multi-Factor Authentication</p>
-                <p className="text-sm text-muted-foreground">Require MFA for all users</p>
-              </div>
-              <Badge variant={securitySettings.mfaRequired ? 'success' : 'outline'}>
-                {securitySettings.mfaRequired ? 'Required' : 'Optional'}
-              </Badge>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Session Timeout</p>
-                <p className="text-sm text-muted-foreground">Auto-logout after inactivity</p>
-              </div>
-              <span className="text-sm">{securitySettings.sessionTimeout} minutes</span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Rate Limiting</p>
-                <p className="text-sm text-muted-foreground">API request throttling</p>
-              </div>
-              <span className="text-sm">
-                {securitySettings.rateLimiting.requestsPerMinute} req/min
-              </span>
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Globe className="h-4 w-4 text-muted-foreground" />
-                <p className="font-medium">IP Whitelist</p>
-              </div>
-              <div className="space-y-1">
-                {securitySettings.ipWhitelist.map((ip) => (
-                  <code key={ip} className="block text-sm bg-muted px-2 py-1 rounded">
-                    {ip}
-                  </code>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="font-medium mb-2">Password Policy</p>
-              <div className="space-y-1 text-sm text-muted-foreground">
-                <p>• Minimum {securitySettings.passwordPolicy.minLength} characters</p>
-                {securitySettings.passwordPolicy.requireUppercase && (
-                  <p>• At least one uppercase letter</p>
-                )}
-                {securitySettings.passwordPolicy.requireNumbers && (
-                  <p>• At least one number</p>
-                )}
-                {securitySettings.passwordPolicy.requireSpecial && (
-                  <p>• At least one special character</p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Security Events */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5" />
-            Recent Security Events
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5" />
+                Recent Security Events
+              </CardTitle>
+              <CardDescription>Monitor security-related activity</CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['security', 'audit-logs'] })}
+              disabled={auditLoading}
+            >
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Refresh
+            </Button>
+          </div>
           <CardDescription>Monitor security-related activity</CardDescription>
         </CardHeader>
         <CardContent>
@@ -359,7 +282,7 @@ export function SecurityPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockSecurityEvents.map((event) => (
+              {securityEvents.map((event) => (
                 <TableRow key={event.id}>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -379,6 +302,13 @@ export function SecurityPage() {
                   </TableCell>
                 </TableRow>
               ))}
+              {!auditLoading && securityEvents.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground">
+                    No recent events
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>
@@ -431,7 +361,26 @@ export function SecurityPage() {
             <Button variant="outline" onClick={() => setCreateKeyOpen(false)}>
               Cancel
             </Button>
-            <Button>Create Key</Button>
+            <Button onClick={() => createKeyMutation.mutate()} disabled={!keyForm.name || createKeyMutation.isPending}>
+              Create Key
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Created Key Dialog */}
+      <Dialog open={createdKeyOpen} onOpenChange={setCreatedKeyOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>API key created</DialogTitle>
+            <DialogDescription>Copy this key now. You won’t be able to see it again.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>API Key</Label>
+            <Input value={createdKeyValue} readOnly />
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setCreatedKeyOpen(false)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

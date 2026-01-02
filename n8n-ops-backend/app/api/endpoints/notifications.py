@@ -13,24 +13,29 @@ from app.schemas.notification import (
 )
 from app.services.notification_service import notification_service
 from app.core.entitlements_gate import require_entitlement
+from app.services.auth_service import get_current_user
 
 router = APIRouter()
 
 
 # Entitlement gates for notification/alerting features
 
-# Mock tenant ID for development (same as other endpoints)
-MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000001"
+def _tenant_id(user_info: dict) -> str:
+    tenant = user_info.get("tenant")
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    return tenant["id"]
 
 
 # Channel endpoints
 @router.get("/channels", response_model=List[NotificationChannelResponse])
 async def get_notification_channels(
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """Get all notification channels for the tenant."""
     try:
-        channels = await notification_service.get_channels(MOCK_TENANT_ID)
+        channels = await notification_service.get_channels(_tenant_id(user_info))
         return channels
     except Exception as e:
         raise HTTPException(
@@ -42,11 +47,12 @@ async def get_notification_channels(
 @router.post("/channels", response_model=NotificationChannelResponse)
 async def create_notification_channel(
     data: NotificationChannelCreate,
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """Create a new notification channel."""
     try:
-        channel = await notification_service.create_channel(MOCK_TENANT_ID, data)
+        channel = await notification_service.create_channel(_tenant_id(user_info), data)
         return channel
     except Exception as e:
         raise HTTPException(
@@ -58,10 +64,11 @@ async def create_notification_channel(
 @router.get("/channels/{channel_id}", response_model=NotificationChannelResponse)
 async def get_notification_channel(
     channel_id: str,
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """Get a specific notification channel."""
-    channel = await notification_service.get_channel(MOCK_TENANT_ID, channel_id)
+    channel = await notification_service.get_channel(_tenant_id(user_info), channel_id)
     if not channel:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -74,10 +81,11 @@ async def get_notification_channel(
 async def update_notification_channel(
     channel_id: str,
     data: NotificationChannelUpdate,
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """Update a notification channel."""
-    channel = await notification_service.update_channel(MOCK_TENANT_ID, channel_id, data)
+    channel = await notification_service.update_channel(_tenant_id(user_info), channel_id, data)
     if not channel:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -89,23 +97,25 @@ async def update_notification_channel(
 @router.delete("/channels/{channel_id}")
 async def delete_notification_channel(
     channel_id: str,
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """Delete a notification channel."""
-    await notification_service.delete_channel(MOCK_TENANT_ID, channel_id)
+    await notification_service.delete_channel(_tenant_id(user_info), channel_id)
     return {"message": "Notification channel deleted"}
 
 
 @router.post("/channels/{channel_id}/test")
 async def test_notification_channel(
     channel_id: str,
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """
     Test a notification channel by sending a test event.
     Returns success/failure status and message.
     """
-    result = await notification_service.test_channel(MOCK_TENANT_ID, channel_id)
+    result = await notification_service.test_channel(_tenant_id(user_info), channel_id)
     if not result["success"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -117,11 +127,12 @@ async def test_notification_channel(
 # Rule endpoints
 @router.get("/rules", response_model=List[NotificationRuleResponse])
 async def get_notification_rules(
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """Get all notification rules for the tenant."""
     try:
-        rules = await notification_service.get_rules(MOCK_TENANT_ID)
+        rules = await notification_service.get_rules(_tenant_id(user_info))
         return rules
     except Exception as e:
         raise HTTPException(
@@ -133,11 +144,12 @@ async def get_notification_rules(
 @router.post("/rules", response_model=NotificationRuleResponse)
 async def create_notification_rule(
     data: NotificationRuleCreate,
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """Create a new notification rule."""
     try:
-        rule = await notification_service.create_rule(MOCK_TENANT_ID, data)
+        rule = await notification_service.create_rule(_tenant_id(user_info), data)
         return rule
     except Exception as e:
         raise HTTPException(
@@ -149,10 +161,11 @@ async def create_notification_rule(
 @router.get("/rules/{event_type}", response_model=NotificationRuleResponse)
 async def get_notification_rule_by_event(
     event_type: str,
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """Get the notification rule for a specific event type."""
-    rule = await notification_service.get_rule_by_event(MOCK_TENANT_ID, event_type)
+    rule = await notification_service.get_rule_by_event(_tenant_id(user_info), event_type)
     if not rule:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -165,10 +178,11 @@ async def get_notification_rule_by_event(
 async def update_notification_rule(
     rule_id: str,
     data: NotificationRuleUpdate,
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """Update a notification rule."""
-    rule = await notification_service.update_rule(MOCK_TENANT_ID, rule_id, data)
+    rule = await notification_service.update_rule(_tenant_id(user_info), rule_id, data)
     if not rule:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -180,10 +194,11 @@ async def update_notification_rule(
 @router.delete("/rules/{rule_id}")
 async def delete_notification_rule(
     rule_id: str,
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """Delete a notification rule."""
-    await notification_service.delete_rule(MOCK_TENANT_ID, rule_id)
+    await notification_service.delete_rule(_tenant_id(user_info), rule_id)
     return {"message": "Notification rule deleted"}
 
 
@@ -192,7 +207,8 @@ async def delete_notification_rule(
 async def get_alert_events(
     limit: int = 50,
     event_type: Optional[str] = None,
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """
     Get recent alert events.
@@ -208,7 +224,7 @@ async def get_alert_events(
 
     try:
         events = await notification_service.get_recent_events(
-            MOCK_TENANT_ID,
+            _tenant_id(user_info),
             limit,
             event_type
         )
@@ -222,7 +238,7 @@ async def get_alert_events(
 
 @router.get("/event-catalog", response_model=List[EventCatalogItem])
 async def get_event_catalog(
-    _: dict = Depends(require_entitlement("observability_alerts"))
+    _: dict = Depends(require_entitlement("observability_alerts")),
 ):
     """
     Get the event catalog - a list of all available event types

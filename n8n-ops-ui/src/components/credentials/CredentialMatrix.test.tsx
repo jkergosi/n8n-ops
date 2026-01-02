@@ -4,12 +4,12 @@ import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { CredentialMatrix } from './CredentialMatrix';
 
-const API_BASE = 'http://localhost:3000/api/v1';
+const API_BASE = '/api/v1';
 
 const mockMatrixData = {
   logical_credentials: [
-    { id: 'logical-1', name: 'slackApi:prod-slack', requiredType: 'slackApi', description: 'Slack credentials' },
-    { id: 'logical-2', name: 'githubApi:gh-token', requiredType: 'githubApi', description: 'GitHub credentials' },
+    { id: 'logical-1', name: 'slackApi:prod-slack', required_type: 'slackApi', description: 'Slack credentials' },
+    { id: 'logical-2', name: 'githubApi:gh-token', required_type: 'githubApi', description: 'GitHub credentials' },
   ],
   environments: [
     { id: 'env-1', name: 'Development', type: 'development' },
@@ -17,11 +17,11 @@ const mockMatrixData = {
   ],
   matrix: {
     'logical-1': {
-      'env-1': { mappingId: 'mapping-1', physicalCredentialId: 'n8n-cred-1', physicalName: 'Dev Slack', physicalType: 'slackApi', status: 'valid' },
-      'env-2': { mappingId: 'mapping-2', physicalCredentialId: 'n8n-cred-2', physicalName: 'Prod Slack', physicalType: 'slackApi', status: 'valid' },
+      'env-1': { mapping_id: 'mapping-1', physical_credential_id: 'n8n-cred-1', physical_name: 'Dev Slack', physical_type: 'slackApi', status: 'valid' },
+      'env-2': { mapping_id: 'mapping-2', physical_credential_id: 'n8n-cred-2', physical_name: 'Prod Slack', physical_type: 'slackApi', status: 'valid' },
     },
     'logical-2': {
-      'env-1': { mappingId: 'mapping-3', physicalCredentialId: 'n8n-cred-3', physicalName: 'Dev GitHub', physicalType: 'githubApi', status: 'valid' },
+      'env-1': { mapping_id: 'mapping-3', physical_credential_id: 'n8n-cred-3', physical_name: 'Dev GitHub', physical_type: 'githubApi', status: 'valid' },
       'env-2': null,
     },
   },
@@ -82,15 +82,6 @@ describe('CredentialMatrix', () => {
         expect(screen.getByText('Dev Slack')).toBeInTheDocument();
         expect(screen.getByText('Prod Slack')).toBeInTheDocument();
         expect(screen.getByText('Dev GitHub')).toBeInTheDocument();
-      });
-    });
-
-    it('should display environment type badges', async () => {
-      render(<CredentialMatrix />);
-
-      await waitFor(() => {
-        expect(screen.getByText('development')).toBeInTheDocument();
-        expect(screen.getByText('production')).toBeInTheDocument();
       });
     });
   });

@@ -27,11 +27,11 @@ export interface OnboardingFormData {
 }
 
 const STEPS = [
-  { id: 1, title: 'Organization', description: 'Tell us about your organization' },
-  { id: 2, title: 'Plan Selection', description: 'Choose your subscription plan' },
-  { id: 3, title: 'Payment', description: 'Set up payment (if required)' },
-  { id: 4, title: 'Team Setup', description: 'Invite team members (optional)' },
-  { id: 5, title: 'Complete', description: 'You\'re all set!' },
+  { id: 1, title: 'Workspace', description: 'Name your workspace' },
+  { id: 2, title: 'Plan', description: 'Choose your plan' },
+  { id: 3, title: 'Setup', description: 'Configure your workspace' },
+  { id: 4, title: 'Team', description: 'Invite team members' },
+  { id: 5, title: 'Ready', description: 'You\'re all set!' },
 ];
 
 export function OnboardingPage() {
@@ -43,7 +43,7 @@ export function OnboardingPage() {
   }, []);
 
   const navigate = useNavigate();
-  const { needsOnboarding, user, tenant } = useAuth();
+  const { needsOnboarding, user, tenant, refreshAuth } = useAuth();
   const [currentStep, setCurrentStep] = useState<OnboardingStep>(1);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState<OnboardingFormData>({
@@ -109,11 +109,9 @@ export function OnboardingPage() {
     try {
       // Handle step-specific logic
       if (currentStep === 1) {
-        // Organization step
+        // Workspace step
         await apiClient.onboardingOrganization({
           organization_name: formData.organizationName || (stepData?.organizationName || ''),
-          industry: stepData?.industry,
-          company_size: stepData?.companySize,
         });
         setCurrentStep(2);
       } else if (currentStep === 2) {
@@ -122,18 +120,19 @@ export function OnboardingPage() {
           plan_name: stepData?.selectedPlan || formData.selectedPlan,
           billing_cycle: stepData?.billingCycle || formData.billingCycle,
         });
-        const selectedPlan = stepData?.selectedPlan || formData.selectedPlan;
-        
-        // If free plan, skip payment step
-        if (selectedPlan === 'free') {
-          setCurrentStep(4); // Skip to team setup
-        } else {
-          setCurrentStep(3); // Go to payment
-        }
+        // All plans go through Step 3 (Setup)
+        setCurrentStep(3);
       } else if (currentStep === 3) {
-        // Payment step - handled by PaymentStep component
-        // This will redirect to Stripe, so we don't advance here
-        return;
+        // Setup step - for paid plans, PaymentStep handles Stripe redirect
+        // For free plans, SetupStep just confirms and advances
+        const selectedPlan = formData.selectedPlan;
+        if (selectedPlan !== 'free') {
+          // Payment step - handled by PaymentStep component
+          // This will redirect to Stripe, so we don't advance here
+          return;
+        }
+        // Free plan - just advance to team step
+        setCurrentStep(4);
       } else if (currentStep === 4) {
         // Team invitation step
         const invites = stepData?.teamInvites || formData.teamInvites;
@@ -162,9 +161,12 @@ export function OnboardingPage() {
         await apiClient.onboardingComplete();
         localStorage.removeItem('onboarding_progress');
         toast.success('Welcome to WorkflowOps!');
+        // Refresh auth state to update needsOnboarding and load user/tenant
+        await refreshAuth();
+        // Navigate after a short delay for the toast to be visible
         setTimeout(() => {
           navigate('/');
-        }, 2000);
+        }, 1500);
       }
     } catch (error: any) {
       console.error('Onboarding step failed:', error);

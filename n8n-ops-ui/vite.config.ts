@@ -30,6 +30,11 @@ export default defineConfig({
     // Forks pool is heavier but more stable for the full UI suite.
     pool: 'forks',
     maxWorkers: 1,
+    poolOptions: {
+      forks: {
+        execArgv: ['--max-old-space-size=8192'],
+      },
+    },
     env: {
       VITE_API_BASE_URL: 'http://localhost:3000/api/v1',
       VITE_SUPABASE_URL: 'https://xjunfyugpbyjslqkzlwn.supabase.co',

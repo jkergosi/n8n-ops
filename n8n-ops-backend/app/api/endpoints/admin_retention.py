@@ -11,6 +11,7 @@ from datetime import datetime
 
 from app.services.database import db_service
 from app.services.auth_service import get_current_user
+from app.core.platform_admin import require_platform_admin
 from app.services.drift_retention_service import drift_retention_service
 
 router = APIRouter()
@@ -59,7 +60,7 @@ class PurgeAllResult(BaseModel):
 
 @router.get("/policies")
 async def list_retention_policies(
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """
     List retention policies for all tenants.
@@ -99,7 +100,7 @@ async def list_retention_policies(
 @router.get("/policies/{tenant_id}", response_model=RetentionPolicyResponse)
 async def get_tenant_retention_policy(
     tenant_id: str,
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """
     Get retention policy for a specific tenant.
@@ -139,7 +140,7 @@ async def get_tenant_retention_policy(
 @router.post("/purge/{tenant_id}", response_model=PurgeResult)
 async def purge_tenant_data(
     tenant_id: str,
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """
     Manually trigger retention purge for a specific tenant.
@@ -184,7 +185,7 @@ async def purge_tenant_data(
 
 @router.post("/purge", response_model=PurgeAllResult)
 async def purge_all_tenants(
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """
     Manually trigger retention purge for ALL tenants.

@@ -2,15 +2,8 @@ import React, { useCallback } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth';
 import { useAppStore } from '@/store/use-app-store';
-import { useFeatures, type PlanFeatures } from '@/lib/features';
+import { useFeatures } from '@/lib/features';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,8 +31,6 @@ import {
   Server,
   Workflow,
   ListChecks,
-  Camera,
-  Rocket,
   Activity,
   Users,
   UserCog,
@@ -51,10 +42,8 @@ import {
   Shield,
   BarChart3,
   Settings,
-  FileText,
   Bell,
   Sparkles,
-  Crown,
   UserCircle,
   Key,
   HelpCircle,
@@ -65,11 +54,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   History,
-  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { isMenuItemVisible, mapBackendRoleToFrontendRole, type Role } from '@/lib/permissions';
-import { LifecycleStage, DriftMode, getDriftModeForPlan, canCreateDriftIncident } from '@/types/lifecycle';
+import { canSeePlatformNav, isAtLeastPlan, mapBackendRoleToFrontendRole, normalizePlan, type Plan, type Role } from '@/lib/permissions';
 import { useHealthCheck } from '@/lib/use-health-check';
 
 interface NavItem {
@@ -77,12 +64,7 @@ interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
-  requiredPlan?: 'pro' | 'agency' | 'enterprise';
-  feature?: keyof PlanFeatures | string;
-  comingSoon?: boolean;
-  lifecycleStage?: LifecycleStage;
-  hideForPlans?: string[]; // Plans that should never see this item
-  requiresDriftMode?: DriftMode[]; // Drift modes that allow this item
+  requiredPlan?: Plan; // plan gating only (feature gating is handled elsewhere)
 }
 
 interface NavSection {
@@ -92,60 +74,52 @@ interface NavSection {
 
 const navigationSections: NavSection[] = [
   {
-    title: 'WorkflowOps',
+    title: 'Core',
     items: [
       { id: 'dashboard', name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { id: 'environments', name: 'Environments', href: '/environments', icon: Server },
       { id: 'workflows', name: 'Workflows', href: '/workflows', icon: Workflow },
       { id: 'executions', name: 'Executions', href: '/executions', icon: ListChecks },
-    ],
-  },
-  {
-    title: 'Operations',
-    items: [
-      { id: 'activity', name: 'Activity', href: '/activity', icon: History, lifecycleStage: LifecycleStage.OBSERVABILITY },
-      { id: 'deployments', name: 'Deployments', href: '/deployments', icon: Rocket, requiredPlan: 'pro', feature: 'workflow_ci_cd', lifecycleStage: LifecycleStage.PROMOTION, hideForPlans: ['free'] },
-      { id: 'snapshots', name: 'Snapshots', href: '/snapshots', icon: Camera, feature: 'snapshots_enabled', lifecycleStage: LifecycleStage.SNAPSHOT, hideForPlans: ['free'] },
-    ],
-  },
-  {
-    title: 'Incidents',
-    items: [
-      { id: 'incidents', name: 'Incidents', href: '/incidents', icon: AlertTriangle, requiredPlan: 'agency', feature: 'drift_incidents', lifecycleStage: LifecycleStage.DRIFT, requiresDriftMode: [DriftMode.MANAGED, DriftMode.ENFORCED], hideForPlans: ['free'] },
-      { id: 'drift-dashboard', name: 'Drift Dashboard', href: '/drift-dashboard', icon: BarChart3, requiredPlan: 'agency', feature: 'drift_ttl_sla', lifecycleStage: LifecycleStage.DRIFT, hideForPlans: ['free', 'pro'] },
+      { id: 'activity', name: 'Activity', href: '/activity', icon: History },
     ],
   },
   {
     title: 'Observability',
-    items: [
-      { id: 'observability', name: 'Observability', href: '/observability', icon: Activity, feature: 'observability_basic', lifecycleStage: LifecycleStage.OBSERVABILITY },
-      { id: 'alerts', name: 'Alerts', href: '/alerts', icon: Bell, requiredPlan: 'pro', feature: 'observability_alerts', lifecycleStage: LifecycleStage.OBSERVABILITY },
-    ],
+    items: [{ id: 'observability', name: 'Observability', href: '/observability', icon: Activity, requiredPlan: 'pro' }],
   },
   {
     title: 'Identity & Secrets',
     items: [
       { id: 'credentials', name: 'Credentials', href: '/credentials', icon: Key },
-      { id: 'users', name: 'n8n Users', href: '/n8n-users', icon: UserCog },
+      { id: 'n8nUsers', name: 'n8n Users', href: '/n8n-users', icon: UserCog, requiredPlan: 'pro' },
     ],
   },
   {
     title: 'Admin',
     items: [
-      { id: 'tenants', name: 'Tenants', href: '/admin/tenants', icon: Building2, requiredPlan: 'enterprise' },
-      { id: 'plans', name: 'Plans', href: '/admin/plans', icon: CreditCard, requiredPlan: 'enterprise' },
-      { id: 'usage', name: 'Usage & Limits', href: '/admin/usage', icon: BarChart3, requiredPlan: 'enterprise' },
-      { id: 'billing', name: 'System Billing', href: '/admin/billing', icon: CreditCard, requiredPlan: 'enterprise' },
-      { id: 'credentialHealth', name: 'Credential Health', href: '/admin/credential-health', icon: Shield, requiredPlan: 'enterprise' },
-      { id: 'featureMatrix', name: 'Feature Matrix', href: '/admin/entitlements/matrix', icon: LayoutGrid, requiredPlan: 'enterprise' },
-      { id: 'tenantOverrides', name: 'Tenant Overrides', href: '/admin/entitlements/overrides', icon: Shield, requiredPlan: 'enterprise' },
-      { id: 'entitlementsAudit', name: 'Entitlements Audit', href: '/admin/entitlements/audit', icon: History, requiredPlan: 'enterprise' },
-      { id: 'auditLogs', name: 'Audit Logs', href: '/admin/audit-logs', icon: FileText, requiredPlan: 'pro', feature: 'audit_logs_enabled', lifecycleStage: LifecycleStage.OBSERVABILITY },
-      { id: 'driftPolicies', name: 'Drift Policies', href: '/admin/drift-policies', icon: AlertTriangle, requiredPlan: 'enterprise', feature: 'drift_policies', lifecycleStage: LifecycleStage.DRIFT, hideForPlans: ['free', 'pro', 'agency'] },
-      { id: 'security', name: 'Security', href: '/admin/security', icon: Shield, requiredPlan: 'enterprise', feature: 'sso_saml' },
-      { id: 'systemSettings', name: 'System Settings', href: '/admin/settings', icon: Settings },
-      { id: 'supportRequests', name: 'Support Requests', href: '/admin/support', icon: HelpCircle },
-      { id: 'supportConfig', name: 'Support Config', href: '/admin/support-config', icon: HelpCircle },
+      { id: 'adminHome', name: 'Admin', href: '/admin', icon: Settings },
+      { id: 'members', name: 'Members', href: '/admin/members', icon: Users },
+      { id: 'plans', name: 'Plans', href: '/admin/plans', icon: CreditCard },
+      { id: 'usage', name: 'Usage', href: '/admin/usage', icon: BarChart3 },
+      { id: 'billing', name: 'Billing', href: '/admin/billing', icon: CreditCard },
+      { id: 'featureMatrix', name: 'Feature Matrix', href: '/admin/feature-matrix', icon: LayoutGrid },
+      { id: 'entitlements', name: 'Entitlements', href: '/admin/entitlements', icon: Shield },
+      { id: 'credentialHealth', name: 'Credential Health', href: '/admin/credential-health', icon: Shield },
+      { id: 'settings', name: 'Settings', href: '/admin/settings', icon: Settings },
+    ],
+  },
+  {
+    title: 'Platform',
+    items: [
+      { id: 'platformHome', name: 'Platform', href: '/platform', icon: Building2 },
+      { id: 'platformTenants', name: 'Tenants', href: '/platform/tenants', icon: Building2 },
+      { id: 'platformAdmins', name: 'Platform Admins', href: '/platform/admins', icon: Shield },
+      { id: 'platformConsole', name: 'Support Console', href: '/platform/console', icon: Search },
+      { id: 'platformOverrides', name: 'Tenant Overrides', href: '/platform/tenant-overrides', icon: Shield },
+      { id: 'platformEntitlementsAudit', name: 'Entitlements Audit', href: '/platform/entitlements-audit', icon: History },
+      { id: 'platformSupportRequests', name: 'Support Requests', href: '/platform/support/requests', icon: HelpCircle },
+      { id: 'platformSupportConfig', name: 'Support Config', href: '/platform/support/config', icon: HelpCircle },
+      { id: 'platformSettings', name: 'Settings', href: '/platform/settings', icon: Settings },
     ],
   },
 ];
@@ -153,9 +127,9 @@ const navigationSections: NavSection[] = [
 export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout, tenantUsers, loginAs, impersonating, stopImpersonating } = useAuth();
+  const { user, logout, impersonating, stopImpersonating, actorUser } = useAuth();
   const { sidebarOpen, toggleSidebar } = useAppStore();
-  const { canUseFeature, planName } = useFeatures();
+  const { planName } = useFeatures();
   const { setTheme } = useTheme();
   const [searchOpen, setSearchOpen] = React.useState(false);
   
@@ -170,121 +144,63 @@ export function AppLayout() {
 
   // Get user's role mapped to frontend role system
   const getUserRole = useCallback((): Role => {
-    if (!user?.role) return 'user';
+    if ((user as any)?.isPlatformAdmin) return 'platform_admin';
+    if (!user?.role) return 'viewer';
     return mapBackendRoleToFrontendRole(user.role);
-  }, [user?.role]);
+  }, [user?.role, (user as any)?.isPlatformAdmin]);
 
   // Health check for connection status indicator
   const { status: healthStatus } = useHealthCheck();
 
-  // Check if a nav item is accessible based on plan
-  const isFeatureAvailable = useCallback((item: NavItem): boolean => {
-    if (!item.feature) return true;
-    return canUseFeature(item.feature);
-  }, [canUseFeature]);
+  const normalizedPlan = normalizePlan(planName);
+  const userRole = getUserRole();
+  const showPlatform = canSeePlatformNav(userRole) && !impersonating;
 
-  // Check if item should be hidden based on plan (terminology suppression)
-  const isItemHiddenForPlan = useCallback((item: NavItem): boolean => {
-    if (!item.hideForPlans || !planName) return false;
-    const planLower = planName.toLowerCase();
-    return item.hideForPlans.includes(planLower);
-  }, [planName]);
-
-  // Check if item requires specific drift mode
-  const isDriftModeAllowed = useCallback((item: NavItem): boolean => {
-    if (!item.requiresDriftMode || !planName) return true;
-    const driftMode = getDriftModeForPlan(planName);
-    return item.requiresDriftMode.includes(driftMode);
-  }, [planName]);
-
-  // Check if item's lifecycle stage is allowed for current plan
-  const isLifecycleStageAllowed = useCallback((item: NavItem): boolean => {
-    if (!item.lifecycleStage || !planName) return true;
-    const planLower = planName.toLowerCase();
-    
-    const stage = item.lifecycleStage;
-    
-    // Define allowed stages per plan
-    const allowedStages: Record<string, LifecycleStage[]> = {
-      free: [
-        LifecycleStage.OBSERVABILITY, // Basic observability is free
-      ],
-      pro: [
-        LifecycleStage.OBSERVABILITY,
-        LifecycleStage.SNAPSHOT,
-        LifecycleStage.PROMOTION, // Deployments/promotions
-      ],
-      agency: Object.values(LifecycleStage), // All stages
-      enterprise: Object.values(LifecycleStage), // All stages
-    };
-    
-    const stages = allowedStages[planLower] || allowedStages.free;
-    return stages.includes(stage);
-  }, [planName]);
-
-  // Get display name with terminology suppression based on plan
-  const getDisplayName = useCallback((item: NavItem): string => {
-    if (!planName) return item.name;
-    const planLower = planName.toLowerCase();
-    
-    // Terminology suppression based on reqs/lifecycle.md Phase 6
-    // Pipeline: ❌ Free, ⚠️ Pro, ✅ Agency+
-    // Policy: ❌ Free, ❌ Pro, ✅ Agency+
-    // Incident: ❌ Free, ⚠️ Pro, ✅ Agency+
-    // SLA / TTL: ❌ Free, ❌ Pro, ✅ Agency+
-    
-    // Suppress "Policy" for free and pro
-    if ((planLower === 'free' || planLower === 'pro') && item.id === 'driftPolicies') {
-      return ''; // Hide completely
-    }
-    
-    // Suppress "Incident" for free (already hidden via hideForPlans, but ensure name doesn't leak)
-    if (planLower === 'free' && item.id === 'incidents') {
-      return ''; // Hide completely
-    }
-    
-    // Suppress "SLA/TTL" terminology in "Drift Dashboard" for free and pro
-    if ((planLower === 'free' || planLower === 'pro') && item.id === 'drift-dashboard') {
-      return ''; // Hide completely (already hidden via hideForPlans)
-    }
-    
-    return item.name;
-  }, [planName]);
+  const isNavItemVisible = useCallback(
+    (sectionTitle: string, item: NavItem): boolean => {
+      // Platform section - platform_admin only
+      if (sectionTitle === 'Platform' && !showPlatform) return false;
+      
+      // Admin section - admin only
+      if (sectionTitle === 'Admin' && userRole !== 'admin') return false;
+      
+      // Core section - viewer+ only
+      if (sectionTitle === 'Core') {
+        const allowedRoles: Role[] = ['viewer', 'developer', 'admin', 'platform_admin'];
+        if (!allowedRoles.includes(userRole)) return false;
+      }
+      
+      // Identity & Secrets - admin only for credentials and n8n-users
+      if (sectionTitle === 'Identity & Secrets') {
+        if (item.href === '/credentials' && userRole !== 'admin') return false;
+        if (item.href === '/n8n-users' && userRole !== 'admin') return false;
+      }
+      
+      // Plan gating
+      if (item.requiredPlan && !isAtLeastPlan(normalizedPlan, item.requiredPlan)) return false;
+      
+      return true;
+    },
+    [normalizedPlan, showPlatform, userRole]
+  );
 
   // Build search items from navigation
   const searchItems = React.useMemo(() => {
     const items: Array<{ title: string; href: string; icon: React.ComponentType<{ className?: string }> }> = [];
-    const userRole = getUserRole();
     navigationSections.forEach((section) => {
       section.items.forEach((item) => {
-        if (isMenuItemVisible(item.id, userRole) && 
-            isFeatureAvailable(item) && 
-            !isItemHiddenForPlan(item) &&
-            isDriftModeAllowed(item) &&
-            isLifecycleStageAllowed(item)) {
-          const displayName = getDisplayName(item) || item.name;
-          if (displayName) { // Only add if display name is not suppressed
-            items.push({ title: displayName, href: item.href, icon: item.icon });
-          }
-        }
+        if (!isNavItemVisible(section.title, item)) return;
+        items.push({ title: item.name, href: item.href, icon: item.icon });
       });
     });
     return items;
-  }, [getUserRole, isFeatureAvailable, isItemHiddenForPlan, isDriftModeAllowed, isLifecycleStageAllowed, getDisplayName]);
+  }, [isNavItemVisible]);
 
   const toggleSection = (sectionTitle: string) => {
     setExpandedSections((prev) => ({
       ...prev,
       [sectionTitle]: !prev[sectionTitle],
     }));
-  };
-
-  const handleUserSwitch = async (userId: string) => {
-    // Don't switch if selecting current user
-    if (userId === user?.id) return;
-    await loginAs(userId);
-    // Refresh the page to reload data for new user
-    window.location.reload();
   };
 
   const handleStopImpersonating = async () => {
@@ -344,19 +260,9 @@ export function AppLayout() {
           <nav className="flex-1 px-2 py-4 overflow-y-auto custom-scrollbar">
             {navigationSections
               .filter((section) => {
-                // Hide "Incidents" section for free users (terminology suppression)
-                if (section.title === 'Incidents' && planName?.toLowerCase() === 'free') {
-                  return false;
-                }
-                // Hide section if all items are hidden
-                const visibleItems = section.items.filter((item) => {
-                  if (!isMenuItemVisible(item.id, getUserRole())) return false;
-                  if (isItemHiddenForPlan(item)) return false;
-                  if (!isDriftModeAllowed(item)) return false;
-                  if (!isLifecycleStageAllowed(item)) return false;
-                  if (!isFeatureAvailable(item)) return false;
-                  return true;
-                });
+                if (section.title === 'Platform' && !showPlatform) return false;
+                if (section.title === 'Admin' && userRole !== 'admin') return false;
+                const visibleItems = section.items.filter((item) => isNavItemVisible(section.title, item));
                 return visibleItems.length > 0;
               })
               .map((section, sectionIndex) => {
@@ -383,23 +289,10 @@ export function AppLayout() {
                   {isExpanded && (
                     <div className="space-y-0.5">
                       {section.items
-                        .filter((item) => {
-                          // Role-based visibility
-                          if (!isMenuItemVisible(item.id, getUserRole())) return false;
-                          // Plan-based hiding (terminology suppression)
-                          if (isItemHiddenForPlan(item)) return false;
-                          // Drift mode requirement
-                          if (!isDriftModeAllowed(item)) return false;
-                          // Lifecycle stage requirement
-                          if (!isLifecycleStageAllowed(item)) return false;
-                          // Feature availability
-                          if (!isFeatureAvailable(item)) return false;
-                          return true;
-                        })
+                        .filter((item) => isNavItemVisible(section.title, item))
                         .map((item) => {
                           const Icon = item.icon;
                           const isActive = location.pathname === item.href;
-                          const isAvailable = isFeatureAvailable(item);
                           return (
                             <Link
                               key={item.href}
@@ -409,22 +302,12 @@ export function AppLayout() {
                                 isActive
                                   ? 'bg-primary text-primary-foreground shadow-sm'
                                   : 'text-foreground/70 hover:bg-accent hover:text-foreground',
-                                !isAvailable && 'opacity-50',
                                 !sidebarOpen && 'justify-center'
                               )}
                               title={!sidebarOpen ? item.name : undefined}
                             >
                               <Icon className={cn('h-4 w-4 flex-shrink-0', isActive && 'text-primary-foreground')} />
-                              {sidebarOpen && <span className="flex-1">{getDisplayName(item) || item.name}</span>}
-                              {sidebarOpen && !isAvailable && item.requiredPlan && (
-                                <span className="flex items-center">
-                                  {item.requiredPlan === 'enterprise' ? (
-                                    <Crown className="h-3 w-3 text-amber-500" />
-                                  ) : (
-                                    <Sparkles className="h-3 w-3 text-blue-500" />
-                                  )}
-                                </span>
-                              )}
+                              {sidebarOpen && <span className="flex-1">{item.name}</span>}
                             </Link>
                           );
                         })}
@@ -486,38 +369,22 @@ export function AppLayout() {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Impersonation Indicator */}
+              {/* Impersonation Indicator (MANDATORY) */}
               {impersonating && (
-                <div className="hidden md:flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <div className="flex items-center gap-2 px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 rounded-md text-xs">
-                    <span>Viewing as {user?.name}</span>
+                    <span className="truncate max-w-[360px]">
+                      Impersonating: {user?.name || '—'} ({user?.email || '—'}) as {actorUser?.name || '—'} ({actorUser?.email || '—'})
+                    </span>
                     <button
                       onClick={handleStopImpersonating}
                       className="hover:bg-yellow-200 dark:hover:bg-yellow-800 rounded p-0.5"
                       title="Stop impersonating"
+                      aria-label="Stop impersonating"
                     >
                       <X className="h-3 w-3" />
                     </button>
                   </div>
-                </div>
-              )}
-
-              {/* Admin User Switcher - only show for admins when not impersonating */}
-              {user?.role === 'admin' && !impersonating && tenantUsers.length > 1 && (
-                <div className="hidden md:flex items-center gap-2">
-                  <Select value={user?.id} onValueChange={handleUserSwitch}>
-                    <SelectTrigger className="w-[180px] h-8 text-xs">
-                      <SelectValue placeholder="Switch user" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tenantUsers.map((u) => (
-                        <SelectItem key={u.id} value={u.id} disabled={!u.can_be_impersonated && u.id !== user?.id}>
-                          {u.name} ({u.role})
-                          {u.id === user?.id && ' (you)'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
               )}
 
@@ -570,18 +437,22 @@ export function AppLayout() {
                         Profile
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link to="/billing" className="cursor-pointer">
-                        <CreditCard className="mr-2 h-4 w-4" />
-                        Subscription
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link to="/team" className="cursor-pointer">
-                        <Users className="mr-2 h-4 w-4" />
-                        Team
-                      </Link>
-                    </DropdownMenuItem>
+                    {user?.role === 'admin' && (
+                      <>
+                        <DropdownMenuItem asChild>
+                          <Link to="/admin/billing" className="cursor-pointer">
+                            <CreditCard className="mr-2 h-4 w-4" />
+                            Billing
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link to="/admin/members" className="cursor-pointer">
+                            <Users className="mr-2 h-4 w-4" />
+                            Members
+                          </Link>
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuGroup>
                   
                   <DropdownMenuSeparator />
@@ -622,7 +493,7 @@ export function AppLayout() {
                   {/* Account Actions */}
                   {planName !== 'enterprise' && (
                     <DropdownMenuItem asChild>
-                      <Link to="/billing" className="cursor-pointer">
+                      <Link to="/admin/billing" className="cursor-pointer">
                         <Sparkles className="mr-2 h-4 w-4" />
                         Upgrade Plan
                       </Link>

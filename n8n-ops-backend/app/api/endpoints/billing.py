@@ -401,24 +401,36 @@ async def get_billing_overview(user_info: dict = Depends(get_current_user)):
             )
         
         # Get subscription
-        sub_response = db_service.client.table("subscriptions").select(
-            "*, plan:plan_id(*)"
-        ).eq("tenant_id", tenant_id).maybe_single().execute()
-        
-        subscription_data = sub_response.data
+        subscription_data = None
+        try:
+            sub_response = db_service.client.table("subscriptions").select(
+                "*, plan:plan_id(*)"
+            ).eq("tenant_id", tenant_id).maybe_single().execute()
+            subscription_data = sub_response.data if sub_response else None
+        except Exception as e:
+            # Table might not exist or query failed - fall back to tenant tier
+            print(f"Subscription query failed: {e}")
+            subscription_data = None
+
         if not subscription_data:
             # Fall back to tenant tier
             subscription_tier = user_info["tenant"].get("subscription_tier", "free")
-            plan_response = db_service.client.table("subscription_plans").select("*").eq(
-                "name", subscription_tier
-            ).maybe_single().execute()
-            
-            if not plan_response.data:
+            plan = {}
+            try:
                 plan_response = db_service.client.table("subscription_plans").select("*").eq(
-                    "name", "free"
+                    "name", subscription_tier
                 ).maybe_single().execute()
-            
-            plan = plan_response.data if plan_response.data else {}
+
+                if not (plan_response and plan_response.data):
+                    plan_response = db_service.client.table("subscription_plans").select("*").eq(
+                        "name", "free"
+                    ).maybe_single().execute()
+
+                plan = plan_response.data if (plan_response and plan_response.data) else {}
+            except Exception as e:
+                print(f"Plan query failed: {e}")
+                plan = {"name": subscription_tier, "display_name": subscription_tier.capitalize()}
+
             subscription_data = {
                 "id": f"{tenant_id}_tier",
                 "tenant_id": tenant_id,

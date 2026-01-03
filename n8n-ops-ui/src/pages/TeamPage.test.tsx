@@ -51,10 +51,10 @@ describe('TeamPage', () => {
 
     // Set up default team handlers
     server.use(
-      http.get(`${API_BASE}/team/members`, () => {
+      http.get(`${API_BASE}/teams/`, () => {
         return HttpResponse.json(mockTeamMembers);
       }),
-      http.get(`${API_BASE}/team/limits`, () => {
+      http.get(`${API_BASE}/teams/limits`, () => {
         return HttpResponse.json(mockTeamLimits);
       })
     );
@@ -64,7 +64,7 @@ describe('TeamPage', () => {
     it('should show loading message while fetching team members', async () => {
       // Use a delayed response to see loading state
       server.use(
-        http.get(`${API_BASE}/team/members`, async () => {
+        http.get(`${API_BASE}/teams/`, async () => {
           await new Promise((resolve) => setTimeout(resolve, 100));
           return HttpResponse.json(mockTeamMembers);
         })
@@ -80,7 +80,7 @@ describe('TeamPage', () => {
   describe('Empty State', () => {
     it('should show empty state when no team members exist', async () => {
       server.use(
-        http.get(`${API_BASE}/team/members`, () => {
+        http.get(`${API_BASE}/teams/`, () => {
           return HttpResponse.json([]);
         })
       );
@@ -150,7 +150,7 @@ describe('TeamPage', () => {
   describe('Error State', () => {
     it('should handle server error gracefully', async () => {
       server.use(
-        http.get(`${API_BASE}/team/members`, () => {
+        http.get(`${API_BASE}/teams/`, () => {
           return new HttpResponse(JSON.stringify({ detail: 'Internal server error' }), {
             status: 500,
           });
@@ -190,7 +190,7 @@ describe('TeamPage', () => {
 
       // Mock the create endpoint
       server.use(
-        http.post(`${API_BASE}/team/members`, async ({ request }) => {
+        http.post(`${API_BASE}/teams/`, async ({ request }) => {
           const body = await request.json() as { email: string; name: string; role: string };
           return HttpResponse.json({
             id: 'new-user-id',
@@ -234,7 +234,7 @@ describe('TeamPage', () => {
       const user = userEvent.setup();
 
       server.use(
-        http.get(`${API_BASE}/team/limits`, () => {
+        http.get(`${API_BASE}/teams/limits`, () => {
           return HttpResponse.json({
             max_members: 3,
             current_members: 3,
@@ -284,7 +284,7 @@ describe('TeamPage', () => {
       const user = userEvent.setup();
 
       server.use(
-        http.patch(`${API_BASE}/team/members/:id`, async ({ request }) => {
+        http.patch(`${API_BASE}/teams/:id`, async ({ request }) => {
           const body = await request.json() as { name?: string };
           return HttpResponse.json({
             ...mockTeamMembers[0],
@@ -346,7 +346,7 @@ describe('TeamPage', () => {
       const user = userEvent.setup();
 
       server.use(
-        http.delete(`${API_BASE}/team/members/:id`, () => {
+        http.delete(`${API_BASE}/teams/:id`, () => {
           return new HttpResponse(null, { status: 204 });
         })
       );
@@ -438,7 +438,7 @@ describe('TeamPage', () => {
   describe('Permission-gated Behavior', () => {
     it('should show upgrade button when at team limit', async () => {
       server.use(
-        http.get(`${API_BASE}/team/limits`, () => {
+        http.get(`${API_BASE}/teams/limits`, () => {
           return HttpResponse.json({
             max_members: 3,
             current_members: 3,
@@ -456,7 +456,7 @@ describe('TeamPage', () => {
 
     it('should display limit warning card when at limit', async () => {
       server.use(
-        http.get(`${API_BASE}/team/limits`, () => {
+        http.get(`${API_BASE}/teams/limits`, () => {
           return HttpResponse.json({
             max_members: 3,
             current_members: 3,

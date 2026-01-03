@@ -49,7 +49,7 @@ export function BillingPage() {
   });
 
   const portalMutation = useMutation({
-    mutationFn: () => api.createPortalSession(`${window.location.origin}/billing`),
+    mutationFn: () => api.createPortalSession(`${window.location.origin}/admin/billing`),
     onSuccess: (result) => {
       window.location.href = result.data.url;
     },

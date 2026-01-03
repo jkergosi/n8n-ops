@@ -1,5 +1,5 @@
 """Admin endpoints for entitlements management (Phase 4)."""
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, Query, Depends
 from typing import List, Optional
 from datetime import datetime
 
@@ -21,6 +21,7 @@ from app.schemas.entitlements import (
 from app.services.database import db_service
 from app.services.audit_service import audit_service
 from app.services.entitlements_service import entitlements_service
+from app.core.platform_admin import require_platform_admin
 
 router = APIRouter()
 
@@ -33,6 +34,7 @@ router = APIRouter()
 async def get_all_features(
     status_filter: Optional[str] = Query(None, description="Filter by status (active, deprecated, hidden)"),
     type_filter: Optional[str] = Query(None, description="Filter by type (flag, limit)"),
+    _: dict = Depends(require_platform_admin()),
 ):
     """Get all features (admin only)."""
     try:
@@ -72,7 +74,7 @@ async def get_all_features(
 
 
 @router.get("/features/{feature_id}", response_model=AdminFeatureResponse)
-async def get_feature(feature_id: str):
+async def get_feature(feature_id: str, _: dict = Depends(require_platform_admin())):
     """Get a specific feature (admin only)."""
     try:
         response = db_service.client.table("features").select("*").eq(
@@ -109,7 +111,7 @@ async def get_feature(feature_id: str):
 # =============================================================================
 
 @router.get("/plans", response_model=AdminPlanListResponse)
-async def get_all_plans():
+async def get_all_plans(_: dict = Depends(require_platform_admin())):
     """Get all plans with tenant counts (admin only)."""
     try:
         response = db_service.client.table("plans").select("*").order("sort_order").execute()
@@ -147,7 +149,7 @@ async def get_all_plans():
 
 
 @router.get("/plans/{plan_id}", response_model=AdminPlanResponse)
-async def get_plan(plan_id: str):
+async def get_plan(plan_id: str, _: dict = Depends(require_platform_admin())):
     """Get a specific plan (admin only)."""
     try:
         response = db_service.client.table("plans").select("*").eq(
@@ -191,7 +193,7 @@ async def get_plan(plan_id: str):
 # =============================================================================
 
 @router.get("/features/matrix", response_model=FeatureMatrixResponse)
-async def get_feature_matrix():
+async def get_feature_matrix(_: dict = Depends(require_platform_admin())):
     """
     Get the full feature matrix showing all features and their values across all plans.
     This is the main admin view for managing entitlements.
@@ -293,6 +295,7 @@ async def update_plan_feature_value(
     plan_id: str,
     feature_key: str,
     update: PlanFeatureUpdate,
+    user_info: dict = Depends(require_platform_admin()),
 ):
     """
     Update a plan-feature value (admin only).
@@ -387,7 +390,7 @@ async def update_plan_feature_value(
 
 
 @router.get("/plans/{plan_id}/features", response_model=List[PlanFeatureValueResponse])
-async def get_plan_features(plan_id: str):
+async def get_plan_features(plan_id: str, _: dict = Depends(require_platform_admin())):
     """Get all feature values for a specific plan (admin only)."""
     try:
         # Verify plan exists
@@ -431,7 +434,7 @@ async def get_plan_features(plan_id: str):
 # =============================================================================
 
 @router.post("/cache/clear")
-async def clear_entitlements_cache():
+async def clear_entitlements_cache(_: dict = Depends(require_platform_admin())):
     """Clear all entitlements caches (admin only). Use after bulk updates."""
     try:
         entitlements_service.clear_cache()
@@ -444,7 +447,7 @@ async def clear_entitlements_cache():
 
 
 @router.get("/debug/{tenant_id}")
-async def debug_tenant_entitlements(tenant_id: str):
+async def debug_tenant_entitlements(tenant_id: str, _: dict = Depends(require_platform_admin())):
     """
     Debug endpoint to inspect tenant entitlements configuration.
     Shows tenant plan assignment, plan features, and computed entitlements.

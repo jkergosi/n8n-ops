@@ -5,7 +5,7 @@ import { LoginPage } from './LoginPage';
 import { render } from '@/test/test-utils';
 
 // Mock useAuth hook
-const mockLogin = vi.fn();
+const mockLoginWithEmail = vi.fn();
 const mockNavigate = vi.fn();
 
 vi.mock('@/lib/auth', async (importOriginal) => {
@@ -16,7 +16,9 @@ vi.mock('@/lib/auth', async (importOriginal) => {
       isAuthenticated: false,
       isLoading: false,
       needsOnboarding: false,
-      login: mockLogin,
+      loginWithEmail: mockLoginWithEmail,
+      loginWithOAuth: vi.fn(),
+      signup: vi.fn(),
     }),
   };
 });
@@ -67,10 +69,13 @@ describe('LoginPage', () => {
     it('should call login when sign in button is clicked', async () => {
       render(<LoginPage />);
 
+      await userEvent.type(screen.getByLabelText(/email/i), 'admin@example.com');
+      await userEvent.type(screen.getByLabelText(/password/i), 'password123');
+
       const signInButton = screen.getByRole('button', { name: /sign in/i });
       await userEvent.click(signInButton);
 
-      expect(mockLogin).toHaveBeenCalled();
+      expect(mockLoginWithEmail).toHaveBeenCalled();
     });
   });
 
@@ -81,7 +86,9 @@ describe('LoginPage', () => {
           isAuthenticated: false,
           isLoading: true,
           needsOnboarding: false,
-          login: mockLogin,
+          loginWithEmail: mockLoginWithEmail,
+          loginWithOAuth: vi.fn(),
+          signup: vi.fn(),
         }),
       }));
 

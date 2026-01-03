@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 from app.services.database import db_service
 from app.services.auth_service import get_current_user
+from app.core.platform_admin import require_platform_admin
 from app.services.entitlements_service import entitlements_service
 
 router = APIRouter()
@@ -181,7 +182,7 @@ def get_usage_status(percentage: float, limit: int) -> str:
 @router.get("/", response_model=GlobalUsageResponse)
 async def get_global_usage(
     provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all"),
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """
     Get global usage statistics across all tenants.
@@ -324,7 +325,7 @@ async def get_usage_history(
     metric: str = Query("executions", description="Metric to chart: executions"),
     days: int = Query(30, ge=7, le=90, description="Number of days (UTC)"),
     provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all"),
-    user_info: dict = Depends(get_current_user),
+    user_info: dict = Depends(require_platform_admin()),
 ):
     """
     Time-series usage data for admin charts.
@@ -371,7 +372,7 @@ async def get_top_tenants(
     period: str = Query("all", description="Time period: today, week, month, all"),
     provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all (users metric ignores this)"),
     limit: int = Query(10, ge=1, le=50),
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """
     Get top tenants ranked by a specific metric.
@@ -612,7 +613,7 @@ async def get_top_tenants(
 async def get_tenants_at_limit(
     threshold: int = Query(75, ge=50, le=100, description="Percentage threshold for 'near limit'"),
     provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all (users metric ignores this)"),
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """
     Get tenants that are at, near, or over their plan limits.
@@ -740,7 +741,7 @@ async def get_tenants_at_limit(
 async def get_tenant_usage(
     tenant_id: str,
     provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all"),
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """Get usage metrics for a tenant (admin only)"""
     try:

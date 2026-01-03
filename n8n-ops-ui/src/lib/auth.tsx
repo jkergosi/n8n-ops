@@ -8,21 +8,20 @@ interface User {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'developer' | 'viewer';
+  role: 'admin' | 'developer' | 'viewer' | 'platform_admin';
+  isPlatformAdmin?: boolean;
 }
 
 interface Tenant {
   id: string;
   name: string;
-  subscriptionPlan: 'free' | 'pro' | 'agency' | 'enterprise';
+  subscriptionPlan: 'free' | 'pro' | 'agency' | 'agency_plus' | 'enterprise';
 }
 
-interface TenantUser {
+interface ActorUser {
   id: string;
   email: string;
-  name: string;
-  role: string;
-  can_be_impersonated?: boolean;
+  name?: string | null;
 }
 
 interface AuthContextType {
@@ -35,17 +34,17 @@ interface AuthContextType {
   entitlements: Entitlements | null;
   session: Session | null;
   impersonating: boolean;
-  tenantUsers: TenantUser[];
+  actorUser: ActorUser | null;
   login: () => void;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   loginWithOAuth: (provider: 'google' | 'github') => Promise<void>;
   signup: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  loginAs: (userId: string) => Promise<void>;
+  startImpersonation: (targetUserId: string) => Promise<void>;
   stopImpersonating: () => Promise<void>;
   completeOnboarding: (organizationName?: string) => Promise<void>;
   refreshEntitlements: () => Promise<void>;
-  refreshTenantUsers: () => Promise<void>;
+  refreshAuth: () => Promise<void>;
 }
 
 // Keep a single context instance across Vite HMR updates.
@@ -65,8 +64,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
-  const [tenantUsers, setTenantUsers] = useState<TenantUser[]>([]);
   const [impersonating, setImpersonating] = useState(false);
+  const [actorUser, setActorUser] = useState<ActorUser | null>(null);
   const [authStatus, setAuthStatus] = useState<'initializing' | 'authenticated' | 'unauthenticated'>('initializing');
 
   const isLoading = authStatus === 'initializing';
@@ -96,7 +95,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: statusData.user.id,
           email: statusData.user.email,
           name: statusData.user.name,
-          role: statusData.user.role || 'admin',
+          role: statusData.user.role || 'viewer',
+          isPlatformAdmin: !!(statusData.user as any)?.is_platform_admin,
         });
         setTenant({
           id: statusData.tenant.id,
@@ -104,6 +104,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           subscriptionPlan: statusData.tenant.subscription_plan || 'free',
         });
         setNeedsOnboarding(false);
+
+        setImpersonating(!!(statusData as any)?.impersonating);
+        setActorUser(((statusData as any)?.actor_user as ActorUser) || null);
 
         if (statusData.entitlements) {
           setEntitlements(statusData.entitlements);
@@ -119,64 +122,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isTest]);
 
-  // Fetch tenant users for admin impersonation
-  const refreshTenantUsers = useCallback(async () => {
-    if (user?.role !== 'admin' || !tenant) {
-      setTenantUsers([]);
-      return;
-    }
-
-    try {
-      const { data } = await apiClient.getTenantUsers();
-      setTenantUsers(data.users || []);
-    } catch (error) {
-      if (!isTest) console.error('[Auth] Failed to fetch tenant users:', error);
-      setTenantUsers([]);
-    }
-  }, [user?.role, tenant, isTest]);
-
   // Initialize auth on mount
   useEffect(() => {
     const initAuth = async () => {
       try {
-        // Check for impersonation token first
-        const impersonationToken = localStorage.getItem('impersonation_token');
-        if (impersonationToken) {
-          apiClient.setAuthToken(impersonationToken);
-          setImpersonating(true);
-
-          try {
-            const { data: statusData } = await apiClient.getAuthStatus();
-            if (statusData.user && statusData.tenant) {
-              setUser({
-                id: statusData.user.id,
-                email: statusData.user.email,
-                name: statusData.user.name,
-                role: statusData.user.role || 'admin',
-              });
-              setTenant({
-                id: statusData.tenant.id,
-                name: statusData.tenant.name,
-                subscriptionPlan: statusData.tenant.subscription_plan || 'free',
-              });
-              if (statusData.entitlements) {
-                setEntitlements(statusData.entitlements);
-              }
-              setAuthStatus('authenticated');
-              return;
-            }
-          } catch {
-            // Impersonation token invalid, clear it
-            localStorage.removeItem('impersonation_token');
-            setImpersonating(false);
-          }
-        }
-
         // Get Supabase session
         const { data: { session: currentSession } } = await supabase.auth.getSession();
 
         if (currentSession) {
           setSession(currentSession);
+        }
+
+        if (currentSession) {
           await fetchUserData(currentSession.access_token);
         } else {
           setAuthStatus('unauthenticated');
@@ -199,9 +156,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(null);
           setTenant(null);
           setEntitlements(null);
-          setTenantUsers([]);
           setImpersonating(false);
-          localStorage.removeItem('impersonation_token');
+          setActorUser(null);
           setAuthStatus('unauthenticated');
           return;
         }
@@ -220,13 +176,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, [fetchUserData, isTest, impersonating]);
-
-  // Fetch tenant users when user/tenant changes
-  useEffect(() => {
-    if (user?.role === 'admin' && tenant && !impersonating) {
-      refreshTenantUsers();
-    }
-  }, [user?.role, tenant, impersonating, refreshTenantUsers]);
 
   const login = useCallback(() => {
     window.location.href = '/login';
@@ -265,60 +214,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    localStorage.removeItem('impersonation_token');
     setImpersonating(false);
+    setActorUser(null);
     await supabase.auth.signOut();
   }, []);
 
-  const loginAs = useCallback(async (userId: string) => {
+  const startImpersonation = useCallback(async (targetUserId: string) => {
     try {
-      const { data } = await apiClient.impersonateUser(userId);
-      localStorage.setItem('impersonation_token', data.token);
-      apiClient.setAuthToken(data.token);
-
-      setUser({
-        id: data.user.id,
-        email: data.user.email,
-        name: data.user.name,
-        role: data.user.role || 'admin',
-      });
-      setTenant({
-        id: data.tenant.id,
-        name: data.tenant.name,
-        subscriptionPlan: data.tenant.subscription_tier || 'free',
-      });
-      setImpersonating(true);
-
-      // Refresh entitlements for impersonated user
-      try {
-        const { data: statusData } = await apiClient.getAuthStatus();
-        if (statusData.entitlements) {
-          setEntitlements(statusData.entitlements);
-        }
-      } catch {
-        // Ignore entitlements fetch error
+      if (!session?.access_token) {
+        throw new Error('Not authenticated');
       }
+      apiClient.setAuthToken(session.access_token);
+      await apiClient.startPlatformImpersonation(targetUserId);
+      window.location.reload();
     } catch (error) {
-      if (!isTest) console.error('[Auth] Failed to impersonate user:', error);
+      if (!isTest) console.error('[Auth] Failed to start impersonation:', error);
       throw error;
     }
-  }, [isTest]);
+  }, [session?.access_token, isTest]);
 
   const stopImpersonating = useCallback(async () => {
     try {
-      await apiClient.stopImpersonating();
+      await apiClient.stopPlatformImpersonation();
     } catch {
       // Ignore error, just clear local state
     }
 
-    localStorage.removeItem('impersonation_token');
     setImpersonating(false);
+    setActorUser(null);
 
     // Restore original session
     if (session) {
       apiClient.setAuthToken(session.access_token);
       await fetchUserData(session.access_token);
     }
+    window.location.reload();
   }, [session, fetchUserData]);
 
   const completeOnboarding = useCallback(async (organizationName?: string) => {
@@ -347,6 +277,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isTest]);
 
+  const refreshAuth = useCallback(async () => {
+    if (session) {
+      await fetchUserData(session.access_token);
+    }
+  }, [session, fetchUserData]);
+
   const isAuthenticated = authStatus === 'authenticated';
 
   return (
@@ -361,17 +297,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         entitlements,
         session,
         impersonating,
-        tenantUsers,
+        actorUser,
         login,
         loginWithEmail,
         loginWithOAuth,
         signup,
         logout,
-        loginAs,
+        startImpersonation,
         stopImpersonating,
         completeOnboarding,
         refreshEntitlements,
-        refreshTenantUsers,
+        refreshAuth,
       }}
     >
       {children}

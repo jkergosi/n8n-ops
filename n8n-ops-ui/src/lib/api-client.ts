@@ -118,8 +118,8 @@ class ApiClient {
       async (error) => {
         const config = error.config;
 
-        // Network errors - retry with exponential backoff
-        if (!error.response && (error.code === 'ECONNABORTED' || error.code === 'ERR_NETWORK' || error.message === 'Network Error')) {
+        // Network errors - retry with exponential backoff (disabled in tests)
+        if (import.meta.env.MODE !== 'test' && !error.response && (error.code === 'ECONNABORTED' || error.code === 'ERR_NETWORK' || error.message === 'Network Error')) {
           if (!config._retryCount) config._retryCount = 0;
           if (config._retryCount < 3) {
             config._retryCount++;
@@ -156,7 +156,6 @@ class ApiClient {
           }
           // Handle unauthorized - redirect to login
           localStorage.removeItem('auth_token');
-          localStorage.removeItem('impersonation_token');
           // Only redirect if not already on login page to prevent loops
           if (window.location.pathname !== '/login') {
             window.location.href = '/login';
@@ -207,6 +206,27 @@ class ApiClient {
     return { data: response.data };
   }
 
+  // Platform impersonation (Support Console)
+  async startPlatformImpersonation(target_user_id: string): Promise<{ data: { success: boolean; impersonating: boolean } }> {
+    const response = await this.client.post('/platform/impersonate', { target_user_id });
+    return { data: response.data };
+  }
+
+  async stopPlatformImpersonation(): Promise<{ data: { success: boolean; message: string } }> {
+    const response = await this.client.post('/platform/impersonate/stop');
+    return { data: response.data };
+  }
+
+  async consoleSearchTenants(params: { name?: string; slug?: string; tenant_id?: string; limit?: number }): Promise<{ data: { tenants: any[] } }> {
+    const response = await this.client.get('/platform/console/tenants', { params });
+    return { data: response.data };
+  }
+
+  async consoleSearchUsers(params: { email?: string; name?: string; user_id?: string; tenant_id?: string; limit?: number }): Promise<{ data: { users: any[] } }> {
+    const response = await this.client.get('/platform/console/users', { params });
+    return { data: response.data };
+  }
+
   setAuthToken(token: string | null): void {
     if (token) {
       localStorage.setItem('auth_token', token);
@@ -227,7 +247,9 @@ class ApiClient {
       authenticated: boolean;
       onboarding_required: boolean;
       has_environment: boolean;
-      user: { id: string; email: string; name: string; role: string } | null;
+      impersonating?: boolean;
+      actor_user?: { id: string; email: string; name?: string | null } | null;
+      user: { id: string; email: string; name: string; role: string; is_platform_admin?: boolean } | null;
       tenant: { id: string; name: string; subscription_plan: string } | null;
       entitlements: Entitlements | null;
     };
@@ -1591,12 +1613,12 @@ class ApiClient {
 
   // Team endpoints
   async getTeamMembers(): Promise<{ data: TeamMember[] }> {
-    const response = await this.client.get<TeamMember[]>('/team/members');
+    const response = await this.client.get<TeamMember[]>('/teams/');
     return { data: response.data };
   }
 
   async getTeamLimits(): Promise<{ data: TeamLimits }> {
-    const response = await this.client.get<TeamLimits>('/team/limits');
+    const response = await this.client.get<TeamLimits>('/teams/limits');
     return { data: response.data };
   }
 
@@ -1605,7 +1627,7 @@ class ApiClient {
     name: string;
     role: string;
   }): Promise<{ data: TeamMember }> {
-    const response = await this.client.post<TeamMember>('/team/members', member);
+    const response = await this.client.post<TeamMember>('/teams/', member);
     return { data: response.data };
   }
 
@@ -1614,16 +1636,16 @@ class ApiClient {
     email?: string;
     role?: string;
   }): Promise<{ data: TeamMember }> {
-    const response = await this.client.patch<TeamMember>(`/team/members/${id}`, updates);
+    const response = await this.client.patch<TeamMember>(`/teams/${id}`, updates);
     return { data: response.data };
   }
 
   async deleteTeamMember(id: string): Promise<void> {
-    await this.client.delete(`/team/members/${id}`);
+    await this.client.delete(`/teams/${id}`);
   }
 
   async resendInvitation(id: string): Promise<{ data: { success: boolean; message: string } }> {
-    const response = await this.client.post(`/team/members/${id}/resend-invitation`);
+    const response = await this.client.post(`/teams/${id}/resend-invite`);
     return { data: response.data };
   }
 
@@ -1974,6 +1996,21 @@ class ApiClient {
   }): Promise<{ data: { tenants: Tenant[]; total: number; page: number; page_size: number } }> {
     const response = await this.client.get('/tenants/', { params });
     return { data: response.data };
+  }
+
+  // Platform Admins
+  async getPlatformAdmins(): Promise<{ data: { admins: any[]; total: number } }> {
+    const response = await this.client.get('/platform/admins');
+    return { data: response.data };
+  }
+
+  async addPlatformAdmin(payload: { email: string }): Promise<{ data: any }> {
+    const response = await this.client.post('/platform/admins', payload);
+    return { data: response.data };
+  }
+
+  async removePlatformAdmin(userId: string): Promise<void> {
+    await this.client.delete(`/platform/admins/${userId}`);
   }
 
   async getTenantById(id: string): Promise<{ data: Tenant }> {

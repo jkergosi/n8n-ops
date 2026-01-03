@@ -32,7 +32,7 @@ class TestWorkflowsAPIGet:
             mock_db.get_workflows = AsyncMock(return_value=mock_workflows)
 
             response = client.get(
-                "/api/v1/workflows",
+                "/api/v1/workflows/",
                 params={"environment_id": "env-1"},
                 headers=auth_headers
             )
@@ -52,7 +52,7 @@ class TestWorkflowsAPIGet:
             mock_db.get_workflows = AsyncMock(return_value=[])
 
             response = client.get(
-                "/api/v1/workflows",
+                "/api/v1/workflows/",
                 params={"environment_id": "env-1"},
                 headers=auth_headers
             )
@@ -75,7 +75,7 @@ class TestWorkflowsAPIGet:
             mock_db.get_environment = AsyncMock(return_value=None)
 
             response = client.get(
-                "/api/v1/workflows",
+                "/api/v1/workflows/",
                 params={"environment_id": "non-existent"},
                 headers=auth_headers
             )

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, Query, Depends
 from typing import List, Optional
 from datetime import datetime, timedelta
 
@@ -27,6 +27,7 @@ from app.schemas.entitlements import (
 from app.services.database import db_service
 from app.services.audit_service import audit_service
 from app.services.entitlements_service import entitlements_service
+from app.core.platform_admin import require_platform_admin
 
 router = APIRouter()
 
@@ -40,8 +41,9 @@ async def get_tenants(
     created_to: Optional[datetime] = Query(None, description="Filter by created date to"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
+    _: dict = Depends(require_platform_admin()),
 ):
-    """Get all tenants with pagination and filters (admin only)"""
+    """Get all tenants with pagination and filters (platform admin only)"""
     try:
         # Build query
         query = db_service.client.table("tenants").select("*", count="exact")
@@ -114,7 +116,7 @@ async def get_tenants(
 
 
 @router.get("/stats", response_model=TenantStats)
-async def get_tenant_stats():
+async def get_tenant_stats(_: dict = Depends(require_platform_admin())):
     """Get tenant statistics"""
     try:
         # Get all tenants for stats (subscription_tier is the actual db column)
@@ -151,7 +153,7 @@ async def get_tenant_stats():
 
 
 @router.get("/{tenant_id}", response_model=TenantResponse)
-async def get_tenant(tenant_id: str):
+async def get_tenant(tenant_id: str, _: dict = Depends(require_platform_admin())):
     """Get a specific tenant"""
     try:
         response = db_service.client.table("tenants").select("*").eq(
@@ -199,7 +201,7 @@ async def get_tenant(tenant_id: str):
 
 
 @router.post("/", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
-async def create_tenant(tenant: TenantCreate):
+async def create_tenant(tenant: TenantCreate, user_info: dict = Depends(require_platform_admin())):
     """Create a new tenant"""
     try:
         # Check if email already exists
@@ -249,7 +251,7 @@ async def create_tenant(tenant: TenantCreate):
 
 
 @router.patch("/{tenant_id}", response_model=TenantResponse)
-async def update_tenant(tenant_id: str, tenant: TenantUpdate):
+async def update_tenant(tenant_id: str, tenant: TenantUpdate, user_info: dict = Depends(require_platform_admin())):
     """Update a tenant"""
     try:
         # Check if tenant exists
@@ -302,7 +304,7 @@ async def update_tenant(tenant_id: str, tenant: TenantUpdate):
 
 
 @router.delete("/{tenant_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_tenant(tenant_id: str):
+async def delete_tenant(tenant_id: str, user_info: dict = Depends(require_platform_admin())):
     """Delete a tenant and all associated data"""
     try:
         # Check if tenant exists
@@ -363,7 +365,7 @@ async def delete_tenant(tenant_id: str):
 # =============================================================================
 
 @router.get("/{tenant_id}/overrides", response_model=TenantFeatureOverrideListResponse)
-async def get_tenant_overrides(tenant_id: str):
+async def get_tenant_overrides(tenant_id: str, _: dict = Depends(require_platform_admin())):
     """Get all feature overrides for a tenant (admin only)"""
     try:
         # Verify tenant exists
@@ -413,7 +415,7 @@ async def get_tenant_overrides(tenant_id: str):
 
 
 @router.post("/{tenant_id}/overrides", response_model=TenantFeatureOverrideResponse, status_code=status.HTTP_201_CREATED)
-async def create_tenant_override(tenant_id: str, override: TenantFeatureOverrideCreate):
+async def create_tenant_override(tenant_id: str, override: TenantFeatureOverrideCreate, user_info: dict = Depends(require_platform_admin())):
     """Create a feature override for a tenant (admin only)"""
     try:
         # Verify tenant exists
@@ -496,7 +498,8 @@ async def create_tenant_override(tenant_id: str, override: TenantFeatureOverride
 async def update_tenant_override(
     tenant_id: str,
     override_id: str,
-    override: TenantFeatureOverrideUpdate
+    override: TenantFeatureOverrideUpdate,
+    user_info: dict = Depends(require_platform_admin()),
 ):
     """Update a feature override for a tenant (admin only)"""
     try:
@@ -580,7 +583,7 @@ async def update_tenant_override(
 
 
 @router.delete("/{tenant_id}/overrides/{override_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_tenant_override(tenant_id: str, override_id: str):
+async def delete_tenant_override(tenant_id: str, override_id: str, user_info: dict = Depends(require_platform_admin())):
     """Delete a feature override for a tenant (admin only)"""
     try:
         # Check if override exists
@@ -621,6 +624,7 @@ async def get_tenant_config_audit_logs(
     feature_key: Optional[str] = Query(None, description="Filter by feature key"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
+    _: dict = Depends(require_platform_admin()),
 ):
     """Get configuration audit logs for a tenant (admin only)"""
     try:
@@ -673,6 +677,7 @@ async def get_tenant_access_logs(
     result: Optional[str] = Query(None, description="Filter by result (allowed, denied, limit_exceeded)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
+    _: dict = Depends(require_platform_admin()),
 ):
     """Get feature access logs for a tenant (admin only)"""
     try:
@@ -723,7 +728,7 @@ async def get_tenant_access_logs(
 # =============================================================================
 
 @router.post("/{tenant_id}/suspend", response_model=TenantResponse)
-async def suspend_tenant(tenant_id: str, reason: Optional[str] = None):
+async def suspend_tenant(tenant_id: str, reason: Optional[str] = None, user_info: dict = Depends(require_platform_admin())):
     """Suspend a tenant (soft lock access, preserve data)"""
     try:
         # Get current tenant
@@ -774,7 +779,7 @@ async def suspend_tenant(tenant_id: str, reason: Optional[str] = None):
 
 
 @router.post("/{tenant_id}/reactivate", response_model=TenantResponse)
-async def reactivate_tenant(tenant_id: str, reason: Optional[str] = None):
+async def reactivate_tenant(tenant_id: str, reason: Optional[str] = None, user_info: dict = Depends(require_platform_admin())):
     """Reactivate a suspended tenant"""
     try:
         # Get current tenant
@@ -829,6 +834,7 @@ async def schedule_tenant_deletion(
     tenant_id: str,
     request: ScheduleDeletionRequest,
     reason: Optional[str] = None,
+    user_info: dict = Depends(require_platform_admin()),
 ):
     """Schedule tenant for deletion after retention period"""
     try:
@@ -887,7 +893,7 @@ async def schedule_tenant_deletion(
 
 
 @router.delete("/{tenant_id}/cancel-deletion")
-async def cancel_tenant_deletion(tenant_id: str):
+async def cancel_tenant_deletion(tenant_id: str, user_info: dict = Depends(require_platform_admin())):
     """Cancel scheduled tenant deletion"""
     try:
         # Get current tenant
@@ -925,7 +931,7 @@ async def cancel_tenant_deletion(tenant_id: str):
 # =============================================================================
 
 @router.get("/{tenant_id}/notes", response_model=TenantNoteListResponse)
-async def get_tenant_notes(tenant_id: str):
+async def get_tenant_notes(tenant_id: str, _: dict = Depends(require_platform_admin())):
     """Get all notes for a tenant (admin only)"""
     try:
         # Verify tenant exists
@@ -957,7 +963,7 @@ async def get_tenant_notes(tenant_id: str):
 
 
 @router.post("/{tenant_id}/notes", response_model=TenantNoteResponse, status_code=status.HTTP_201_CREATED)
-async def create_tenant_note(tenant_id: str, note: TenantNoteCreate):
+async def create_tenant_note(tenant_id: str, note: TenantNoteCreate, user_info: dict = Depends(require_platform_admin())):
     """Create a note for a tenant (admin only)"""
     try:
         # Verify tenant exists
@@ -997,7 +1003,7 @@ async def create_tenant_note(tenant_id: str, note: TenantNoteCreate):
 
 
 @router.delete("/{tenant_id}/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_tenant_note(tenant_id: str, note_id: str):
+async def delete_tenant_note(tenant_id: str, note_id: str, user_info: dict = Depends(require_platform_admin())):
     """Delete a tenant note (admin only)"""
     try:
         # Verify note exists and belongs to tenant
@@ -1029,7 +1035,8 @@ async def delete_tenant_note(tenant_id: str, note_id: str):
 @router.get("/{tenant_id}/usage")
 async def get_tenant_usage(
     tenant_id: str,
-    provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all")
+    provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, or all"),
+    _: dict = Depends(require_platform_admin()),
 ):
     """Get usage metrics for a tenant (admin only)"""
     try:

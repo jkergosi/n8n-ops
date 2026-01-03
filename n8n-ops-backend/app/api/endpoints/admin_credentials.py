@@ -24,6 +24,7 @@ from app.schemas.credential import (
     MappingIssue,
 )
 from app.api.endpoints.auth import get_current_user
+from app.core.platform_admin import require_platform_admin
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -66,13 +67,13 @@ def get_current_tenant_id(user_info: dict) -> str:
 
 @router.get("/logical", response_model=list[LogicalCredentialResponse])
 @handle_db_errors
-async def list_logical_credentials(user_info: dict = Depends(get_current_user)):
+async def list_logical_credentials(user_info: dict = Depends(require_platform_admin())):
     tenant_id = get_current_tenant_id(user_info)
     return await db_service.list_logical_credentials(tenant_id)
 
 
 @router.post("/logical", response_model=LogicalCredentialResponse, status_code=status.HTTP_201_CREATED)
-async def create_logical_credential(body: LogicalCredentialCreate, user_info: dict = Depends(get_current_user)):
+async def create_logical_credential(body: LogicalCredentialCreate, user_info: dict = Depends(require_platform_admin())):
     tenant_id = get_current_tenant_id(user_info)
     user = user_info.get("user", {})
     data = body.model_dump()
@@ -96,7 +97,7 @@ async def create_logical_credential(body: LogicalCredentialCreate, user_info: di
 
 
 @router.patch("/logical/{logical_id}", response_model=LogicalCredentialResponse)
-async def update_logical_credential(logical_id: str, body: LogicalCredentialCreate, user_info: dict = Depends(get_current_user)):
+async def update_logical_credential(logical_id: str, body: LogicalCredentialCreate, user_info: dict = Depends(require_platform_admin())):
     tenant_id = get_current_tenant_id(user_info)
     user = user_info.get("user", {})
     
@@ -126,7 +127,7 @@ async def update_logical_credential(logical_id: str, body: LogicalCredentialCrea
 
 
 @router.delete("/logical/{logical_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_logical_credential(logical_id: str, user_info: dict = Depends(get_current_user)):
+async def delete_logical_credential(logical_id: str, user_info: dict = Depends(require_platform_admin())):
     tenant_id = get_current_tenant_id(user_info)
     user = user_info.get("user", {})
     
@@ -153,13 +154,13 @@ async def delete_logical_credential(logical_id: str, user_info: dict = Depends(g
 
 @router.get("/mappings", response_model=list[CredentialMappingResponse])
 @handle_db_errors
-async def list_mappings(environment_id: Optional[str] = None, provider: Optional[str] = None, user_info: dict = Depends(get_current_user)):
+async def list_mappings(environment_id: Optional[str] = None, provider: Optional[str] = None, user_info: dict = Depends(require_platform_admin())):
     tenant_id = get_current_tenant_id(user_info)
     return await db_service.list_credential_mappings(tenant_id, environment_id=environment_id, provider=provider)
 
 
 @router.post("/mappings", response_model=CredentialMappingResponse, status_code=status.HTTP_201_CREATED)
-async def create_mapping(body: CredentialMappingCreate, user_info: dict = Depends(get_current_user)):
+async def create_mapping(body: CredentialMappingCreate, user_info: dict = Depends(require_platform_admin())):
     tenant_id = get_current_tenant_id(user_info)
     user = user_info.get("user", {})
     data = body.model_dump()
@@ -195,7 +196,7 @@ async def create_mapping(body: CredentialMappingCreate, user_info: dict = Depend
 @handle_db_errors
 async def validate_credential_mappings(
     environment_id: Optional[str] = Query(None, description="Filter by environment ID"),
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """Validate that all credential mappings still resolve to valid N8N credentials."""
     tenant_id = get_current_tenant_id(user_info)
@@ -282,7 +283,7 @@ async def validate_credential_mappings(
 
 
 @router.patch("/mappings/{mapping_id}", response_model=CredentialMappingResponse)
-async def update_mapping(mapping_id: str, body: CredentialMappingUpdate, user_info: dict = Depends(get_current_user)):
+async def update_mapping(mapping_id: str, body: CredentialMappingUpdate, user_info: dict = Depends(require_platform_admin())):
     tenant_id = get_current_tenant_id(user_info)
     user = user_info.get("user", {})
     
@@ -324,7 +325,7 @@ async def update_mapping(mapping_id: str, body: CredentialMappingUpdate, user_in
 
 
 @router.delete("/mappings/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_mapping(mapping_id: str, user_info: dict = Depends(get_current_user)):
+async def delete_mapping(mapping_id: str, user_info: dict = Depends(require_platform_admin())):
     tenant_id = get_current_tenant_id(user_info)
     user = user_info.get("user", {})
     
@@ -362,7 +363,7 @@ async def delete_mapping(mapping_id: str, user_info: dict = Depends(get_current_
 @router.post("/preflight", response_model=CredentialPreflightResult)
 async def credential_preflight_check(
     body: CredentialPreflightRequest,
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """
     Validate credential mappings for workflows before promotion.
@@ -566,7 +567,7 @@ async def credential_preflight_check(
 async def get_workflow_dependencies(
     workflow_id: str,
     provider: str = "n8n",
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """Get credential dependencies for a specific workflow."""
     tenant_id = get_current_tenant_id(user_info)
@@ -631,7 +632,7 @@ async def get_workflow_dependencies(
 async def refresh_environment_dependencies(
     environment_id: str,
     provider: Optional[str] = Query(None),
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """Manually refresh workflow credential dependencies for an environment."""
     tenant_id = get_current_tenant_id(user_info)
@@ -658,7 +659,7 @@ async def refresh_workflow_dependencies(
     workflow_id: str,
     environment_id: str,
     provider: str = "n8n",
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """Re-extract credential dependencies from workflow data."""
     tenant_id = get_current_tenant_id(user_info)
@@ -690,7 +691,7 @@ async def refresh_workflow_dependencies(
 async def get_credential_health(
     environment_id: str,
     provider: Optional[str] = Query(None),
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """Get credential health summary for an environment."""
     tenant_id = get_current_tenant_id(user_info)
@@ -757,7 +758,7 @@ async def get_credential_health(
 
 @router.get("/matrix", response_model=CredentialMatrixResponse)
 @handle_db_errors
-async def get_credential_matrix(user_info: dict = Depends(get_current_user)):
+async def get_credential_matrix(user_info: dict = Depends(require_platform_admin())):
     """Get a matrix view of all logical credentials and their mappings across environments."""
     tenant_id = get_current_tenant_id(user_info)
 
@@ -804,7 +805,7 @@ async def get_credential_matrix(user_info: dict = Depends(get_current_user)):
 async def discover_credentials_from_workflows(
     environment_id: str,
     provider: str = "n8n",
-    user_info: dict = Depends(get_current_user)
+    user_info: dict = Depends(require_platform_admin())
 ):
     """Scan all workflows in environment and return unique credential references."""
     tenant_id = get_current_tenant_id(user_info)

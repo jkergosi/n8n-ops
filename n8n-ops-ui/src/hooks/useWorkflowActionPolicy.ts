@@ -33,10 +33,10 @@ export function useWorkflowActionPolicy(
     return getWorkflowActionPolicy(
       environment,
       planName,
-      user?.role || 'user',
+      (user as any)?.isPlatformAdmin ? 'platform_admin' : (user?.role || 'viewer'),
       hasDrift
     );
-  }, [environment, planName, user?.role, workflow?.syncStatus]);
+  }, [environment, planName, user?.role, (user as any)?.isPlatformAdmin, workflow?.syncStatus]);
 }
 
 /**

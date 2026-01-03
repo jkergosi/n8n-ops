@@ -174,6 +174,11 @@ export const handlers = [
     });
   }),
 
+  // Back-compat: some pages still call this legacy route
+  http.get(`${API_BASE}/auth/users`, () => {
+    return HttpResponse.json({ users: mockUsers });
+  }),
+
   http.get(`${API_BASE}/auth/me`, () => {
     return HttpResponse.json(mockUsers[0]);
   }),
@@ -396,7 +401,7 @@ export const handlers = [
   }),
 
   // Team endpoints
-  http.get(`${API_BASE}/team/members`, () => {
+  http.get(`${API_BASE}/teams/`, () => {
     return HttpResponse.json(
       mockUsers.map((u) => ({
         ...u,
@@ -406,7 +411,7 @@ export const handlers = [
     );
   }),
 
-  http.get(`${API_BASE}/team/limits`, () => {
+  http.get(`${API_BASE}/teams/limits`, () => {
     return HttpResponse.json({
       max_members: 10,
       current_members: 2,
@@ -414,7 +419,7 @@ export const handlers = [
     });
   }),
 
-  http.patch(`${API_BASE}/team/members/:id`, async ({ params, request }) => {
+  http.patch(`${API_BASE}/teams/:id`, async ({ params, request }) => {
     const updates: any = await request.json();
     const base = mockUsers.find((u) => u.id === params.id) || mockUsers[0];
     return HttpResponse.json({
@@ -426,7 +431,7 @@ export const handlers = [
     });
   }),
 
-  http.delete(`${API_BASE}/team/members/:id`, () => {
+  http.delete(`${API_BASE}/teams/:id`, () => {
     return new HttpResponse(null, { status: 204 });
   }),
 
@@ -467,6 +472,44 @@ export const handlers = [
 
   http.get(`${API_BASE}/billing/payment-history`, () => {
     return HttpResponse.json([]);
+  }),
+
+  // Billing overview (used by /admin/billing page)
+  http.get(`${API_BASE}/billing/overview`, () => {
+    return HttpResponse.json({
+      plan: { key: 'pro', name: 'Pro', is_custom: false },
+      subscription: {
+        status: 'active',
+        interval: 'month',
+        current_period_end: '2024-02-15T00:00:00Z',
+        cancel_at_period_end: false,
+        next_amount_cents: 2900,
+        currency: 'USD',
+      },
+      usage: {
+        environments_used: 2,
+        team_members_used: 2,
+      },
+      entitlements: {
+        environments_limit: 10,
+        team_members_limit: 20,
+        promotions_monthly_limit: null,
+        snapshots_monthly_limit: null,
+      },
+      payment_method: {
+        brand: 'visa',
+        last4: '4242',
+        exp_month: 12,
+        exp_year: 2030,
+      },
+      invoices: [],
+      links: {
+        stripe_portal_url: '',
+        change_plan_url: '/billing/change-plan',
+        usage_limits_url: '/admin/usage',
+        entitlements_audit_url: '/admin/entitlements-audit',
+      },
+    });
   }),
 
   // N8N Users endpoints - returns array directly (with and without trailing slash)

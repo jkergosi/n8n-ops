@@ -1,28 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import {
   canAccessRoute,
-  isMenuItemVisible,
   mapBackendRoleToFrontendRole,
 } from '../permissions';
 
 describe('permissions helpers', () => {
-  it('allows superuser for any route or menu', () => {
-    expect(canAccessRoute('/admin/plans', 'superuser')).toBe(true);
-    expect(isMenuItemVisible('plans', 'superuser')).toBe(true);
+  it('allows platform_admin for platform routes (no plan gating)', () => {
+    expect(canAccessRoute('/platform/tenants', 'platform_admin', 'free')).toBe(true);
+    expect(canAccessRoute('/platform/admins', 'platform_admin', 'free')).toBe(true);
   });
 
-  it('denies restricted admin route for regular user', () => {
-    expect(canAccessRoute('/admin/plans', 'user')).toBe(false);
+  it('denies platform routes for non-platform users', () => {
+    expect(canAccessRoute('/platform/tenants', 'admin', 'free')).toBe(false);
+    expect(canAccessRoute('/platform/tenants', 'developer', 'free')).toBe(false);
+    expect(canAccessRoute('/platform/tenants', 'viewer', 'free')).toBe(false);
   });
 
-  it('allows dynamic workflow routes for default user', () => {
-    expect(canAccessRoute('/workflows/123', 'user')).toBe(true);
+  it('org admin routes are admin only', () => {
+    expect(canAccessRoute('/admin/members', 'admin', 'free')).toBe(true);
+    expect(canAccessRoute('/admin/members', 'developer', 'free')).toBe(false);
+    expect(canAccessRoute('/admin/members', 'viewer', 'free')).toBe(false);
   });
 
-  it('maps backend roles to frontend roles', () => {
-    expect(mapBackendRoleToFrontendRole('super_admin')).toBe('superuser');
-    expect(mapBackendRoleToFrontendRole('agency')).toBe('agency');
-    expect(mapBackendRoleToFrontendRole(undefined)).toBe('user');
+  it('observability is Pro+ and viewer+', () => {
+    expect(canAccessRoute('/observability', 'viewer', 'free')).toBe(false);
+    expect(canAccessRoute('/observability', 'viewer', 'pro')).toBe(true);
+  });
+
+  it('maps backend roles to frontend roles (with back-compat)', () => {
+    expect(mapBackendRoleToFrontendRole('super_admin')).toBe('platform_admin');
+    expect(mapBackendRoleToFrontendRole('admin')).toBe('admin');
+    expect(mapBackendRoleToFrontendRole('developer')).toBe('developer');
+    expect(mapBackendRoleToFrontendRole('viewer')).toBe('viewer');
+    expect(mapBackendRoleToFrontendRole(undefined)).toBe('viewer');
   });
 });
 

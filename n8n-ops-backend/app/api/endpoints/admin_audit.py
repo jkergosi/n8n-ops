@@ -1,11 +1,12 @@
 """Admin audit log endpoints."""
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, Query, Depends
 from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel
 from enum import Enum
 
 from app.services.database import db_service
+from app.core.platform_admin import require_platform_admin
 
 router = APIRouter()
 
@@ -183,6 +184,7 @@ async def get_audit_logs(
     search: Optional[str] = Query(None, description="Search in action, resource_name"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
+    _: dict = Depends(require_platform_admin()),
 ):
     """Get audit logs with filtering and pagination.
 
@@ -243,13 +245,13 @@ async def get_audit_logs(
 
 
 @router.get("/action-types")
-async def get_action_types():
+async def get_action_types(_: dict = Depends(require_platform_admin())):
     """Get list of all action types for filtering."""
     return {"action_types": [e.value for e in AuditActionType]}
 
 
 @router.get("/stats")
-async def get_audit_stats():
+async def get_audit_stats(_: dict = Depends(require_platform_admin())):
     """Get audit log statistics."""
     try:
         # Get total count
@@ -289,6 +291,7 @@ async def export_audit_logs(
     action_type: Optional[str] = Query(None),
     tenant_id: Optional[str] = Query(None),
     provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, platform, or all"),
+    _: dict = Depends(require_platform_admin()),
 ):
     """Export audit logs as JSON (for CSV conversion on frontend)."""
     try:

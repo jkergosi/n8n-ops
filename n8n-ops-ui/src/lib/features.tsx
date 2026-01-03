@@ -445,7 +445,7 @@ interface FeaturesProviderProps {
 }
 
 export function FeaturesProvider({ children }: FeaturesProviderProps) {
-  const { user, entitlements } = useAuth();
+  const { user, entitlements, needsOnboarding } = useAuth();
   const isTest = import.meta.env.MODE === 'test';
   const [planName, setPlanName] = useState<string>('free');
   const [features, setFeatures] = useState<PlanFeatures>(PLAN_FEATURES.free);
@@ -529,19 +529,28 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
           });
         }
 
-        // Load actual usage data
-        try {
-          const { api } = await import('./api');
-          const envsResponse = await api.getEnvironments();
-          const envCount = envsResponse?.data?.length || 0;
-          
-          setUsage({
-            environments: { current: envCount, max: envLimits },
-            team_members: { current: 1, max: baseFeatures.max_team_members || 3 },
-            workflows: {},
-          });
-        } catch (error) {
-          if (!isTest) console.warn('Failed to load environment count, using defaults:', error);
+        // Load actual usage data - skip during onboarding or when not authenticated
+        if (user && !needsOnboarding) {
+          try {
+            const { api } = await import('./api');
+            const envsResponse = await api.getEnvironments();
+            const envCount = envsResponse?.data?.length || 0;
+
+            setUsage({
+              environments: { current: envCount, max: envLimits },
+              team_members: { current: 1, max: baseFeatures.max_team_members || 3 },
+              workflows: {},
+            });
+          } catch (error) {
+            if (!isTest) console.warn('Failed to load environment count, using defaults:', error);
+            setUsage({
+              environments: { current: 0, max: envLimits },
+              team_members: { current: 1, max: baseFeatures.max_team_members || 3 },
+              workflows: {},
+            });
+          }
+        } else {
+          // During onboarding, use default values
           setUsage({
             environments: { current: 0, max: envLimits },
             team_members: { current: 1, max: baseFeatures.max_team_members || 3 },
@@ -556,7 +565,7 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
     };
 
     loadFeatures();
-  }, [user, entitlements]);
+  }, [user, entitlements, needsOnboarding]);
 
   const canUseFeature = (feature: keyof PlanFeatures | string): boolean => {
     // Check entitlements first for Phase 1 features

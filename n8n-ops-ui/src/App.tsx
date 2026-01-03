@@ -1,8 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { AuthProvider, useAuth } from '@/lib/auth';
-import { FeaturesProvider } from '@/lib/features';
+import { FeaturesProvider, useFeatures } from '@/lib/features';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { Toaster, toast } from 'sonner';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -40,21 +40,13 @@ import { NewDeploymentPage } from '@/pages/NewDeploymentPage';
 import {
   TenantsPage,
   TenantDetailPage,
-  PlansPage,
-  UsagePage,
-  SystemBillingPage,
-  PerformancePage,
-  AuditLogsPage,
-  NotificationsPage,
   SecurityPage,
   SettingsPage,
-  FeatureMatrixPage,
   TenantOverridesPage,
   EntitlementsAuditPage,
   CredentialHealthPage,
   SupportConfigPage,
   SupportRequestsPage,
-  DriftPoliciesPage,
 } from '@/pages/admin';
 import {
   SupportHomePage,
@@ -63,8 +55,12 @@ import {
   GetHelpPage,
 } from '@/pages/support';
 import { useLocation } from 'react-router-dom';
-import { canAccessRoute, mapBackendRoleToFrontendRole } from '@/lib/permissions';
+import { canAccessRoute, mapBackendRoleToFrontendRole, normalizePlan } from '@/lib/permissions';
 import { setLastRoute } from '@/lib/lastRoute';
+import { AdminUsagePage } from '@/pages/AdminUsagePage';
+import { AdminEntitlementsPage } from '@/pages/AdminEntitlementsPage';
+import { PlatformAdminsPage } from '@/pages/platform/PlatformAdminsPage';
+import { SupportConsolePage } from '@/pages/platform/SupportConsolePage';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -122,32 +118,37 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 // Role Protected Route Component - checks role permissions and redirects to dashboard if unauthorized
 function RoleProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { planName } = useFeatures();
   const location = useLocation();
   const navigate = useNavigate();
 
-  const userRole = user ? mapBackendRoleToFrontendRole(user.role) : null;
-  const canAccess = user ? canAccessRoute(location.pathname, userRole!) : true;
+  const effectiveRole = user
+    ? ((user as any)?.isPlatformAdmin ? 'platform_admin' : mapBackendRoleToFrontendRole(user.role))
+    : null;
+  const plan = normalizePlan(planName);
+  const canAccess = user ? canAccessRoute(location.pathname, effectiveRole!, plan) : true;
 
   console.log('[RoleProtectedRoute] Render:', {
     pathname: location.pathname,
     hasUser: !!user,
-    userRole,
+    userRole: effectiveRole,
+    plan: plan,
     canAccess
   });
 
   useEffect(() => {
     if (user) {
-      const role = mapBackendRoleToFrontendRole(user.role);
+      const role = (user as any)?.isPlatformAdmin ? 'platform_admin' : mapBackendRoleToFrontendRole(user.role);
       const pathname = location.pathname;
 
       // Check if user can access this route
-      if (!canAccessRoute(pathname, role)) {
+      if (!canAccessRoute(pathname, role, plan)) {
         console.log('[RoleProtectedRoute] Redirecting to dashboard - unauthorized');
         // Redirect to dashboard if unauthorized
         navigate('/', { replace: true });
       }
     }
-  }, [user, location.pathname, navigate]);
+  }, [user, location.pathname, navigate, plan]);
 
   // If no user, let ProtectedRoute handle it
   if (!user) {
@@ -170,6 +171,12 @@ function RoleProtectedRoute({ children }: { children: React.ReactNode }) {
 
   console.log('[RoleProtectedRoute] Rendering children');
   return <>{children}</>;
+}
+
+function LegacyPlatformTenantRedirect() {
+  const { tenantId } = useParams();
+  if (!tenantId) return <Navigate to="/platform/tenants" replace />;
+  return <Navigate to={`/platform/tenants/${tenantId}`} replace />;
 }
 
 function App() {
@@ -221,6 +228,8 @@ function App() {
                   </ProtectedRoute>
                 }
               >
+                {/* Core */}
+                <Route path="/dashboard" element={<Navigate to="/" replace />} />
                 <Route path="/" element={<RoleProtectedRoute><DashboardPage /></RoleProtectedRoute>} />
                 <Route path="/environments" element={<RoleProtectedRoute><EnvironmentsPage /></RoleProtectedRoute>} />
                 <Route path="/environments/new" element={<RoleProtectedRoute><EnvironmentSetupPage /></RoleProtectedRoute>} />
@@ -246,32 +255,53 @@ function App() {
                 <Route path="/incidents" element={<RoleProtectedRoute><IncidentsPage /></RoleProtectedRoute>} />
                 <Route path="/incidents/:id" element={<RoleProtectedRoute><IncidentDetailPage /></RoleProtectedRoute>} />
                 <Route path="/drift-dashboard" element={<RoleProtectedRoute><DriftDashboardPage /></RoleProtectedRoute>} />
-                <Route path="/team" element={<RoleProtectedRoute><TeamPage /></RoleProtectedRoute>} />
-                <Route path="/billing" element={<RoleProtectedRoute><BillingPage /></RoleProtectedRoute>} />
+
+                {/* Org Admin */}
+                <Route path="/admin" element={<RoleProtectedRoute><Navigate to="/admin/members" replace /></RoleProtectedRoute>} />
+                <Route path="/admin/members" element={<RoleProtectedRoute><TeamPage /></RoleProtectedRoute>} />
+                <Route path="/admin/plans" element={<RoleProtectedRoute><Navigate to="/admin/billing" replace /></RoleProtectedRoute>} />
+                <Route path="/admin/billing" element={<RoleProtectedRoute><BillingPage /></RoleProtectedRoute>} />
+                <Route path="/admin/usage" element={<RoleProtectedRoute><AdminUsagePage /></RoleProtectedRoute>} />
+                <Route path="/admin/feature-matrix" element={<RoleProtectedRoute><AdminEntitlementsPage /></RoleProtectedRoute>} />
+                <Route path="/admin/entitlements" element={<RoleProtectedRoute><AdminEntitlementsPage /></RoleProtectedRoute>} />
+                <Route path="/admin/credential-health" element={<RoleProtectedRoute><CredentialHealthPage /></RoleProtectedRoute>} />
+                <Route path="/admin/settings" element={<RoleProtectedRoute><SecurityPage /></RoleProtectedRoute>} />
+
+                {/* Platform (Hidden) */}
+                <Route path="/platform" element={<RoleProtectedRoute><Navigate to="/platform/tenants" replace /></RoleProtectedRoute>} />
+                <Route path="/platform/console" element={<RoleProtectedRoute><SupportConsolePage /></RoleProtectedRoute>} />
+                <Route path="/platform/tenants" element={<RoleProtectedRoute><TenantsPage /></RoleProtectedRoute>} />
+                <Route path="/platform/tenants/:tenantId" element={<RoleProtectedRoute><TenantDetailPage /></RoleProtectedRoute>} />
+                <Route path="/platform/tenant-overrides" element={<RoleProtectedRoute><TenantOverridesPage /></RoleProtectedRoute>} />
+                <Route path="/platform/entitlements-audit" element={<RoleProtectedRoute><EntitlementsAuditPage /></RoleProtectedRoute>} />
+                <Route path="/platform/support/requests" element={<RoleProtectedRoute><SupportRequestsPage /></RoleProtectedRoute>} />
+                <Route path="/platform/support/config" element={<RoleProtectedRoute><SupportConfigPage /></RoleProtectedRoute>} />
+                <Route path="/platform/settings" element={<RoleProtectedRoute><SettingsPage /></RoleProtectedRoute>} />
+                <Route path="/platform/admins" element={<RoleProtectedRoute><PlatformAdminsPage /></RoleProtectedRoute>} />
+
+                {/* Legacy redirects */}
+                <Route path="/team" element={<Navigate to="/admin/members" replace />} />
+                <Route path="/billing" element={<Navigate to="/admin/billing" replace />} />
+                <Route path="/admin/tenants" element={<Navigate to="/platform/tenants" replace />} />
+                <Route path="/admin/tenants/:tenantId" element={<RoleProtectedRoute><LegacyPlatformTenantRedirect /></RoleProtectedRoute>} />
+                <Route path="/admin/entitlements/overrides" element={<Navigate to="/platform/tenant-overrides" replace />} />
+                <Route path="/admin/entitlements/audit" element={<Navigate to="/platform/entitlements-audit" replace />} />
+                <Route path="/admin/entitlements-audit" element={<Navigate to="/platform/entitlements-audit" replace />} />
+                <Route path="/admin/support" element={<Navigate to="/platform/support/requests" replace />} />
+                <Route path="/admin/support-config" element={<Navigate to="/platform/support/config" replace />} />
+                <Route path="/admin/audit-logs" element={<Navigate to="/platform/entitlements-audit" replace />} />
+                <Route path="/admin/security" element={<Navigate to="/admin/settings" replace />} />
+                <Route path="/admin/entitlements/matrix" element={<Navigate to="/admin/feature-matrix" replace />} />
+                <Route path="/admin/plans-old" element={<Navigate to="/platform/tenants" replace />} />
+                <Route path="/admin/usage-old" element={<Navigate to="/platform/tenants" replace />} />
+                <Route path="/admin/billing-old" element={<Navigate to="/platform/tenants" replace />} />
+
                 <Route path="/profile" element={<RoleProtectedRoute><ProfilePage /></RoleProtectedRoute>} />
                 {/* Support Routes */}
                 <Route path="/support" element={<RoleProtectedRoute><SupportHomePage /></RoleProtectedRoute>} />
                 <Route path="/support/bug/new" element={<RoleProtectedRoute><ReportBugPage /></RoleProtectedRoute>} />
                 <Route path="/support/feature/new" element={<RoleProtectedRoute><RequestFeaturePage /></RoleProtectedRoute>} />
                 <Route path="/support/help/new" element={<RoleProtectedRoute><GetHelpPage /></RoleProtectedRoute>} />
-                {/* Admin Routes */}
-                <Route path="/admin/usage" element={<RoleProtectedRoute><UsagePage /></RoleProtectedRoute>} />
-                <Route path="/admin/tenants" element={<RoleProtectedRoute><TenantsPage /></RoleProtectedRoute>} />
-                <Route path="/admin/tenants/:tenantId" element={<RoleProtectedRoute><TenantDetailPage /></RoleProtectedRoute>} />
-                <Route path="/admin/plans" element={<RoleProtectedRoute><PlansPage /></RoleProtectedRoute>} />
-                <Route path="/admin/billing" element={<RoleProtectedRoute><SystemBillingPage /></RoleProtectedRoute>} />
-                <Route path="/admin/credential-health" element={<RoleProtectedRoute><CredentialHealthPage /></RoleProtectedRoute>} />
-                <Route path="/admin/performance" element={<RoleProtectedRoute><PerformancePage /></RoleProtectedRoute>} />
-                <Route path="/admin/audit-logs" element={<RoleProtectedRoute><AuditLogsPage /></RoleProtectedRoute>} />
-                <Route path="/admin/notifications" element={<RoleProtectedRoute><NotificationsPage /></RoleProtectedRoute>} />
-                <Route path="/admin/security" element={<RoleProtectedRoute><SecurityPage /></RoleProtectedRoute>} />
-                <Route path="/admin/settings" element={<RoleProtectedRoute><SettingsPage /></RoleProtectedRoute>} />
-                <Route path="/admin/drift-policies" element={<RoleProtectedRoute><DriftPoliciesPage /></RoleProtectedRoute>} />
-                <Route path="/admin/entitlements/matrix" element={<RoleProtectedRoute><FeatureMatrixPage /></RoleProtectedRoute>} />
-                <Route path="/admin/entitlements/overrides" element={<RoleProtectedRoute><TenantOverridesPage /></RoleProtectedRoute>} />
-                <Route path="/admin/entitlements/audit" element={<RoleProtectedRoute><EntitlementsAuditPage /></RoleProtectedRoute>} />
-                <Route path="/admin/support-config" element={<RoleProtectedRoute><SupportConfigPage /></RoleProtectedRoute>} />
-                <Route path="/admin/support" element={<RoleProtectedRoute><SupportRequestsPage /></RoleProtectedRoute>} />
               </Route>
               </Routes>
             </BrowserRouter>

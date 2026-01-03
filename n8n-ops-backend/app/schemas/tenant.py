@@ -1,7 +1,13 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
+
+
+def to_camel(string: str) -> str:
+    """Convert snake_case to camelCase."""
+    components = string.split('_')
+    return components[0] + ''.join(x.title() for x in components[1:])
 
 
 class SubscriptionPlan(str, Enum):
@@ -35,6 +41,12 @@ class TenantUpdate(BaseModel):
 
 
 class TenantResponse(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True,
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
     id: str
     name: str
     email: str
@@ -50,9 +62,6 @@ class TenantResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class TenantListResponse(BaseModel):
     tenants: List[TenantResponse]
@@ -62,6 +71,11 @@ class TenantListResponse(BaseModel):
 
 
 class TenantStats(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
     total: int
     active: int
     suspended: int
@@ -76,6 +90,12 @@ class TenantNoteCreate(BaseModel):
 
 
 class TenantNoteResponse(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True,
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
     id: str
     tenant_id: str
     author_id: Optional[str] = None
@@ -84,9 +104,6 @@ class TenantNoteResponse(BaseModel):
     content: str
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class TenantNoteListResponse(BaseModel):

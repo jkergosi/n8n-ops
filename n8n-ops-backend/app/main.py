@@ -2,8 +2,11 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy, environment_capabilities, drift_reports, admin_retention, security
+from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy, environment_capabilities, drift_reports, admin_retention, security, platform_admins, platform_impersonation, platform_console
 from app.services.background_job_service import background_job_service
+from app.services.database import db_service
+from app.api.endpoints.admin_audit import create_audit_log
+from app.services.auth_service import supabase_auth_service
 from datetime import datetime, timedelta
 import logging
 import traceback
@@ -15,6 +18,68 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
     redirect_slashes=False
 )
+
+@app.middleware("http")
+async def impersonation_write_audit_middleware(request: Request, call_next):
+    response = await call_next(request)
+
+    try:
+        if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+            return response
+
+        auth_header = request.headers.get("authorization") or ""
+        if not auth_header.lower().startswith("bearer "):
+            return response
+
+        token = auth_header.split(" ", 1)[1].strip()
+
+        # Resolve actor user_id from Supabase JWT, then check for an active impersonation session.
+        payload = await supabase_auth_service.verify_token(token)
+        supabase_user_id = payload.get("sub")
+        if not supabase_user_id:
+            return response
+
+        actor_resp = db_service.client.table("users").select("id").eq("supabase_auth_id", supabase_user_id).maybe_single().execute()
+        actor = actor_resp.data or {}
+        actor_user_id = actor.get("id")
+        if not actor_user_id:
+            return response
+
+        sess_resp = (
+            db_service.client.table("platform_impersonation_sessions")
+            .select("id, actor_user_id, impersonated_user_id, impersonated_tenant_id, ended_at")
+            .eq("actor_user_id", actor_user_id)
+            .is_("ended_at", "null")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        sessions = sess_resp.data or []
+        if not sessions:
+            return response
+        session = sessions[0]
+        session_id = session.get("id")
+
+        await create_audit_log(
+            action_type="impersonation.write",
+            action=f"{request.method} {request.url.path}",
+            actor_id=session.get("actor_user_id"),
+            tenant_id=session.get("impersonated_tenant_id"),
+            resource_type="http_request",
+            resource_id=session_id,
+            metadata={
+                "impersonated_user_id": session.get("impersonated_user_id"),
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": getattr(response, "status_code", None),
+            },
+            ip_address=getattr(request.client, "host", None) if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except Exception:
+        pass
+
+    return response
 
 # CORS middleware
 app.add_middleware(
@@ -216,6 +281,24 @@ app.include_router(
     admin_retention.router,
     prefix=f"{settings.API_V1_PREFIX}/admin/retention",
     tags=["admin-retention"]
+)
+
+app.include_router(
+    platform_admins.router,
+    prefix=f"{settings.API_V1_PREFIX}/platform/admins",
+    tags=["platform-admins"]
+)
+
+app.include_router(
+    platform_impersonation.router,
+    prefix=f"{settings.API_V1_PREFIX}/platform",
+    tags=["platform-impersonation"]
+)
+
+app.include_router(
+    platform_console.router,
+    prefix=f"{settings.API_V1_PREFIX}/platform",
+    tags=["platform-console"]
 )
 
 app.include_router(

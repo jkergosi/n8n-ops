@@ -9,6 +9,17 @@ import { mockWorkflows, mockEnvironments } from '@/test/mocks/handlers';
 
 const API_BASE = '/api/v1';
 
+// Workflows actions are role-gated; tests assume org admin user for mutation actions.
+vi.mock('@/lib/auth', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    useAuth: () => ({
+      user: { id: 'user-1', email: 'admin@example.com', name: 'Admin User', role: 'admin' },
+    }),
+  };
+});
+
 describe('WorkflowsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -310,6 +321,9 @@ describe('WorkflowsPage', () => {
       expect(row).toBeTruthy();
 
       await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /actions/i }));
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: /permanently delete/i })).toBeInTheDocument();
+      });
       await userEvent.click(screen.getByRole('menuitem', { name: /permanently delete/i }));
 
       // Confirmation dialog should open
@@ -333,6 +347,9 @@ describe('WorkflowsPage', () => {
       expect(row).toBeTruthy();
 
       await userEvent.click(within(row as HTMLElement).getByRole('button', { name: /actions/i }));
+      await waitFor(() => {
+        expect(screen.getByRole('menuitem', { name: /permanently delete/i })).toBeInTheDocument();
+      });
       await userEvent.click(screen.getByRole('menuitem', { name: /permanently delete/i }));
 
       await waitFor(() => {

@@ -1,142 +1,99 @@
-export type Role = 'user' | 'admin' | 'agency' | 'superuser';
+export type OrgRole = 'viewer' | 'developer' | 'admin';
+export type Role = OrgRole | 'platform_admin';
+export type Plan = 'free' | 'pro' | 'agency' | 'agency_plus';
 
-export type MenuItemVisibility = {
-  id: string;
-  roles: Role[];        // which roles see it
+const ORG_ROLE_ORDER: Record<OrgRole, number> = {
+  viewer: 0,
+  developer: 1,
+  admin: 2,
 };
 
-export const MENU_VISIBILITY: MenuItemVisibility[] = [
-  { id: 'dashboard', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'environments', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'workflows', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'executions', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'pipelines', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'deployments', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'snapshots', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'drift', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'incidents', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'observability', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'alerts', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'credentials', roles: ['user', 'admin', 'agency', 'superuser'] },
-  { id: 'users', roles: ['admin', 'agency', 'superuser'] },
-  { id: 'tenants', roles: ['admin', 'agency', 'superuser'] },
-  { id: 'plans', roles: ['admin', 'superuser'] },
-  { id: 'usage', roles: ['admin', 'superuser'] },
-  { id: 'billing', roles: ['admin', 'agency', 'superuser'] },
-  { id: 'featureMatrix', roles: ['admin', 'superuser'] },
-  { id: 'tenantOverrides', roles: ['admin', 'superuser'] },
-  { id: 'entitlementsAudit', roles: ['admin', 'superuser'] },
-  { id: 'auditLogs', roles: ['admin', 'agency', 'superuser'] },
-  { id: 'security', roles: ['admin', 'agency', 'superuser'] },
-  { id: 'systemSettings', roles: ['admin', 'agency', 'superuser'] },
-  { id: 'supportConfig', roles: ['admin', 'superuser'] },
-  { id: 'driftPolicies', roles: ['admin', 'superuser'] },
+const PLAN_ORDER: Record<Plan, number> = {
+  free: 0,
+  pro: 1,
+  agency: 2,
+  agency_plus: 3,
+};
+
+export function normalizePlan(plan: string | undefined | null): Plan {
+  const p = (plan || 'free').toLowerCase();
+  if (p === 'agency_plus') return 'agency_plus';
+  if (p === 'agency') return 'agency';
+  if (p === 'pro') return 'pro';
+  if (p === 'free') return 'free';
+  // Back-compat: existing code often uses "enterprise" where spec says "agency_plus"
+  if (p === 'enterprise') return 'agency_plus';
+  return 'free';
+}
+
+export function isAtLeastPlan(current: Plan, required: Plan): boolean {
+  return PLAN_ORDER[current] >= PLAN_ORDER[required];
+}
+
+export function isAtLeastOrgRole(current: OrgRole, required: OrgRole): boolean {
+  return ORG_ROLE_ORDER[current] >= ORG_ROLE_ORDER[required];
+}
+
+type RouteRule = {
+  roles: Role[];
+  minPlan: Plan; // Free+ default
+};
+
+const ROUTE_RULES: Array<{ match: (path: string) => boolean; rule: RouteRule }> = [
+  // Platform (hidden) — platform_admin only
+  {
+    match: (p) => p === '/platform' || p.startsWith('/platform/'),
+    rule: { roles: ['platform_admin'], minPlan: 'free' },
+  },
+
+  // Org Admin — admin only
+  {
+    match: (p) => p === '/admin' || p.startsWith('/admin/'),
+    rule: { roles: ['admin'], minPlan: 'free' },
+  },
+
+  // Identity & Secrets
+  { match: (p) => p === '/credentials' || p.startsWith('/credentials/'), rule: { roles: ['admin'], minPlan: 'free' } },
+  { match: (p) => p === '/n8n-users', rule: { roles: ['admin'], minPlan: 'pro' } },
+
+  // Observability
+  { match: (p) => p === '/observability', rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'pro' } },
+
+  // Core Operations (viewer+)
+  { match: (p) => p === '/' || p === '/dashboard', rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'free' } },
+  { match: (p) => p === '/environments' || p.startsWith('/environments/'), rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'free' } },
+  { match: (p) => p === '/workflows' || p.startsWith('/workflows/'), rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'free' } },
+  { match: (p) => p === '/executions' || p.startsWith('/executions/'), rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'free' } },
+  { match: (p) => p === '/activity' || p.startsWith('/activity/'), rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'free' } },
+
+  // Defaults for other existing routes (keep app usable, but do NOT open admin/platform paths)
+  { match: (_p) => true, rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'free' } },
 ];
 
-// Route to menu item ID mapping
-export const ROUTE_TO_MENU_ID: Record<string, string> = {
-  '/': 'dashboard',
-  '/environments': 'environments',
-  '/workflows': 'workflows',
-  '/executions': 'executions',
-  '/pipelines': 'pipelines',
-  '/deployments': 'deployments',
-  '/snapshots': 'snapshots',
-  '/drift': 'drift',
-  '/incidents': 'incidents',
-  '/observability': 'observability',
-  '/admin/notifications': 'alerts',
-  '/credentials': 'credentials',
-  '/n8n-users': 'users',
-  '/admin/tenants': 'tenants',
-  '/admin/plans': 'plans',
-  '/admin/usage': 'usage',
-  '/admin/billing': 'billing',
-  '/admin/entitlements/matrix': 'featureMatrix',
-  '/admin/entitlements/overrides': 'tenantOverrides',
-  '/admin/entitlements/audit': 'entitlementsAudit',
-  '/admin/audit-logs': 'auditLogs',
-  '/admin/security': 'security',
-  '/admin/settings': 'systemSettings',
-  '/admin/support-config': 'supportConfig',
-  '/admin/drift-policies': 'driftPolicies',
-};
-
-// Helper function to check if a route is accessible by a role
-export function canAccessRoute(pathname: string, userRole: Role): boolean {
-  // Superuser can access everything
-  if (userRole === 'superuser') {
-    return true;
+function getRuleForPath(pathname: string): RouteRule {
+  for (const entry of ROUTE_RULES) {
+    if (entry.match(pathname)) return entry.rule;
   }
-
-  // Handle dynamic routes by checking the base path
-  let routeToCheck = pathname;
-  
-  // Map dynamic routes to their base paths
-  if (pathname.startsWith('/workflows/')) {
-    routeToCheck = '/workflows';
-  } else if (pathname.startsWith('/environments/')) {
-    routeToCheck = '/environments';
-  } else if (pathname.startsWith('/pipelines/')) {
-    routeToCheck = '/pipelines';
-  } else if (pathname.startsWith('/admin/')) {
-    // Keep admin routes as-is for specific checks
-    routeToCheck = pathname;
-  }
-
-  // Get the menu item ID for this route
-  const menuId = ROUTE_TO_MENU_ID[routeToCheck];
-  if (!menuId) {
-    // If route not in mapping, check if it's a profile/team route (usually accessible to all authenticated users)
-    if (pathname.startsWith('/profile') || pathname.startsWith('/team') || pathname.startsWith('/billing')) {
-      return true;
-    }
-    // For other unmapped routes, default to accessible
-    // You may want to add more specific checks
-    return true;
-  }
-
-  // Check if the role has access to this menu item
-  const visibility = MENU_VISIBILITY.find(v => v.id === menuId);
-  if (!visibility) {
-    return true; // Default to accessible if not configured
-  }
-
-  return visibility.roles.includes(userRole);
+  return { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'free' };
 }
 
-// Helper function to check if a menu item is visible to a role
-export function isMenuItemVisible(itemId: string, userRole: Role): boolean {
-  // Superuser can see everything
-  if (userRole === 'superuser') {
-    return true;
-  }
-
-  const visibility = MENU_VISIBILITY.find(v => v.id === itemId);
-  if (!visibility) {
-    return true; // Default to visible if not configured
-  }
-
-  return visibility.roles.includes(userRole);
+export function canAccessRoute(pathname: string, userRole: Role, plan: Plan): boolean {
+  const rule = getRuleForPath(pathname);
+  return rule.roles.includes(userRole) && isAtLeastPlan(plan, rule.minPlan);
 }
 
-// Map backend roles to frontend roles
+export function canSeePlatformNav(userRole: Role): boolean {
+  return userRole === 'platform_admin';
+}
+
 export function mapBackendRoleToFrontendRole(backendRole: string | undefined): Role {
-  if (!backendRole) return 'user';
-  
-  // Map existing backend roles to new frontend roles
-  switch (backendRole.toLowerCase()) {
-    case 'admin':
-      return 'admin';
-    case 'superuser':
-    case 'super_admin':
-      return 'superuser';
-    case 'agency':
-      return 'agency';
-    case 'developer':
-    case 'viewer':
-    default:
-      return 'user';
-  }
+  const r = (backendRole || 'viewer').toLowerCase();
+  if (r === 'platform_admin') return 'platform_admin';
+  // Back-compat: old naming used in parts of the backend
+  if (r === 'superuser' || r === 'super_admin') return 'platform_admin';
+  if (r === 'admin') return 'admin';
+  if (r === 'developer') return 'developer';
+  if (r === 'viewer') return 'viewer';
+  return 'viewer';
 }
 

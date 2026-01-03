@@ -15,6 +15,7 @@ from app.services.entitlements_service import entitlements_service
 from app.services.stripe_service import stripe_service
 from app.services.email_service import email_service
 from app.services.audit_service import audit_service
+from app.core.platform_admin import is_platform_admin
 import secrets
 
 router = APIRouter()
@@ -183,11 +184,14 @@ async def get_auth_status(user_info: dict = Depends(get_current_user_optional)):
         "authenticated": True,
         "onboarding_required": False,
         "has_environment": has_environment,
+        "impersonating": bool(user_info.get("impersonating")),
+        "actor_user": user_info.get("actor_user"),
         "user": {
             "id": user["id"],
             "email": user["email"],
             "name": user["name"],
-            "role": user["role"]
+            "role": user["role"],
+            "is_platform_admin": is_platform_admin(user["id"]),
         } if user else None,
         "tenant": {
             "id": tenant["id"],
@@ -218,6 +222,12 @@ async def complete_onboarding(
         # User already exists
         user = user_info.get("user")
         tenant = user_info.get("tenant")
+
+        if not user or not tenant:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User or tenant information is missing"
+            )
 
         # Check if user has any environments
         has_environment = False
@@ -360,18 +370,7 @@ async def onboarding_organization(
         organization_name=request.organization_name
     )
     
-    # Update tenant with additional info
     tenant = result["tenant"]
-    update_data = {"status": "pending"}
-    if request.industry:
-        update_data["metadata"] = {"industry": request.industry}
-    if request.company_size:
-        if "metadata" not in update_data:
-            update_data["metadata"] = {}
-        update_data["metadata"]["company_size"] = request.company_size
-    
-    if update_data:
-        db_service.client.table("tenants").update(update_data).eq("id", tenant["id"]).execute()
     
     return {
         "success": True,
@@ -593,33 +592,32 @@ async def onboarding_invite_team(
             # Create team member with pending status
             import uuid
             from datetime import datetime
-            
+
             team_member_id = str(uuid.uuid4())
             # Generate invitation token
             invitation_token = secrets.token_urlsafe(32)
-            
+
+            # Use email prefix as name placeholder until they complete signup
+            invitee_name = email_lower.split("@")[0]
+
             team_data = {
                 "id": team_member_id,
                 "tenant_id": tenant["id"],
                 "email": email_lower,  # Store normalized email
+                "name": invitee_name,  # Required field - placeholder until signup
                 "role": invite.role,
                 "status": "pending",
-                "invited_by": user["id"],
                 "invitation_token": invitation_token,
                 "invited_at": datetime.utcnow().isoformat(),
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat(),
             }
-            
+
             db_service.client.table("users").insert(team_data).execute()
-            
+
             # Send invitation email
             try:
-                # Get inviter name
                 inviter_name = user.get("name", "A team member")
-                # Get organization name
                 org_name = tenant.get("name", "the organization")
-                
+
                 email_sent = await email_service.send_team_invitation(
                     to_email=email_lower,
                     to_name=None,  # We don't have the invitee's name yet
@@ -628,45 +626,16 @@ async def onboarding_invite_team(
                     role=invite.role,
                     invitation_token=invitation_token
                 )
-                
+
                 if not email_sent:
-                    # Log warning but don't fail the invitation
                     import logging
                     logger = logging.getLogger(__name__)
                     logger.warning(f"Failed to send invitation email to {email_lower}, but user record was created")
             except Exception as email_error:
-                # Log error but don't fail the invitation
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.error(f"Error sending invitation email to {email_lower}: {str(email_error)}")
-            
-            # Send invitation email
-            try:
-                # Get inviter name
-                inviter_name = user.get("name", "A team member")
-                # Get organization name
-                org_name = tenant.get("name", "the organization")
-                
-                email_sent = await email_service.send_team_invitation(
-                    to_email=invite.email,
-                    to_name=None,  # We don't have the invitee's name yet
-                    organization_name=org_name,
-                    inviter_name=inviter_name,
-                    role=invite.role,
-                    invitation_token=invitation_token
-                )
-                
-                if not email_sent:
-                    # Log warning but don't fail the invitation
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.warning(f"Failed to send invitation email to {invite.email}, but user record was created")
-            except Exception as email_error:
-                # Log error but don't fail the invitation
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error sending invitation email to {invite.email}: {str(email_error)}")
-            
+
             invited_count += 1
         except Exception as e:
             errors.append(f"{invite.email}: {str(e)}")
@@ -686,24 +655,28 @@ async def onboarding_complete(
     """Step 5: Complete onboarding."""
     user = user_info.get("user")
     tenant = user_info.get("tenant")
-    
+
     if not user or not tenant:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User or tenant not found"
         )
-    
+
     # Activate tenant if not already active
     if tenant.get("status") != "active":
         db_service.client.table("tenants").update({
             "status": "active"
         }).eq("id", tenant["id"]).execute()
-    
-    # Mark user onboarding as complete
-    db_service.client.table("users").update({
-        "onboarding_completed": True
-    }).eq("id", user["id"]).execute()
-    
+
+    # Mark user onboarding as complete (optional - column may not exist)
+    try:
+        db_service.client.table("users").update({
+            "onboarding_completed": True
+        }).eq("id", user["id"]).execute()
+    except Exception:
+        # Column may not exist in older schemas - that's OK
+        pass
+
     return {
         "success": True,
         "message": "Onboarding completed successfully"

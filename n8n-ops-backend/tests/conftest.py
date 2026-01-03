@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.main import app
 from app.services.auth_service import get_current_user
+from app.core.platform_admin import require_platform_admin
 
 
 # ============ Fixtures ============
@@ -273,9 +274,16 @@ def mock_n8n_client():
 
 def create_auth_override(user_data: Dict[str, Any]):
     """Create an auth override function for testing."""
-    async def mock_get_current_user():
+    async def mock_get_current_user(credentials=None):
         return user_data
     return mock_get_current_user
+
+
+def create_platform_admin_override(user_info: Dict[str, Any]):
+    """Create a platform admin override function for testing."""
+    async def mock_require_platform_admin(allow_when_impersonating: bool = False):
+        return {**user_info, "is_platform_admin": True, "actor_user_id": user_info.get("user", {}).get("id")}
+    return mock_require_platform_admin
 
 
 @pytest.fixture
@@ -283,11 +291,26 @@ def test_app(mock_auth_user: Dict[str, Any]) -> FastAPI:
     """Create a test FastAPI app with dependency overrides."""
     # Override authentication
     app.dependency_overrides[get_current_user] = create_auth_override(mock_auth_user)
+    
+    # Override require_platform_admin for all admin endpoints
+    # Since require_platform_admin() is a factory, we need to patch is_platform_admin instead
+    from unittest.mock import patch
+    import app.core.platform_admin as platform_admin_module
+    original_is_platform_admin = platform_admin_module.is_platform_admin
+    
+    def mock_is_platform_admin(user_id: str) -> bool:
+        # Return True for test users
+        if user_id == mock_auth_user.get("user", {}).get("id"):
+            return True
+        return original_is_platform_admin(user_id)
+    
+    platform_admin_module.is_platform_admin = mock_is_platform_admin
 
     yield app
 
     # Clean up overrides after test
     app.dependency_overrides.clear()
+    platform_admin_module.is_platform_admin = original_is_platform_admin
 
 
 @pytest.fixture

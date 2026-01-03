@@ -98,8 +98,8 @@ export function getWorkflowActionPolicy(
 
   const basePolicy = { ...DEFAULT_POLICY_MATRIX[envClass] };
   const planTier = planName.toLowerCase();
-  const isAgencyPlus = planTier === 'agency' || planTier === 'enterprise';
-  const isAdmin = userRole === 'admin' || userRole === 'superuser';
+  const isAgencyPlus = planTier === 'agency' || planTier === 'agency_plus' || planTier === 'enterprise';
+  const isAdmin = userRole === 'admin' || userRole === 'platform_admin' || userRole === 'superuser' || userRole === 'super_admin';
 
   // =============================================
   // PLAN-BASED RESTRICTIONS

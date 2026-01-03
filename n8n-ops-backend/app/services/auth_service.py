@@ -93,56 +93,90 @@ class SupabaseAuthService:
         organization_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create a new user and their default tenant."""
-        # Create tenant first
-        tenant_name = organization_name or f"{name}'s Organization"
-        tenant_data = {
-            "name": tenant_name,
-            "email": email,
-            "subscription_tier": "free",
-            "status": "active"
-        }
+        tenant = None
+        created_new_tenant = False
 
-        tenant_response = db_service.client.table("tenants").insert(tenant_data).execute()
+        # Check if tenant already exists by email
+        existing_tenant = db_service.client.table("tenants").select("*").ilike(
+            "email", email
+        ).execute()
 
-        if not tenant_response.data or len(tenant_response.data) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create tenant"
-            )
+        if existing_tenant.data and len(existing_tenant.data) > 0:
+            # Use existing tenant
+            tenant = existing_tenant.data[0]
+            # Update tenant name if organization_name provided
+            if organization_name and tenant.get("name") != organization_name:
+                db_service.client.table("tenants").update({
+                    "name": organization_name
+                }).eq("id", tenant["id"]).execute()
+                tenant["name"] = organization_name
+        else:
+            # Create new tenant
+            tenant_name = organization_name or f"{name}'s Organization"
+            tenant_data = {
+                "name": tenant_name,
+                "email": email,
+                "subscription_tier": "free",
+                "status": "active"
+            }
 
-        tenant = tenant_response.data[0]
+            tenant_response = db_service.client.table("tenants").insert(tenant_data).execute()
 
-        # Create user
-        user_data = {
-            "tenant_id": tenant["id"],
-            "email": email,
-            "name": name,
-            "role": "admin",
-            "status": "active",
-            "is_active": True,
-            "supabase_auth_id": supabase_auth_id
-        }
+            if not tenant_response.data or len(tenant_response.data) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create tenant"
+                )
 
-        user_response = db_service.client.table("users").insert(user_data).execute()
+            tenant = tenant_response.data[0]
+            created_new_tenant = True
 
-        if not user_response.data or len(user_response.data) == 0:
-            # Rollback tenant creation
-            db_service.client.table("tenants").delete().eq("id", tenant["id"]).execute()
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create user"
-            )
+        # Check if user already exists for this tenant
+        existing_user = db_service.client.table("users").select("*").eq(
+            "tenant_id", tenant["id"]
+        ).ilike("email", email).execute()
 
-        user = user_response.data[0]
+        if existing_user.data and len(existing_user.data) > 0:
+            # Update existing user with supabase_auth_id
+            user = existing_user.data[0]
+            db_service.client.table("users").update({
+                "supabase_auth_id": supabase_auth_id,
+                "name": name
+            }).eq("id", user["id"]).execute()
+            user["supabase_auth_id"] = supabase_auth_id
+            user["name"] = name
+        else:
+            # Create new user
+            user_data = {
+                "tenant_id": tenant["id"],
+                "email": email,
+                "name": name,
+                "role": "admin",
+                "status": "active",
+                "supabase_auth_id": supabase_auth_id
+            }
+
+            user_response = db_service.client.table("users").insert(user_data).execute()
+
+            if not user_response.data or len(user_response.data) == 0:
+                # Rollback tenant creation only if we created it
+                if created_new_tenant:
+                    db_service.client.table("tenants").delete().eq("id", tenant["id"]).execute()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create user"
+                )
+
+            user = user_response.data[0]
 
         return {
             "user": user,
             "tenant": tenant,
-            "is_new": True
+            "is_new": created_new_tenant
         }
 
 
-# Impersonation token management
+# Impersonation token management (legacy, tenant-scoped admin impersonation)
 IMPERSONATION_TOKEN_PREFIX = "impersonate:"
 IMPERSONATION_EXPIRE_MINUTES = 60
 
@@ -275,6 +309,60 @@ async def get_current_user(
         ).execute()
         if tenant_response.data and len(tenant_response.data) > 0:
             tenant = tenant_response.data[0]
+
+    # If the caller is a Platform Admin with an active impersonation session, return impersonated context.
+    # Migration: 9ed964cd8ba3 - create_platform_impersonation_sessions
+    # See: alembic/versions/9ed964cd8ba3_create_platform_impersonation_sessions.py
+    is_platform_admin = False
+    try:
+        pa_resp = db_service.client.table("platform_admins").select("user_id").eq("user_id", user["id"]).maybe_single().execute()
+        is_platform_admin = bool(pa_resp.data)
+    except Exception:
+        is_platform_admin = False
+
+    if is_platform_admin:
+        sess_resp = (
+            db_service.client.table("platform_impersonation_sessions")
+            .select("id, impersonated_user_id, ended_at")
+            .eq("actor_user_id", user["id"])
+            .is_("ended_at", "null")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        sessions = sess_resp.data or []
+        if sessions:
+            sess = sessions[0]
+            target_user_id = sess.get("impersonated_user_id")
+            target_resp = db_service.client.table("users").select("*, tenants(*)").eq("id", target_user_id).execute()
+            if target_resp.data and len(target_resp.data) > 0:
+                target_user = target_resp.data[0]
+                target_tenant = target_user.get("tenants")
+                if not target_tenant and target_user.get("tenant_id"):
+                    target_tenant_resp = db_service.client.table("tenants").select("*").eq("id", target_user["tenant_id"]).execute()
+                    if target_tenant_resp.data and len(target_tenant_resp.data) > 0:
+                        target_tenant = target_tenant_resp.data[0]
+
+                return {
+                    "user": {
+                        "id": target_user["id"],
+                        "email": target_user["email"],
+                        "name": target_user.get("name"),
+                        "role": target_user.get("role", "viewer"),
+                    },
+                    "tenant": {
+                        "id": target_tenant["id"],
+                        "name": target_tenant.get("name"),
+                        "subscription_tier": target_tenant.get("subscription_tier", "free"),
+                    } if target_tenant else None,
+                    "impersonating": True,
+                    "impersonation_session_id": sess.get("id"),
+                    "actor_user": {
+                        "id": user["id"],
+                        "email": user["email"],
+                        "name": user.get("name"),
+                    },
+                }
 
     return {
         "user": {

@@ -1,5 +1,5 @@
 """Admin billing endpoints for system-wide billing management."""
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, Query, Depends
 from typing import Optional, List
 from datetime import datetime, timedelta
 from pydantic import BaseModel
@@ -10,6 +10,7 @@ from app.services.database import db_service
 from app.services.stripe_service import stripe_service
 from app.core.config import settings
 from app.api.endpoints.admin_audit import create_audit_log
+from app.core.platform_admin import require_platform_admin
 
 router = APIRouter()
 
@@ -89,7 +90,7 @@ class TenantInvoiceResponse(BaseModel):
 
 
 @router.get("/metrics", response_model=BillingMetricsResponse)
-async def get_billing_metrics():
+async def get_billing_metrics(_: dict = Depends(require_platform_admin())):
     """Get system-wide billing metrics."""
     try:
         # Get subscription data from database
@@ -157,7 +158,7 @@ async def get_billing_metrics():
 
 
 @router.get("/plan-distribution", response_model=List[PlanDistributionItem])
-async def get_plan_distribution():
+async def get_plan_distribution(_: dict = Depends(require_platform_admin())):
     """Get tenant distribution by plan."""
     try:
         # Get all tenants with their plans
@@ -202,7 +203,7 @@ async def get_plan_distribution():
 
 
 @router.get("/recent-charges", response_model=List[RecentChargeResponse])
-async def get_recent_charges(limit: int = Query(50, ge=1, le=100)):
+async def get_recent_charges(limit: int = Query(50, ge=1, le=100), _: dict = Depends(require_platform_admin())):
     """Get recent successful charges."""
     try:
         # Get from payment_history table
@@ -233,7 +234,7 @@ async def get_recent_charges(limit: int = Query(50, ge=1, le=100)):
 
 
 @router.get("/failed-payments", response_model=List[FailedPaymentResponse])
-async def get_failed_payments(limit: int = Query(50, ge=1, le=100)):
+async def get_failed_payments(limit: int = Query(50, ge=1, le=100), _: dict = Depends(require_platform_admin())):
     """Get recent failed payments."""
     try:
         response = db_service.client.table("payment_history").select(
@@ -263,7 +264,7 @@ async def get_failed_payments(limit: int = Query(50, ge=1, le=100)):
 
 
 @router.get("/dunning", response_model=List[DunningTenantResponse])
-async def get_dunning_tenants():
+async def get_dunning_tenants(_: dict = Depends(require_platform_admin())):
     """Get tenants in dunning state (past_due or incomplete)."""
     try:
         response = db_service.client.table("subscriptions").select(
@@ -302,7 +303,7 @@ async def get_dunning_tenants():
 # =============================================================================
 
 @router.get("/tenants/{tenant_id}/subscription", response_model=TenantSubscriptionResponse)
-async def get_tenant_subscription(tenant_id: str):
+async def get_tenant_subscription(tenant_id: str, _: dict = Depends(require_platform_admin())):
     """Get subscription details for a specific tenant (admin)."""
     try:
         # Get tenant info
@@ -345,7 +346,7 @@ async def get_tenant_subscription(tenant_id: str):
 
 
 @router.get("/tenants/{tenant_id}/invoices", response_model=List[TenantInvoiceResponse])
-async def get_tenant_invoices(tenant_id: str, limit: int = Query(20, ge=1, le=100)):
+async def get_tenant_invoices(tenant_id: str, limit: int = Query(20, ge=1, le=100), _: dict = Depends(require_platform_admin())):
     """Get invoices for a specific tenant (admin)."""
     try:
         # Get tenant's Stripe customer ID
@@ -390,6 +391,7 @@ async def change_tenant_plan(
     tenant_id: str,
     new_plan: str,
     reason: Optional[str] = None,
+    user_info: dict = Depends(require_platform_admin()),
 ):
     """Change a tenant's subscription plan (admin)."""
     try:
@@ -437,6 +439,7 @@ async def extend_tenant_trial(
     tenant_id: str,
     days: int = Query(14, ge=1, le=90),
     reason: Optional[str] = None,
+    user_info: dict = Depends(require_platform_admin()),
 ):
     """Extend a tenant's trial period (admin)."""
     try:
@@ -490,6 +493,7 @@ async def cancel_tenant_subscription(
     tenant_id: str,
     at_period_end: bool = True,
     reason: Optional[str] = None,
+    user_info: dict = Depends(require_platform_admin()),
 ):
     """Cancel a tenant's subscription (admin)."""
     try:

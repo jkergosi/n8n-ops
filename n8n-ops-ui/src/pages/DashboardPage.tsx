@@ -9,7 +9,9 @@ import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
 import { useFeatures } from '@/lib/features';
+import { DashboardUpsellCard } from '@/components/upsell/DashboardUpsellCard';
 import { Activity, Workflow, Server, Plus, Rocket, Camera, History, GitBranch, ArrowRight, Settings, Shield, RotateCcw, AlertTriangle } from 'lucide-react';
+import { useEnvironmentTypes, getEnvironmentTypeLabel } from '@/hooks/useEnvironmentTypes';
 
 export function DashboardPage() {
   useEffect(() => {
@@ -20,6 +22,7 @@ export function DashboardPage() {
   }, []);
   const { user, hasEnvironment } = useAuth();
   const { planName, isLoading: loadingFeatures } = useFeatures();
+  const { environmentTypes } = useEnvironmentTypes();
 
   const { data: environments, isLoading: loadingEnvs } = useQuery({
     queryKey: ['environments'],
@@ -191,6 +194,8 @@ export function DashboardPage() {
         })}
       </div>
 
+      {planName === 'free' && <DashboardUpsellCard />}
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -207,7 +212,7 @@ export function DashboardPage() {
                   <div>
                     <p className="font-medium">{env.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      {env.type} - {env.workflowCount || 0} workflows
+                      {getEnvironmentTypeLabel(environmentTypes, env.type)} - {env.workflowCount || 0} workflows
                     </p>
                   </div>
                   <Badge variant={env.isActive ? 'success' : 'outline'}>

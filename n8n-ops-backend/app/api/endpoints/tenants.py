@@ -45,8 +45,10 @@ async def get_tenants(
 ):
     """Get all tenants with pagination and filters (platform admin only)"""
     try:
+        # Migration: 119481472460 - create_tenant_admin_list_view
+        # See: alembic/versions/119481472460_create_tenant_admin_list_view.py
         # Build query
-        query = db_service.client.table("tenants").select("*", count="exact")
+        query = db_service.client.table("tenant_admin_list").select("*", count="exact")
 
         # Apply filters
         if search:
@@ -68,36 +70,15 @@ async def get_tenants(
         tenants = response.data or []
         total = response.count or 0
 
-        # Enrich with counts
         enriched_tenants = []
         for tenant in tenants:
-            tenant_id = tenant["id"]
-
-            # Get workflow count
-            workflow_response = db_service.client.table("workflows").select(
-                "id", count="exact"
-            ).eq("tenant_id", tenant_id).eq("is_deleted", False).execute()
-            workflow_count = workflow_response.count or 0
-
-            # Get environment count
-            env_response = db_service.client.table("environments").select(
-                "id", count="exact"
-            ).eq("tenant_id", tenant_id).execute()
-            environment_count = env_response.count or 0
-
-            # Get user count
-            user_response = db_service.client.table("users").select(
-                "id", count="exact"
-            ).eq("tenant_id", tenant_id).execute()
-            user_count = user_response.count or 0
-
             enriched_tenants.append({
                 **tenant,
                 # Map subscription_tier to subscription_plan for API response
                 "subscription_plan": tenant.get("subscription_tier") or tenant.get("subscription_plan", "free"),
-                "workflow_count": workflow_count,
-                "environment_count": environment_count,
-                "user_count": user_count,
+                "workflow_count": tenant.get("workflow_count") or 0,
+                "environment_count": tenant.get("environment_count") or 0,
+                "user_count": tenant.get("user_count") or 0,
                 "status": tenant.get("status", "active"),
             })
 

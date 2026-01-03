@@ -64,7 +64,7 @@ interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
-  requiredPlan?: Plan; // plan gating only (feature gating is handled elsewhere)
+  minPlan?: Plan; // minimum plan required to see this item
 }
 
 interface NavSection {
@@ -85,40 +85,36 @@ const navigationSections: NavSection[] = [
   },
   {
     title: 'Observability',
-    items: [{ id: 'observability', name: 'Observability', href: '/observability', icon: Activity, requiredPlan: 'pro' }],
+    items: [{ id: 'observability', name: 'Observability', href: '/observability', icon: Activity, minPlan: 'pro' }],
   },
   {
     title: 'Identity & Secrets',
     items: [
       { id: 'credentials', name: 'Credentials', href: '/credentials', icon: Key },
-      { id: 'n8nUsers', name: 'n8n Users', href: '/n8n-users', icon: UserCog, requiredPlan: 'pro' },
+      { id: 'n8nUsers', name: 'n8n Users', href: '/n8n-users', icon: UserCog, minPlan: 'pro' },
     ],
   },
   {
     title: 'Admin',
     items: [
-      { id: 'adminHome', name: 'Admin', href: '/admin', icon: Settings },
+      // Admin Dashboard - Pro/Agency only (insight-first control plane)
+      { id: 'adminDashboard', name: 'Admin Dashboard', href: '/admin', icon: LayoutGrid, minPlan: 'pro' },
       { id: 'members', name: 'Members', href: '/admin/members', icon: Users },
-      { id: 'plans', name: 'Plans', href: '/admin/plans', icon: CreditCard },
-      { id: 'usage', name: 'Usage', href: '/admin/usage', icon: BarChart3 },
+      { id: 'usage', name: 'Usage', href: '/admin/usage', icon: BarChart3, minPlan: 'pro' },
       { id: 'billing', name: 'Billing', href: '/admin/billing', icon: CreditCard },
-      { id: 'featureMatrix', name: 'Feature Matrix', href: '/admin/feature-matrix', icon: LayoutGrid },
-      { id: 'entitlements', name: 'Entitlements', href: '/admin/entitlements', icon: Shield },
-      { id: 'credentialHealth', name: 'Credential Health', href: '/admin/credential-health', icon: Shield },
+      { id: 'credentialHealth', name: 'Credential Health', href: '/admin/credential-health', icon: Shield, minPlan: 'pro' },
       { id: 'settings', name: 'Settings', href: '/admin/settings', icon: Settings },
     ],
   },
   {
     title: 'Platform',
     items: [
-      { id: 'platformHome', name: 'Platform', href: '/platform', icon: Building2 },
+      { id: 'platformDashboard', name: 'Platform Dashboard', href: '/platform', icon: LayoutGrid },
       { id: 'platformTenants', name: 'Tenants', href: '/platform/tenants', icon: Building2 },
-      { id: 'platformAdmins', name: 'Platform Admins', href: '/platform/admins', icon: Shield },
-      { id: 'platformConsole', name: 'Support Console', href: '/platform/console', icon: Search },
+      { id: 'platformConsole', name: 'Support', href: '/platform/support', icon: HelpCircle },
       { id: 'platformOverrides', name: 'Tenant Overrides', href: '/platform/tenant-overrides', icon: Shield },
       { id: 'platformEntitlementsAudit', name: 'Entitlements Audit', href: '/platform/entitlements-audit', icon: History },
-      { id: 'platformSupportRequests', name: 'Support Requests', href: '/platform/support/requests', icon: HelpCircle },
-      { id: 'platformSupportConfig', name: 'Support Config', href: '/platform/support/config', icon: HelpCircle },
+      { id: 'platformAdmins', name: 'Platform Admins', href: '/platform/admins', icon: Shield },
       { id: 'platformSettings', name: 'Settings', href: '/platform/settings', icon: Settings },
     ],
   },
@@ -161,8 +157,8 @@ export function AppLayout() {
       // Platform section - platform_admin only
       if (sectionTitle === 'Platform' && !showPlatform) return false;
       
-      // Admin section - admin only
-      if (sectionTitle === 'Admin' && userRole !== 'admin') return false;
+      // Admin section - admin or platform_admin
+      if (sectionTitle === 'Admin' && userRole !== 'admin' && userRole !== 'platform_admin') return false;
       
       // Core section - viewer+ only
       if (sectionTitle === 'Core') {
@@ -177,7 +173,7 @@ export function AppLayout() {
       }
       
       // Plan gating
-      if (item.requiredPlan && !isAtLeastPlan(normalizedPlan, item.requiredPlan)) return false;
+      if (item.minPlan && !isAtLeastPlan(normalizedPlan, item.minPlan)) return false;
       
       return true;
     },
@@ -261,12 +257,14 @@ export function AppLayout() {
             {navigationSections
               .filter((section) => {
                 if (section.title === 'Platform' && !showPlatform) return false;
-                if (section.title === 'Admin' && userRole !== 'admin') return false;
+                if (section.title === 'Admin' && userRole !== 'admin' && userRole !== 'platform_admin') return false;
                 const visibleItems = section.items.filter((item) => isNavItemVisible(section.title, item));
                 return visibleItems.length > 0;
               })
               .map((section, sectionIndex) => {
               const isExpanded = expandedSections[section.title] ?? true;
+              // Rename "Admin" to "Account" for Free plan users
+              const displayTitle = normalizedPlan === 'free' && section.title === 'Admin' ? 'Account' : section.title;
               return (
                 <div key={section.title} className={cn(sectionIndex > 0 && 'mt-6')}>
                   {sidebarOpen ? (
@@ -274,7 +272,7 @@ export function AppLayout() {
                       onClick={() => toggleSection(section.title)}
                       className="w-full flex items-center justify-between px-3 py-2 mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
                     >
-                      <span>{section.title}</span>
+                      <span>{displayTitle}</span>
                       {isExpanded ? (
                         <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
                       ) : (
@@ -449,6 +447,20 @@ export function AppLayout() {
                           <Link to="/admin/members" className="cursor-pointer">
                             <Users className="mr-2 h-4 w-4" />
                             Members
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link 
+                            to="/admin/settings" 
+                            className="cursor-pointer"
+                            onClick={() => {
+                              // #region agent log
+                              fetch('http://127.0.0.1:7242/ingest/35363e7c-4fd6-4b04-adaf-3a3d3056abb3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppLayout.tsx:452',message:'Settings link clicked',data:{userRole:user?.role},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                              // #endregion
+                            }}
+                          >
+                            <Settings className="mr-2 h-4 w-4" />
+                            Settings
                           </Link>
                         </DropdownMenuItem>
                       </>

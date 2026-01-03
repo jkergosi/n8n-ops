@@ -8,7 +8,7 @@ import { Toaster, toast } from 'sonner';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ServiceStatusIndicator } from '@/components/ServiceStatusIndicator';
 import { RouteTracker } from '@/components/RouteTracker';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
 import { OnboardingPage } from '@/pages/OnboardingPage';
@@ -40,13 +40,12 @@ import { NewDeploymentPage } from '@/pages/NewDeploymentPage';
 import {
   TenantsPage,
   TenantDetailPage,
-  SecurityPage,
-  SettingsPage,
+  PlatformSettingsPage,
+  TenantSettingsPage,
   TenantOverridesPage,
   EntitlementsAuditPage,
   CredentialHealthPage,
-  SupportConfigPage,
-  SupportRequestsPage,
+  AdminDashboardPage,
 } from '@/pages/admin';
 import {
   SupportHomePage,
@@ -55,12 +54,14 @@ import {
   GetHelpPage,
 } from '@/pages/support';
 import { useLocation } from 'react-router-dom';
-import { canAccessRoute, mapBackendRoleToFrontendRole, normalizePlan } from '@/lib/permissions';
+import { canAccessRoute, mapBackendRoleToFrontendRole, normalizePlan, isAtLeastPlan, type Plan } from '@/lib/permissions';
 import { setLastRoute } from '@/lib/lastRoute';
 import { AdminUsagePage } from '@/pages/AdminUsagePage';
 import { AdminEntitlementsPage } from '@/pages/AdminEntitlementsPage';
 import { PlatformAdminsPage } from '@/pages/platform/PlatformAdminsPage';
 import { SupportConsolePage } from '@/pages/platform/SupportConsolePage';
+import { PlatformDashboardPage } from '@/pages/platform/PlatformDashboardPage';
+import { UpgradeRequiredModal } from '@/components/upsell/UpgradeRequiredModal';
 
 // Create a client
 const queryClient = new QueryClient({
@@ -141,8 +142,21 @@ function RoleProtectedRoute({ children }: { children: React.ReactNode }) {
       const role = (user as any)?.isPlatformAdmin ? 'platform_admin' : mapBackendRoleToFrontendRole(user.role);
       const pathname = location.pathname;
 
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/35363e7c-4fd6-4b04-adaf-3a3d3056abb3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:142',message:'RoleProtectedRoute useEffect - checking access',data:{pathname,role,plan,userRole:user.role,isPlatformAdmin:(user as any)?.isPlatformAdmin},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+
+      const hasAccess = canAccessRoute(pathname, role, plan);
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/35363e7c-4fd6-4b04-adaf-3a3d3056abb3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:148',message:'canAccessRoute result',data:{pathname,role,plan,hasAccess},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+
       // Check if user can access this route
-      if (!canAccessRoute(pathname, role, plan)) {
+      if (!hasAccess) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/35363e7c-4fd6-4b04-adaf-3a3d3056abb3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:151',message:'Redirecting to dashboard - unauthorized',data:{pathname,role,plan},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         console.log('[RoleProtectedRoute] Redirecting to dashboard - unauthorized');
         // Redirect to dashboard if unauthorized
         navigate('/', { replace: true });
@@ -177,6 +191,47 @@ function LegacyPlatformTenantRedirect() {
   const { tenantId } = useParams();
   if (!tenantId) return <Navigate to="/platform/tenants" replace />;
   return <Navigate to={`/platform/tenants/${tenantId}`} replace />;
+}
+
+// Plan Protected Route Component - shows upgrade modal if plan insufficient
+function PlanProtectedRoute({ 
+  children, 
+  minPlan, 
+  featureName, 
+  benefits 
+}: { 
+  children: React.ReactNode;
+  minPlan: Plan;
+  featureName: string;
+  benefits: string[];
+}) {
+  const { planName } = useFeatures();
+  const [showModal, setShowModal] = useState(false);
+  const normalizedPlan = normalizePlan(planName);
+  const hasAccess = isAtLeastPlan(normalizedPlan, minPlan);
+
+  useEffect(() => {
+    if (!hasAccess) {
+      setShowModal(true);
+    }
+  }, [hasAccess]);
+
+  if (!hasAccess) {
+    return (
+      <>
+        <UpgradeRequiredModal
+          open={showModal}
+          onOpenChange={setShowModal}
+          requiredPlan={minPlan === 'agency' || minPlan === 'agency_plus' ? 'agency' : minPlan === 'pro' ? 'pro' : 'enterprise'}
+          featureName={featureName}
+          benefits={benefits}
+        />
+        {null}
+      </>
+    );
+  }
+
+  return <>{children}</>;
 }
 
 function App() {
@@ -257,27 +312,64 @@ function App() {
                 <Route path="/drift-dashboard" element={<RoleProtectedRoute><DriftDashboardPage /></RoleProtectedRoute>} />
 
                 {/* Org Admin */}
-                <Route path="/admin" element={<RoleProtectedRoute><Navigate to="/admin/members" replace /></RoleProtectedRoute>} />
+                <Route path="/admin" element={<RoleProtectedRoute><AdminDashboardPage /></RoleProtectedRoute>} />
                 <Route path="/admin/members" element={<RoleProtectedRoute><TeamPage /></RoleProtectedRoute>} />
                 <Route path="/admin/plans" element={<RoleProtectedRoute><Navigate to="/admin/billing" replace /></RoleProtectedRoute>} />
                 <Route path="/admin/billing" element={<RoleProtectedRoute><BillingPage /></RoleProtectedRoute>} />
-                <Route path="/admin/usage" element={<RoleProtectedRoute><AdminUsagePage /></RoleProtectedRoute>} />
+                <Route 
+                  path="/admin/usage" 
+                  element={
+                    <RoleProtectedRoute>
+                      <PlanProtectedRoute 
+                        minPlan="pro" 
+                        featureName="Usage Analytics" 
+                        benefits={[
+                          'Detailed usage metrics and analytics',
+                          'Track resource consumption across environments',
+                          'Monitor usage trends and patterns'
+                        ]}
+                      >
+                        <AdminUsagePage />
+                      </PlanProtectedRoute>
+                    </RoleProtectedRoute>
+                  } 
+                />
                 <Route path="/admin/feature-matrix" element={<RoleProtectedRoute><AdminEntitlementsPage /></RoleProtectedRoute>} />
                 <Route path="/admin/entitlements" element={<RoleProtectedRoute><AdminEntitlementsPage /></RoleProtectedRoute>} />
-                <Route path="/admin/credential-health" element={<RoleProtectedRoute><CredentialHealthPage /></RoleProtectedRoute>} />
-                <Route path="/admin/settings" element={<RoleProtectedRoute><SecurityPage /></RoleProtectedRoute>} />
+                <Route 
+                  path="/admin/credential-health" 
+                  element={
+                    <RoleProtectedRoute>
+                      <PlanProtectedRoute 
+                        minPlan="pro" 
+                        featureName="Credential Health" 
+                        benefits={[
+                          'Monitor credential status and health',
+                          'Track credential usage across environments',
+                          'Get alerts for credential issues'
+                        ]}
+                      >
+                        <CredentialHealthPage />
+                      </PlanProtectedRoute>
+                    </RoleProtectedRoute>
+                  } 
+                />
+                <Route path="/admin/settings" element={<RoleProtectedRoute><TenantSettingsPage /></RoleProtectedRoute>} />
 
-                {/* Platform (Hidden) */}
-                <Route path="/platform" element={<RoleProtectedRoute><Navigate to="/platform/tenants" replace /></RoleProtectedRoute>} />
-                <Route path="/platform/console" element={<RoleProtectedRoute><SupportConsolePage /></RoleProtectedRoute>} />
+                {/* Platform (Platform Admin Only) */}
+                <Route path="/platform" element={<RoleProtectedRoute><PlatformDashboardPage /></RoleProtectedRoute>} />
                 <Route path="/platform/tenants" element={<RoleProtectedRoute><TenantsPage /></RoleProtectedRoute>} />
                 <Route path="/platform/tenants/:tenantId" element={<RoleProtectedRoute><TenantDetailPage /></RoleProtectedRoute>} />
+                <Route path="/platform/support" element={<RoleProtectedRoute><SupportConsolePage /></RoleProtectedRoute>} />
                 <Route path="/platform/tenant-overrides" element={<RoleProtectedRoute><TenantOverridesPage /></RoleProtectedRoute>} />
                 <Route path="/platform/entitlements-audit" element={<RoleProtectedRoute><EntitlementsAuditPage /></RoleProtectedRoute>} />
-                <Route path="/platform/support/requests" element={<RoleProtectedRoute><SupportRequestsPage /></RoleProtectedRoute>} />
-                <Route path="/platform/support/config" element={<RoleProtectedRoute><SupportConfigPage /></RoleProtectedRoute>} />
-                <Route path="/platform/settings" element={<RoleProtectedRoute><SettingsPage /></RoleProtectedRoute>} />
                 <Route path="/platform/admins" element={<RoleProtectedRoute><PlatformAdminsPage /></RoleProtectedRoute>} />
+                <Route path="/platform/settings" element={<RoleProtectedRoute><PlatformSettingsPage /></RoleProtectedRoute>} />
+
+                {/* Platform legacy redirects */}
+                <Route path="/platform/console" element={<Navigate to="/platform/support" replace />} />
+                <Route path="/platform/support/requests" element={<Navigate to="/platform/support?tab=requests" replace />} />
+                <Route path="/platform/support/config" element={<Navigate to="/platform/support?tab=config" replace />} />
 
                 {/* Legacy redirects */}
                 <Route path="/team" element={<Navigate to="/admin/members" replace />} />
@@ -287,10 +379,9 @@ function App() {
                 <Route path="/admin/entitlements/overrides" element={<Navigate to="/platform/tenant-overrides" replace />} />
                 <Route path="/admin/entitlements/audit" element={<Navigate to="/platform/entitlements-audit" replace />} />
                 <Route path="/admin/entitlements-audit" element={<Navigate to="/platform/entitlements-audit" replace />} />
-                <Route path="/admin/support" element={<Navigate to="/platform/support/requests" replace />} />
-                <Route path="/admin/support-config" element={<Navigate to="/platform/support/config" replace />} />
+                <Route path="/admin/support" element={<Navigate to="/platform/support?tab=requests" replace />} />
+                <Route path="/admin/support-config" element={<Navigate to="/platform/support?tab=config" replace />} />
                 <Route path="/admin/audit-logs" element={<Navigate to="/platform/entitlements-audit" replace />} />
-                <Route path="/admin/security" element={<Navigate to="/admin/settings" replace />} />
                 <Route path="/admin/entitlements/matrix" element={<Navigate to="/admin/feature-matrix" replace />} />
                 <Route path="/admin/plans-old" element={<Navigate to="/platform/tenants" replace />} />
                 <Route path="/admin/usage-old" element={<Navigate to="/platform/tenants" replace />} />

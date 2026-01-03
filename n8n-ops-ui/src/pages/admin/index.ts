@@ -1,3 +1,4 @@
+export { AdminDashboardPage, AdminUpgradeRequiredPage } from './AdminDashboardPage';
 export { TenantsPage } from './TenantsPage';
 export { TenantDetailPage } from './TenantDetailPage';
 export { PlansPage } from './PlansPage';
@@ -7,7 +8,8 @@ export { PerformancePage } from './PerformancePage';
 export { AuditLogsPage } from './AuditLogsPage';
 export { NotificationsPage } from './NotificationsPage';
 export { SecurityPage } from './SecurityPage';
-export { SettingsPage } from './SettingsPage';
+export { SettingsPage, PlatformSettingsPage } from './SettingsPage';
+export { TenantSettingsPage } from './TenantSettingsPage';
 export { FeatureMatrixPage } from './FeatureMatrixPage';
 export { TenantOverridesPage } from './TenantOverridesPage';
 export { EntitlementsAuditPage } from './EntitlementsAuditPage';

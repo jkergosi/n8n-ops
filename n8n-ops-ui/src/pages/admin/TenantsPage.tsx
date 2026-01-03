@@ -76,11 +76,19 @@ export function TenantsPage() {
   const queryClient = useQueryClient();
 
   // Filters state
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [planFilter, setPlanFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -105,6 +113,7 @@ export function TenantsPage() {
       plan: planFilter !== 'all' ? planFilter : undefined,
       status: statusFilter !== 'all' ? statusFilter : undefined,
     }),
+    keepPreviousData: true,
   });
 
   // Fetch stats
@@ -205,13 +214,14 @@ export function TenantsPage() {
   };
 
   const clearFilters = () => {
+    setSearchInput('');
     setSearchTerm('');
     setPlanFilter('all');
     setStatusFilter('all');
     setPage(1);
   };
 
-  const hasActiveFilters = searchTerm || planFilter !== 'all' || statusFilter !== 'all';
+  const hasActiveFilters = searchInput || planFilter !== 'all' || statusFilter !== 'all';
 
   const getPlanBadgeVariant = (plan: string) => {
     switch (plan) {
@@ -321,7 +331,7 @@ export function TenantsPage() {
     let filename = 'tenants';
     if (planFilter !== 'all') filename += `_${planFilter}`;
     if (statusFilter !== 'all') filename += `_${statusFilter}`;
-    if (searchTerm) filename += '_filtered';
+    if (searchInput) filename += '_filtered';
 
     exportToCSV(tenants, columns, filename);
     toast.success(`Exported ${(Array.isArray(tenants) ? tenants.length : 0)} tenants to CSV`);
@@ -422,9 +432,9 @@ export function TenantsPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search by name or email..."
-                value={searchTerm}
+                value={searchInput}
                 onChange={(e) => {
-                  setSearchTerm(e.target.value);
+                  setSearchInput(e.target.value);
                   setPage(1);
                 }}
                 className="pl-9"

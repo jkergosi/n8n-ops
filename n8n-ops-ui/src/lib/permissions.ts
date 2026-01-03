@@ -46,10 +46,26 @@ const ROUTE_RULES: Array<{ match: (path: string) => boolean; rule: RouteRule }> 
     rule: { roles: ['platform_admin'], minPlan: 'free' },
   },
 
-  // Org Admin — admin only
+  // Org Admin — admin only, with plan-specific routes
+  {
+    match: (p) => p === '/admin/credential-health' || p.startsWith('/admin/credential-health/'),
+    rule: { roles: ['admin'], minPlan: 'pro' },
+  },
+  {
+    match: (p) => p === '/admin/usage' || p.startsWith('/admin/usage/'),
+    rule: { roles: ['admin'], minPlan: 'pro' },
+  },
+  {
+    match: (p) => p === '/admin/feature-matrix' || p.startsWith('/admin/feature-matrix/'),
+    rule: { roles: ['admin'], minPlan: 'free' }, // Accessible via Billing page
+  },
+  {
+    match: (p) => p === '/admin/entitlements' || p.startsWith('/admin/entitlements/'),
+    rule: { roles: ['platform_admin'], minPlan: 'free' }, // Platform admin only
+  },
   {
     match: (p) => p === '/admin' || p.startsWith('/admin/'),
-    rule: { roles: ['admin'], minPlan: 'free' },
+    rule: { roles: ['admin', 'platform_admin'], minPlan: 'free' },
   },
 
   // Identity & Secrets
@@ -72,14 +88,30 @@ const ROUTE_RULES: Array<{ match: (path: string) => boolean; rule: RouteRule }> 
 
 function getRuleForPath(pathname: string): RouteRule {
   for (const entry of ROUTE_RULES) {
-    if (entry.match(pathname)) return entry.rule;
+    if (entry.match(pathname)) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/35363e7c-4fd6-4b04-adaf-3a3d3056abb3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'permissions.ts:91',message:'Route rule matched',data:{pathname,rule:entry.rule},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
+      return entry.rule;
+    }
   }
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/35363e7c-4fd6-4b04-adaf-3a3d3056abb3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'permissions.ts:94',message:'No route rule matched, using default',data:{pathname},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
   return { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'free' };
 }
 
 export function canAccessRoute(pathname: string, userRole: Role, plan: Plan): boolean {
   const rule = getRuleForPath(pathname);
-  return rule.roles.includes(userRole) && isAtLeastPlan(plan, rule.minPlan);
+  const hasRole = rule.roles.includes(userRole);
+  const hasPlan = isAtLeastPlan(plan, rule.minPlan);
+  const result = hasRole && hasPlan;
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/35363e7c-4fd6-4b04-adaf-3a3d3056abb3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'permissions.ts:96',message:'canAccessRoute check',data:{pathname,userRole,plan,rule,hasRole,hasPlan,result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  
+  return result;
 }
 
 export function canSeePlatformNav(userRole: Role): boolean {

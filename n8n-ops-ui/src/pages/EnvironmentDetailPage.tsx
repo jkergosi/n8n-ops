@@ -76,7 +76,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import type { Environment, Workflow as WorkflowType, Snapshot, Credential } from '@/types';
+import type { Environment, Workflow as WorkflowType, Snapshot, Credential, EnvironmentTypeConfig } from '@/types';
+import { useEnvironmentTypes, getEnvironmentTypeLabel } from '@/hooks/useEnvironmentTypes';
 
 // Helper to determine connection status based on last connected time
 function getConnectionStatus(lastConnected?: string): 'connected' | 'degraded' | 'offline' {
@@ -111,6 +112,7 @@ export function EnvironmentDetailPage() {
   const queryClient = useQueryClient();
   const { canUseFeature } = useFeatures();
   const { user } = useAuth();
+  const { environmentTypes } = useEnvironmentTypes();
 
   // Dialog states
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -205,14 +207,6 @@ export function EnvironmentDetailPage() {
       setDriftHandlingMode('warn_only');
     }
   }, [environment?.id, environment?.driftHandlingMode]);
-
-  // Fetch environment types
-  const { data: environmentTypesData } = useQuery({
-    queryKey: ['environment-types'],
-    queryFn: () => apiClient.getEnvironmentTypes(),
-  });
-
-  const environmentTypes = (environmentTypesData?.data || []).filter((t) => t.isActive);
 
   // Fetch workflows for this environment
   const { data: workflowsData, isLoading: workflowsLoading } = useQuery({
@@ -640,17 +634,18 @@ export function EnvironmentDetailPage() {
   const getEnvironmentTypeBadge = (type?: string) => {
     if (!type) return null;
 
+    const label = getEnvironmentTypeLabel(environmentTypes, type);
     const lowerType = type.toLowerCase();
     if (['production', 'prod', 'prd', 'live'].includes(lowerType)) {
-      return <Badge variant="destructive">{type}</Badge>;
+      return <Badge variant="destructive">{label}</Badge>;
     }
     if (['staging', 'stg', 'stage', 'uat'].includes(lowerType)) {
-      return <Badge variant="secondary" className="bg-orange-500 text-white">{type}</Badge>;
+      return <Badge variant="secondary" className="bg-orange-500 text-white">{label}</Badge>;
     }
     if (['dev', 'development', 'local'].includes(lowerType)) {
-      return <Badge variant="outline">{type}</Badge>;
+      return <Badge variant="outline">{label}</Badge>;
     }
-    return <Badge variant="outline">{type}</Badge>;
+    return <Badge variant="outline">{label}</Badge>;
   };
 
   const formatRelativeTime = (dateString?: string) => {

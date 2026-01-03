@@ -2000,17 +2000,107 @@ class ApiClient {
 
   // Platform Admins
   async getPlatformAdmins(): Promise<{ data: { admins: any[]; total: number } }> {
-    const response = await this.client.get('/platform/admins');
+    const response = await this.client.get('/platform/admins/');
     return { data: response.data };
   }
 
   async addPlatformAdmin(payload: { email: string }): Promise<{ data: any }> {
-    const response = await this.client.post('/platform/admins', payload);
+    const response = await this.client.post('/platform/admins/', payload);
     return { data: response.data };
   }
 
   async removePlatformAdmin(userId: string): Promise<void> {
     await this.client.delete(`/platform/admins/${userId}`);
+  }
+
+  // Platform Overview (Platform Dashboard)
+  async getPlatformOverview(): Promise<{
+    data: {
+      platform_health: {
+        api: { error_rate_1h: number; error_rate_24h: number; p95_latency_ms_1h: number };
+        db: { connections_used_pct: number; slow_queries_1h: number; last_backup_at: string | null };
+        jobs: Array<{ name: string; last_run_at: string | null; status: string; failures_24h: number }>;
+        queue: { depth: number; oldest_job_age_sec: number; dead_letters_24h: number };
+      };
+      tenants: {
+        total: number;
+        active_7d: number;
+        active_30d: number;
+        at_risk: number;
+        with_drift_7d: number;
+        with_credential_failures_7d: number;
+      };
+      usage: {
+        executions_24h: number;
+        executions_7d: number;
+        api_requests_24h: number;
+        storage_db_bytes: number;
+        storage_obj_bytes: number;
+      };
+      revenue: {
+        mrr_cents: number;
+        plan_distribution: { free: number; pro: number; agency: number; enterprise: number };
+        trials: { started_30d: number; expiring_7d: number; converted_30d: number };
+        delinquent_orgs: number;
+        entitlement_exceptions: number;
+      };
+      security: {
+        impersonations_active: number;
+        impersonations_24h: number;
+        admin_actions_24h: number;
+      };
+      top_lists: {
+        tenants_by_fail_rate_24h: Array<{
+          tenant_id: string;
+          tenant_name: string;
+          failures: number;
+          total_executions: number;
+          failure_rate: number;
+        }>;
+        tenants_by_executions_24h: Array<{
+          tenant_id: string;
+          tenant_name: string;
+          executions: number;
+        }>;
+        tenants_with_drift_7d: Array<{
+          tenant_id: string;
+          tenant_name: string;
+          drift_count: number;
+          last_detected: string | null;
+        }>;
+        tenants_with_credential_issues_7d: Array<{
+          tenant_id: string;
+          tenant_name: string;
+          failing_count: number;
+          last_failure: string | null;
+        }>;
+        entitlement_exceptions: Array<{
+          tenant_id: string;
+          tenant_name: string;
+          exception_type: string;
+          description: string;
+        }>;
+        recent_admin_activity: Array<{
+          actor_id: string;
+          actor_name: string;
+          action: string;
+          target: string | null;
+          timestamp: string;
+        }>;
+        open_incidents: Array<{
+          id: string;
+          severity: string;
+          tenant_id: string;
+          tenant_name: string;
+          status: string;
+          age_hours: number;
+          updated_at: string;
+        }>;
+      };
+    };
+  }> {
+    const response = await this.client.get('/platform/overview');
+    return { data: response.data };
   }
 
   async getTenantById(id: string): Promise<{ data: Tenant }> {
@@ -3008,6 +3098,26 @@ class ApiClient {
         pageSize: response.data.page_size,
       },
     };
+  }
+
+  // Admin Overview endpoint (Pro+ Admin Dashboard)
+  async getAdminOverview(): Promise<{
+    data: {
+      environment_count: number;
+      environment_limit: number | null;
+      credential_health: { healthy: number; warning: number; failing: number };
+      failed_executions_24h: number;
+      drift_detected_count: number;
+      usage: {
+        executions: { used: number; limit: number | null };
+        workflows: { used: number; limit: number | null };
+        snapshots: { used: number; limit: number | null };
+        pipelines: { used: number; limit: number | null };
+      };
+    };
+  }> {
+    const response = await this.client.get('/admin/overview');
+    return { data: response.data };
   }
 
   // Admin Usage endpoints (Phase 2)

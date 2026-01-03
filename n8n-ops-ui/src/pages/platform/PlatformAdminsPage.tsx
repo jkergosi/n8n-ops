@@ -43,12 +43,15 @@ export function PlatformAdminsPage() {
   const [email, setEmail] = useState('');
   const [confirmed, setConfirmed] = useState(false);
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['platform-admins'],
     queryFn: () => apiClient.getPlatformAdmins(),
   });
 
   const admins: PlatformAdminRow[] = data?.data?.admins || [];
+  
+  // Extract error message for better debugging
+  const errorMessage = error ? (error as any)?.response?.data?.detail || (error as any)?.message || 'Unknown error' : null;
 
   const isLastPlatformAdmin = useMemo(() => {
     const me = user?.id;
@@ -117,7 +120,19 @@ export function PlatformAdminsPage() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : isError ? (
-            <div className="text-sm text-muted-foreground">Failed to load Platform Admins.</div>
+            <div className="space-y-2">
+              <div className="text-sm text-destructive font-medium">Failed to load Platform Admins.</div>
+              {errorMessage && (
+                <div className="text-xs text-muted-foreground">
+                  Error: {errorMessage}
+                </div>
+              )}
+              {(error as any)?.response?.status === 403 && (
+                <div className="text-xs text-muted-foreground">
+                  You must be a Platform Admin to view this page. Please ensure you are logged in as a Platform Admin.
+                </div>
+              )}
+            </div>
           ) : (
             <Table>
               <TableHeader>

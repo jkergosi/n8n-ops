@@ -61,6 +61,8 @@ import { toast } from 'sonner';
 import { getDefaultEnvironmentId, resolveEnvironment, sortEnvironments } from '@/lib/environment-utils';
 import { formatNodeType } from '@/lib/workflow-analysis';
 import { CredentialMatrix, CredentialDiscovery, MappingHealthCheck } from '@/components/credentials';
+import { useFeatures } from '@/lib/features';
+import { useNavigate } from 'react-router-dom';
 
 type SortField = 'name' | 'type' | 'environment' | 'workflows';
 type SortDirection = 'asc' | 'desc';
@@ -142,6 +144,8 @@ export function CredentialsPage() {
   const selectedEnvironment = useAppStore((state) => state.selectedEnvironment);
   const setSelectedEnvironment = useAppStore((state) => state.setSelectedEnvironment);
   const queryClient = useQueryClient();
+  const { planName } = useFeatures();
+  const navigate = useNavigate();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -829,6 +833,26 @@ export function CredentialsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Credential Health Teaser for Free users */}
+      {planName === 'free' && (
+        <Card className="border-dashed opacity-60">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-muted-foreground" />
+              Credential Health (Pro)
+            </CardTitle>
+            <CardDescription>
+              Monitor credential status and health across environments
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => navigate('/admin/billing')} variant="outline" className="w-full">
+              Upgrade to Pro
+            </Button>
+          </CardContent>
+        </Card>
+      )}
         </TabsContent>
 
         <TabsContent value="matrix">

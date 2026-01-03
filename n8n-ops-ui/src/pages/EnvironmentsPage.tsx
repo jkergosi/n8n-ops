@@ -44,11 +44,12 @@ import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { Plus, Server, RefreshCw, Edit, RefreshCcw, CheckCircle2, AlertCircle, Loader2, XCircle, MoreVertical, Clock } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Environment, EnvironmentType } from '@/types';
+import type { Environment, EnvironmentType, EnvironmentTypeConfig } from '@/types';
 import { useFeatures } from '@/lib/features';
 import { useEffect } from 'react';
 import { useBackgroundJobsSSE } from '@/lib/use-background-jobs-sse';
 import { SmartEmptyState } from '@/components/SmartEmptyState';
+import { useEnvironmentTypes, getEnvironmentTypeLabel } from '@/hooks/useEnvironmentTypes';
 
 export function EnvironmentsPage() {
   const navigate = useNavigate();
@@ -72,12 +73,7 @@ export function EnvironmentsPage() {
   const [testingInDialog, setTestingInDialog] = useState(false);
   const [syncConfirmDialogOpen, setSyncConfirmDialogOpen] = useState(false);
 
-  const { data: environmentTypesData } = useQuery({
-    queryKey: ['environment-types'],
-    queryFn: () => apiClient.getEnvironmentTypes(),
-  });
-
-  const environmentTypes = (environmentTypesData?.data || []).filter((t) => t.isActive);
+  const { environmentTypes } = useEnvironmentTypes();
   const [selectedEnvForAction, setSelectedEnvForAction] = useState<Environment | null>(null);
   const [syncingEnvId, setSyncingEnvId] = useState<string | null>(null);
   const [activeJobs, setActiveJobs] = useState<Record<string, {
@@ -668,7 +664,7 @@ export function EnvironmentsPage() {
                               variant={isProduction ? 'destructive' : env.type.toLowerCase() === 'staging' ? 'secondary' : 'outline'}
                               className="ml-1"
                             >
-                              {env.type}
+                              {getEnvironmentTypeLabel(environmentTypes, env.type)}
                             </Badge>
                           )}
                         </div>

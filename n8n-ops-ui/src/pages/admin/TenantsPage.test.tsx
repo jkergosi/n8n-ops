@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 import { server } from '@/test/mocks/server';
 import { http, HttpResponse } from 'msw';
 import { TenantsPage } from './TenantsPage';
@@ -43,10 +44,17 @@ describe('TenantsPage', () => {
     server.resetHandlers();
 
     server.use(
-      http.get(`${API_BASE}/tenants`, () => {
+      http.get(`${API_BASE}/tenants`, ({ request }) => {
+        const url = new URL(request.url);
+        const search = (url.searchParams.get('search') || '').toLowerCase();
+        const tenants = search
+          ? mockTenants.filter((t) =>
+              t.name.toLowerCase().includes(search) || (t.email || '').toLowerCase().includes(search)
+            )
+          : mockTenants;
         return HttpResponse.json({
-          tenants: mockTenants,
-          total: 2,
+          tenants,
+          total: tenants.length,
           total_pages: 1,
         });
       }),
@@ -64,6 +72,10 @@ describe('TenantsPage', () => {
         });
       })
     );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('Page Header', () => {
@@ -145,6 +157,32 @@ describe('TenantsPage', () => {
       render(<TenantsPage />);
 
       expect(screen.getByPlaceholderText(/search by name or email/i)).toBeInTheDocument();
+    });
+
+    it('should debounce search and return matching tenants', async () => {
+      vi.useFakeTimers();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      render(<TenantsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Acme Corp')).toBeInTheDocument();
+      });
+      expect(screen.getByText('Test Org')).toBeInTheDocument();
+
+      const input = screen.getByPlaceholderText(/search by name or email/i);
+      await user.clear(input);
+      await user.type(input, 'acme');
+
+      // Still shows previous results until debounce fires and fetch resolves
+      expect(screen.getByText('Test Org')).toBeInTheDocument();
+
+      vi.advanceTimersByTime(350);
+
+      await waitFor(() => {
+        expect(screen.getByText('Acme Corp')).toBeInTheDocument();
+        expect(screen.queryByText('Test Org')).not.toBeInTheDocument();
+      });
     });
   });
 

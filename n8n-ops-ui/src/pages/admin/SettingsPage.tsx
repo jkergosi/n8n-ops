@@ -460,9 +460,14 @@ function ProviderPlansManagement() {
   );
 }
 
+// Keep SettingsPage as alias for backward compatibility
 export function SettingsPage() {
+  return <PlatformSettingsPage />;
+}
+
+export function PlatformSettingsPage() {
   useEffect(() => {
-    document.title = 'Settings - WorkflowOps';
+    document.title = 'Platform Settings - WorkflowOps';
     return () => {
       document.title = 'WorkflowOps';
     };
@@ -720,8 +725,8 @@ export function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Settings</h1>
-        <p className="text-muted-foreground">Configure system-wide settings and integrations</p>
+        <h1 className="text-3xl font-bold">Platform Settings</h1>
+        <p className="text-muted-foreground">Configure platform-wide settings and integrations</p>
       </div>
 
       <Tabs defaultValue="general" className="space-y-6">

@@ -11,7 +11,8 @@ import { Loader2, Server, GitBranch, CheckCircle, XCircle, ArrowLeft, CheckCircl
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
-import type { EnvironmentType, EnvironmentTypeConfig } from '@/types';
+import { useEnvironmentTypes } from '@/hooks/useEnvironmentTypes';
+import type { EnvironmentType } from '@/types';
 
 export function EnvironmentSetupPage() {
   const navigate = useNavigate();
@@ -21,6 +22,7 @@ export function EnvironmentSetupPage() {
   const isEditMode = !!id;
 
   const { refreshUser } = useAuth();
+  const { environmentTypes } = useEnvironmentTypes();
 
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingEnv, setIsLoadingEnv] = useState(isEditMode);
@@ -29,9 +31,12 @@ export function EnvironmentSetupPage() {
   const [n8nTestResult, setN8nTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [gitTestResult, setGitTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Get the default type from environment types (first active one)
+  const defaultType = environmentTypes[0]?.key || 'dev';
+
   const [formData, setFormData] = useState({
     name: '',
-    type: 'dev' as EnvironmentType,
+    type: '' as EnvironmentType,
     n8nUrl: '',
     n8nApiKey: '',
     gitRepoUrl: '',
@@ -39,7 +44,12 @@ export function EnvironmentSetupPage() {
     gitPat: '',
   });
 
-  const [environmentTypes, setEnvironmentTypes] = useState<EnvironmentTypeConfig[]>([]);
+  // Set default type when environment types are loaded (only for new environments)
+  useEffect(() => {
+    if (!isEditMode && !formData.type && defaultType) {
+      setFormData((prev) => ({ ...prev, type: defaultType }));
+    }
+  }, [defaultType, isEditMode, formData.type]);
 
   useEffect(() => {
     document.title = isEditMode ? 'Edit Environment - WorkflowOps' : 'New Environment - WorkflowOps';
@@ -55,22 +65,6 @@ export function EnvironmentSetupPage() {
     }
   }, [id, isEditMode]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await apiClient.getEnvironmentTypes();
-        setEnvironmentTypes((res.data || []).filter((t) => t.isActive));
-      } catch {
-        // Don't block environment setup if admin endpoint isn't available yet
-        setEnvironmentTypes([
-          { id: 'dev', tenantId: 'local', key: 'dev', label: 'Development', sortOrder: 10, isActive: true },
-          { id: 'staging', tenantId: 'local', key: 'staging', label: 'Staging', sortOrder: 20, isActive: true },
-          { id: 'production', tenantId: 'local', key: 'production', label: 'Production', sortOrder: 30, isActive: true },
-        ]);
-      }
-    })();
-  }, []);
-
   const loadEnvironment = async (envId: string) => {
     try {
       setIsLoadingEnv(true);
@@ -78,7 +72,7 @@ export function EnvironmentSetupPage() {
       const env = response.data;
       setFormData({
         name: env.name || '',
-        type: env.type || 'dev',
+        type: env.type || defaultType,
         n8nUrl: env.baseUrl || '',
         n8nApiKey: env.apiKey || '',
         gitRepoUrl: env.gitRepoUrl || '',

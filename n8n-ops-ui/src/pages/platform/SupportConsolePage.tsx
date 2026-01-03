@@ -4,19 +4,15 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '@/lib/api-client';
-import { useAuth } from '@/lib/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Loader2,
-  UserCog,
   ExternalLink,
   Save,
   TestTube,
@@ -26,7 +22,6 @@ import {
   Settings2,
   FileText,
   HelpCircle,
-  Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -44,240 +39,6 @@ interface SupportConfigFormData {
   jsm_widget_embed_code: string;
   storage_bucket: string;
   storage_prefix: string;
-}
-
-// Impersonation Tab Component
-function ImpersonationTab() {
-  const { startImpersonation } = useAuth();
-
-  // Tenant search state
-  const [tenantName, setTenantName] = useState('');
-  const [tenantSlug, setTenantSlug] = useState('');
-  const [tenantId, setTenantId] = useState('');
-  const [tenantSearchTrigger, setTenantSearchTrigger] = useState(0);
-  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
-
-  // User search state
-  const [userEmail, setUserEmail] = useState('');
-  const [userName, setUserName] = useState('');
-  const [userId, setUserId] = useState('');
-  const [userSearchTrigger, setUserSearchTrigger] = useState(0);
-  const [userTenantFilter, setUserTenantFilter] = useState<string | null>(null);
-
-  // Tenant search query - similar pattern to TenantsPage
-  const { data: tenantsData, isLoading: tenantsLoading } = useQuery({
-    queryKey: ['console-tenants', tenantSearchTrigger, tenantName, tenantSlug, tenantId],
-    queryFn: () => apiClient.consoleSearchTenants({
-      name: tenantName.trim() || undefined,
-      slug: tenantSlug.trim() || undefined,
-      tenant_id: tenantId.trim() || undefined,
-      limit: 25,
-    }),
-    enabled: tenantSearchTrigger > 0,
-  });
-
-  // User search query - similar pattern to TenantsPage
-  const { data: usersData, isLoading: usersLoading } = useQuery({
-    queryKey: ['console-users', userSearchTrigger, userEmail, userName, userId, userTenantFilter],
-    queryFn: () => apiClient.consoleSearchUsers({
-      email: userEmail.trim() || undefined,
-      name: userName.trim() || undefined,
-      user_id: userId.trim() || undefined,
-      tenant_id: userTenantFilter || undefined,
-      limit: 50,
-    }),
-    enabled: userSearchTrigger > 0,
-  });
-
-  // Extract data same way as TenantsPage
-  const tenantsArray = tenantsData?.data && "tenants" in tenantsData.data ? tenantsData.data.tenants : [];
-  const tenants: any[] = Array.isArray(tenantsArray) ? tenantsArray : [];
-
-  const usersArray = usersData?.data && "users" in usersData.data ? usersData.data.users : [];
-  const users: any[] = Array.isArray(usersArray) ? usersArray : [];
-
-  const onSearchTenants = () => {
-    setSelectedTenantId(null);
-    setTenantSearchTrigger(prev => prev + 1);
-  };
-
-  const onSearchUsers = () => {
-    setUserTenantFilter(selectedTenantId);
-    setUserSearchTrigger(prev => prev + 1);
-  };
-
-  const onListUsersForTenant = (tid: string) => {
-    setSelectedTenantId(tid);
-    setUserTenantFilter(tid);
-    setUserSearchTrigger(prev => prev + 1);
-  };
-
-  const onImpersonate = async (targetUserId: string, isPlatformAdmin: boolean) => {
-    if (isPlatformAdmin) {
-      toast.error('Cannot impersonate another Platform Admin');
-      return;
-    }
-    try {
-      await startImpersonation(targetUserId);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || e?.message || 'Failed to start impersonation');
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <Alert>
-        <AlertDescription>
-          Impersonation is platform-only and should be used for support. You cannot impersonate another Platform Admin.
-        </AlertDescription>
-      </Alert>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Tenant Search</CardTitle>
-            <CardDescription>Search by name, slug, or tenant ID</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label>Tenant name</Label>
-                <Input value={tenantName} onChange={(e) => setTenantName(e.target.value)} placeholder="Acme" />
-              </div>
-              <div className="space-y-2">
-                <Label>Tenant slug</Label>
-                <Input value={tenantSlug} onChange={(e) => setTenantSlug(e.target.value)} placeholder="acme" />
-              </div>
-              <div className="space-y-2">
-                <Label>Tenant ID</Label>
-                <Input value={tenantId} onChange={(e) => setTenantId(e.target.value)} placeholder="UUID" />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button onClick={onSearchTenants} disabled={tenantsLoading}>
-                {tenantsLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                Search Tenants
-              </Button>
-              {selectedTenantId && (
-                <Button variant="outline" onClick={() => setSelectedTenantId(null)}>
-                  Clear Tenant Filter
-                </Button>
-              )}
-            </div>
-
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tenant Name</TableHead>
-                  <TableHead>Tenant ID</TableHead>
-                  <TableHead>Plan</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tenants.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-muted-foreground">
-                      No tenant results.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  tenants.map((t: any) => (
-                    <TableRow key={t.id}>
-                      <TableCell>{t.name || '—'}</TableCell>
-                      <TableCell className="font-mono text-sm">{t.id}</TableCell>
-                      <TableCell>{t.subscription_tier || 'free'}</TableCell>
-                      <TableCell className="text-right">
-                        <Button size="sm" variant="outline" onClick={() => onListUsersForTenant(t.id)}>
-                          List Users
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>User Search</CardTitle>
-            <CardDescription>Search by email, name, or user ID{selectedTenantId ? ' (filtered by tenant)' : ''}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input value={userEmail} onChange={(e) => setUserEmail(e.target.value)} placeholder="jane@customer.com" />
-              </div>
-              <div className="space-y-2">
-                <Label>Name</Label>
-                <Input value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="Jane Doe" />
-              </div>
-              <div className="space-y-2">
-                <Label>User ID</Label>
-                <Input value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="UUID" />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button onClick={onSearchUsers} disabled={usersLoading}>
-                {usersLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                Search Users
-              </Button>
-              {selectedTenantId && (
-                <div className="text-xs text-muted-foreground">
-                  Tenant filter: <span className="font-mono">{selectedTenantId}</span>
-                </div>
-              )}
-            </div>
-
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Tenant</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-muted-foreground">
-                      No user results.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  users.map((u: any) => (
-                    <TableRow key={u.id}>
-                      <TableCell>{u.name || '—'}</TableCell>
-                      <TableCell className="font-mono text-sm">{u.email}</TableCell>
-                      <TableCell>{u.tenant?.name || u.tenant?.slug || u.tenant?.id || '—'}</TableCell>
-                      <TableCell>{u.is_platform_admin ? 'platform_admin' : (u.role || 'viewer')}</TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          onClick={() => onImpersonate(u.id, !!u.is_platform_admin)}
-                          disabled={!!u.is_platform_admin}
-                        >
-                          <UserCog className="h-4 w-4 mr-2" />
-                          Impersonate
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
 }
 
 // Support Requests Tab Component
@@ -727,7 +488,7 @@ function ConfigTab() {
 
 export function SupportConsolePage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') || 'impersonation';
+  const activeTab = searchParams.get('tab') || 'requests';
 
   useEffect(() => {
     document.title = 'Support - WorkflowOps';
@@ -745,16 +506,12 @@ export function SupportConsolePage() {
       <div>
         <h1 className="text-3xl font-bold">Support</h1>
         <p className="text-muted-foreground">
-          Search tenants and users, view support requests, and configure support settings.
+          View support requests and configure support settings.
         </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="impersonation" className="gap-2">
-            <Search className="h-4 w-4" />
-            Impersonation
-          </TabsTrigger>
           <TabsTrigger value="requests" className="gap-2">
             <HelpCircle className="h-4 w-4" />
             Requests
@@ -764,10 +521,6 @@ export function SupportConsolePage() {
             Config
           </TabsTrigger>
         </TabsList>
-
-        <TabsContent value="impersonation">
-          <ImpersonationTab />
-        </TabsContent>
 
         <TabsContent value="requests">
           <RequestsTab />

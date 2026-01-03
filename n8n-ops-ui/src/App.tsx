@@ -61,6 +61,7 @@ import { AdminEntitlementsPage } from '@/pages/AdminEntitlementsPage';
 import { PlatformAdminsPage } from '@/pages/platform/PlatformAdminsPage';
 import { SupportConsolePage } from '@/pages/platform/SupportConsolePage';
 import { PlatformDashboardPage } from '@/pages/platform/PlatformDashboardPage';
+import { PlatformTenantUsersRolesPage } from '@/pages/platform/PlatformTenantUsersRolesPage';
 import { UpgradeRequiredModal } from '@/components/upsell/UpgradeRequiredModal';
 
 // Create a client
@@ -360,6 +361,7 @@ function App() {
                 <Route path="/platform" element={<RoleProtectedRoute><PlatformDashboardPage /></RoleProtectedRoute>} />
                 <Route path="/platform/tenants" element={<RoleProtectedRoute><TenantsPage /></RoleProtectedRoute>} />
                 <Route path="/platform/tenants/:tenantId" element={<RoleProtectedRoute><TenantDetailPage /></RoleProtectedRoute>} />
+                <Route path="/platform/tenants/:tenantId/users" element={<RoleProtectedRoute><PlatformTenantUsersRolesPage /></RoleProtectedRoute>} />
                 <Route path="/platform/support" element={<RoleProtectedRoute><SupportConsolePage /></RoleProtectedRoute>} />
                 <Route path="/platform/tenant-overrides" element={<RoleProtectedRoute><TenantOverridesPage /></RoleProtectedRoute>} />
                 <Route path="/platform/entitlements-audit" element={<RoleProtectedRoute><EntitlementsAuditPage /></RoleProtectedRoute>} />

@@ -227,6 +227,40 @@ class ApiClient {
     return { data: response.data };
   }
 
+  // Platform Tenant Users & Roles Management
+  async getPlatformTenantUsers(
+    tenantId: string,
+    params?: { search?: string; role?: string; status?: string; page?: number; page_size?: number }
+  ): Promise<{ data: { users: any[]; total: number; page: number; page_size: number } }> {
+    const response = await this.client.get(`/tenants/${tenantId}/users`, { params });
+    return { data: response.data };
+  }
+
+  async impersonatePlatformTenantUser(tenantId: string, userId: string): Promise<{ data: { success: boolean; impersonating: boolean; session_id: string } }> {
+    const response = await this.client.post(`/tenants/${tenantId}/users/${userId}/impersonate`);
+    return { data: response.data };
+  }
+
+  async suspendPlatformTenantUser(tenantId: string, userId: string): Promise<{ data: { success: boolean; message: string } }> {
+    const response = await this.client.post(`/tenants/${tenantId}/users/${userId}/suspend`);
+    return { data: response.data };
+  }
+
+  async unsuspendPlatformTenantUser(tenantId: string, userId: string): Promise<{ data: { success: boolean; message: string } }> {
+    const response = await this.client.post(`/tenants/${tenantId}/users/${userId}/unsuspend`);
+    return { data: response.data };
+  }
+
+  async changePlatformTenantUserRole(tenantId: string, userId: string, role: string): Promise<{ data: { success: boolean; message: string } }> {
+    const response = await this.client.patch(`/tenants/${tenantId}/users/${userId}/role`, { role });
+    return { data: response.data };
+  }
+
+  async removePlatformTenantUser(tenantId: string, userId: string): Promise<{ data: { success: boolean; message: string } }> {
+    const response = await this.client.delete(`/tenants/${tenantId}/users/${userId}`);
+    return { data: response.data };
+  }
+
   setAuthToken(token: string | null): void {
     if (token) {
       localStorage.setItem('auth_token', token);

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Query, Depends
 from typing import List, Optional
 from datetime import datetime, timedelta
+from pydantic import BaseModel
 
 from app.schemas.tenant import (
     TenantCreate,
@@ -1180,4 +1181,413 @@ async def get_tenant_usage(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch tenant usage: {str(e)}"
+        )
+
+
+# =============================================================================
+# Platform Tenant Users & Roles Management
+# =============================================================================
+
+@router.get("/{tenant_id}/users")
+async def get_tenant_users(
+    tenant_id: str,
+    search: Optional[str] = Query(None, description="Search by name or email"),
+    role: Optional[str] = Query(None, description="Filter by role"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    _: dict = Depends(require_platform_admin()),
+):
+    """Get all users for a tenant (platform admin only)"""
+    try:
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id, name, subscription_tier, status").eq(
+            "id", tenant_id
+        ).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Build query
+        query = db_service.client.table("users").select(
+            "id, email, name, role, status, tenant_id, created_at, last_login_at"
+        ).eq("tenant_id", tenant_id)
+
+        # Apply filters
+        if search:
+            query = query.or_(f"name.ilike.%{search}%,email.ilike.%{search}%")
+        if role:
+            query = query.eq("role", role)
+        if status:
+            query = query.eq("status", status)
+
+        # Apply pagination
+        offset = (page - 1) * page_size
+        query = query.order("created_at", desc=True).range(offset, offset + page_size - 1)
+
+        response = query.execute()
+        users = response.data or []
+
+        # Check which users are platform admins
+        user_ids = [u.get("id") for u in users if u.get("id")]
+        platform_admin_ids = set()
+        if user_ids:
+            pa_resp = db_service.client.table("platform_admins").select("user_id").in_("user_id", user_ids).execute()
+            platform_admin_ids = {row.get("user_id") for row in (pa_resp.data or []) if row.get("user_id")}
+
+        # Format response
+        formatted_users = []
+        for u in users:
+            formatted_users.append({
+                "user_id": u.get("id"),
+                "name": u.get("name"),
+                "email": u.get("email"),
+                "role_in_tenant": u.get("role", "viewer"),
+                "status_in_tenant": u.get("status", "active"),
+                "joined_at": u.get("created_at"),
+                "last_activity_at": u.get("last_login_at"),
+                "is_platform_admin": u.get("id") in platform_admin_ids,
+            })
+
+        # Get total count
+        count_query = db_service.client.table("users").select("id", count="exact").eq("tenant_id", tenant_id)
+        if search:
+            count_query = count_query.or_(f"name.ilike.%{search}%,email.ilike.%{search}%")
+        if role:
+            count_query = count_query.eq("role", role)
+        if status:
+            count_query = count_query.eq("status", status)
+        count_response = count_query.execute()
+        total = count_response.count or 0
+
+        return {
+            "users": formatted_users,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch tenant users: {str(e)}"
+        )
+
+
+@router.post("/{tenant_id}/users/{user_id}/impersonate")
+async def impersonate_tenant_user(
+    tenant_id: str,
+    user_id: str,
+    user_info: dict = Depends(require_platform_admin()),
+):
+    """Impersonate a user in a tenant (platform admin only)"""
+    try:
+        actor = (user_info or {}).get("user") or {}
+        actor_id = actor.get("id")
+        if not actor_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id, name").eq("id", tenant_id).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Verify user exists and belongs to tenant
+        user_response = db_service.client.table("users").select("id, email, name, role, tenant_id").eq("id", user_id).eq("tenant_id", tenant_id).maybe_single().execute()
+        if not user_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in this tenant")
+
+        target = user_response.data
+
+        # Guardrail: never impersonate another platform admin
+        from app.core.platform_admin import is_platform_admin
+        if is_platform_admin(user_id):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot impersonate another Platform Admin")
+
+        # End any existing active session for this actor
+        from datetime import datetime
+        import uuid
+        db_service.client.table("platform_impersonation_sessions").update(
+            {"ended_at": datetime.utcnow().isoformat()}
+        ).eq("actor_user_id", actor_id).is_("ended_at", "null").execute()
+
+        # Create new impersonation session
+        session_id = str(uuid.uuid4())
+        db_service.client.table("platform_impersonation_sessions").insert(
+            {
+                "id": session_id,
+                "actor_user_id": actor_id,
+                "impersonated_user_id": user_id,
+                "impersonated_tenant_id": tenant_id,
+            }
+        ).execute()
+
+        # Audit log
+        from app.api.endpoints.admin_audit import create_audit_log
+        await create_audit_log(
+            action_type="impersonation.start",
+            action=f"Started impersonation for user_id={user_id} in tenant_id={tenant_id}",
+            actor_id=actor_id,
+            actor_email=actor.get("email"),
+            actor_name=actor.get("name"),
+            tenant_id=tenant_id,
+            resource_type="impersonation",
+            resource_id=session_id,
+            metadata={"target_user_id": user_id, "tenant_id": tenant_id},
+        )
+
+        return {
+            "success": True,
+            "impersonating": True,
+            "session_id": session_id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to impersonate user: {str(e)}"
+        )
+
+
+@router.post("/{tenant_id}/users/{user_id}/suspend")
+async def suspend_tenant_user(
+    tenant_id: str,
+    user_id: str,
+    user_info: dict = Depends(require_platform_admin()),
+):
+    """Suspend a user in a tenant (platform admin only)"""
+    try:
+        actor = (user_info or {}).get("user") or {}
+        actor_id = actor.get("id")
+        if not actor_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id, name").eq("id", tenant_id).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Get current user state
+        user_response = db_service.client.table("users").select("id, email, name, role, status, tenant_id").eq("id", user_id).eq("tenant_id", tenant_id).maybe_single().execute()
+        if not user_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in this tenant")
+
+        user = user_response.data
+        old_status = user.get("status", "active")
+
+        if old_status == "inactive":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is already suspended")
+
+        # Update status
+        db_service.client.table("users").update({"status": "inactive"}).eq("id", user_id).execute()
+
+        # Audit log
+        from app.api.endpoints.admin_audit import create_audit_log
+        await create_audit_log(
+            action_type="user.suspend",
+            action=f"Suspended user {user.get('email')} in tenant",
+            actor_id=actor_id,
+            actor_email=actor.get("email"),
+            actor_name=actor.get("name"),
+            tenant_id=tenant_id,
+            resource_type="user",
+            resource_id=user_id,
+            resource_name=user.get("email"),
+            old_value={"status": old_status},
+            new_value={"status": "inactive"},
+        )
+
+        return {"success": True, "message": "User suspended"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to suspend user: {str(e)}"
+        )
+
+
+@router.post("/{tenant_id}/users/{user_id}/unsuspend")
+async def unsuspend_tenant_user(
+    tenant_id: str,
+    user_id: str,
+    user_info: dict = Depends(require_platform_admin()),
+):
+    """Unsuspend a user in a tenant (platform admin only)"""
+    try:
+        actor = (user_info or {}).get("user") or {}
+        actor_id = actor.get("id")
+        if not actor_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id, name").eq("id", tenant_id).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Get current user state
+        user_response = db_service.client.table("users").select("id, email, name, role, status, tenant_id").eq("id", user_id).eq("tenant_id", tenant_id).maybe_single().execute()
+        if not user_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in this tenant")
+
+        user = user_response.data
+        old_status = user.get("status", "active")
+
+        if old_status != "inactive":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is not suspended")
+
+        # Update status
+        db_service.client.table("users").update({"status": "active"}).eq("id", user_id).execute()
+
+        # Audit log
+        from app.api.endpoints.admin_audit import create_audit_log
+        await create_audit_log(
+            action_type="user.unsuspend",
+            action=f"Unsuspended user {user.get('email')} in tenant",
+            actor_id=actor_id,
+            actor_email=actor.get("email"),
+            actor_name=actor.get("name"),
+            tenant_id=tenant_id,
+            resource_type="user",
+            resource_id=user_id,
+            resource_name=user.get("email"),
+            old_value={"status": old_status},
+            new_value={"status": "active"},
+        )
+
+        return {"success": True, "message": "User unsuspended"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unsuspend user: {str(e)}"
+        )
+
+
+class UserRoleUpdate(BaseModel):
+    role: str
+
+
+@router.patch("/{tenant_id}/users/{user_id}/role")
+async def change_tenant_user_role(
+    tenant_id: str,
+    user_id: str,
+    role_update: UserRoleUpdate,
+    user_info: dict = Depends(require_platform_admin()),
+):
+    """Change a user's role in a tenant (platform admin only)"""
+    try:
+        actor = (user_info or {}).get("user") or {}
+        actor_id = actor.get("id")
+        if not actor_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+        new_role = role_update.role
+        if new_role not in ["admin", "developer", "viewer"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role. Must be admin, developer, or viewer")
+
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id, name").eq("id", tenant_id).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Get current user state
+        user_response = db_service.client.table("users").select("id, email, name, role, tenant_id").eq("id", user_id).eq("tenant_id", tenant_id).maybe_single().execute()
+        if not user_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in this tenant")
+
+        user = user_response.data
+        old_role = user.get("role", "viewer")
+
+        if old_role == new_role:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already has this role")
+
+        # Update role
+        db_service.client.table("users").update({"role": new_role}).eq("id", user_id).execute()
+
+        # Audit log
+        from app.api.endpoints.admin_audit import create_audit_log
+        await create_audit_log(
+            action_type="user.role_change",
+            action=f"Changed role for user {user.get('email')} from {old_role} to {new_role}",
+            actor_id=actor_id,
+            actor_email=actor.get("email"),
+            actor_name=actor.get("name"),
+            tenant_id=tenant_id,
+            resource_type="user",
+            resource_id=user_id,
+            resource_name=user.get("email"),
+            old_value={"role": old_role},
+            new_value={"role": new_role},
+        )
+
+        return {"success": True, "message": f"User role changed to {new_role}"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to change user role: {str(e)}"
+        )
+
+
+@router.delete("/{tenant_id}/users/{user_id}")
+async def remove_tenant_user(
+    tenant_id: str,
+    user_id: str,
+    user_info: dict = Depends(require_platform_admin()),
+):
+    """Remove a user from a tenant (platform admin only)"""
+    try:
+        actor = (user_info or {}).get("user") or {}
+        actor_id = actor.get("id")
+        if not actor_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+        # Verify tenant exists
+        tenant_response = db_service.client.table("tenants").select("id, name").eq("id", tenant_id).single().execute()
+        if not tenant_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        # Get current user state
+        user_response = db_service.client.table("users").select("id, email, name, role, tenant_id").eq("id", user_id).eq("tenant_id", tenant_id).maybe_single().execute()
+        if not user_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in this tenant")
+
+        user = user_response.data
+
+        # Delete user
+        db_service.client.table("users").delete().eq("id", user_id).execute()
+
+        # Audit log
+        from app.api.endpoints.admin_audit import create_audit_log
+        await create_audit_log(
+            action_type="user.remove",
+            action=f"Removed user {user.get('email')} from tenant",
+            actor_id=actor_id,
+            actor_email=actor.get("email"),
+            actor_name=actor.get("name"),
+            tenant_id=tenant_id,
+            resource_type="user",
+            resource_id=user_id,
+            resource_name=user.get("email"),
+            old_value={"tenant_id": tenant_id, "role": user.get("role")},
+            new_value=None,
+        )
+
+        return {"success": True, "message": "User removed from tenant"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to remove user: {str(e)}"
         )

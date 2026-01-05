@@ -134,6 +134,21 @@ function ProviderPlansManagement() {
   const queryClient = useQueryClient();
   const [editingPlan, setEditingPlan] = useState<any>(null);
   const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
+  const [creatingPlanForProvider, setCreatingPlanForProvider] = useState<string | null>(null);
+  const [deletingPlan, setDeletingPlan] = useState<any>(null);
+  const [newPlan, setNewPlan] = useState({
+    name: '',
+    display_name: '',
+    description: '',
+    price_monthly: 0,
+    price_yearly: 0,
+    stripe_price_id_monthly: '',
+    stripe_price_id_yearly: '',
+    max_environments: 1,
+    max_workflows: 10,
+    sort_order: 0,
+    contact_sales: false,
+  });
 
   // Fetch all providers with plans (including inactive)
   const { data: providersData, isLoading } = useQuery({
@@ -142,6 +157,33 @@ function ProviderPlansManagement() {
   });
 
   const providers = providersData?.data || [];
+
+  // Create plan mutation
+  const createPlanMutation = useMutation({
+    mutationFn: (data: any) => apiClient.adminCreateProviderPlan(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-providers-all'] });
+      queryClient.invalidateQueries({ queryKey: ['providers-with-plans'] });
+      toast.success('Plan created successfully');
+      setCreatingPlanForProvider(null);
+      setNewPlan({
+        name: '',
+        display_name: '',
+        description: '',
+        price_monthly: 0,
+        price_yearly: 0,
+        stripe_price_id_monthly: '',
+        stripe_price_id_yearly: '',
+        max_environments: 1,
+        max_workflows: 10,
+        sort_order: 0,
+        contact_sales: false,
+      });
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || 'Failed to create plan');
+    },
+  });
 
   // Update plan mutation
   const updatePlanMutation = useMutation({
@@ -155,6 +197,20 @@ function ProviderPlansManagement() {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.detail || 'Failed to update plan');
+    },
+  });
+
+  // Delete plan mutation
+  const deletePlanMutation = useMutation({
+    mutationFn: (planId: string) => apiClient.adminDeleteProviderPlan(planId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-providers-all'] });
+      queryClient.invalidateQueries({ queryKey: ['providers-with-plans'] });
+      toast.success('Plan deleted successfully');
+      setDeletingPlan(null);
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.detail || 'Failed to delete plan');
     },
   });
 
@@ -243,10 +299,8 @@ function ProviderPlansManagement() {
                       <thead className="bg-muted/50">
                         <tr>
                           <th className="text-left p-3 font-medium">Plan</th>
-                          <th className="text-left p-3 font-medium">Monthly</th>
-                          <th className="text-left p-3 font-medium">Yearly</th>
-                          <th className="text-left p-3 font-medium">Stripe Monthly</th>
-                          <th className="text-left p-3 font-medium">Stripe Yearly</th>
+                          <th className="text-left p-3 font-medium">Pricing</th>
+                          <th className="text-left p-3 font-medium">Stripe IDs</th>
                           <th className="text-left p-3 font-medium">Limits</th>
                           <th className="text-left p-3 font-medium">Status</th>
                           <th className="text-right p-3 font-medium">Actions</th>
@@ -268,92 +322,120 @@ function ProviderPlansManagement() {
                                   />
                                 </td>
                                 <td className="p-3">
-                                  <Input
-                                    type="number"
-                                    value={editingPlan.price_monthly}
-                                    onChange={(e) =>
-                                      setEditingPlan({
-                                        ...editingPlan,
-                                        price_monthly: parseFloat(e.target.value) || 0,
-                                      })
-                                    }
-                                    className="w-20"
-                                  />
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs w-8">$/mo</span>
+                                      <Input
+                                        type="number"
+                                        value={editingPlan.price_monthly}
+                                        onChange={(e) =>
+                                          setEditingPlan({
+                                            ...editingPlan,
+                                            price_monthly: parseFloat(e.target.value) || 0,
+                                          })
+                                        }
+                                        className="w-20"
+                                        disabled={editingPlan.contact_sales}
+                                      />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs w-8">$/yr</span>
+                                      <Input
+                                        type="number"
+                                        value={editingPlan.price_yearly}
+                                        onChange={(e) =>
+                                          setEditingPlan({
+                                            ...editingPlan,
+                                            price_yearly: parseFloat(e.target.value) || 0,
+                                          })
+                                        }
+                                        className="w-20"
+                                        disabled={editingPlan.contact_sales}
+                                      />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Switch
+                                        id={`contact-sales-${plan.id}`}
+                                        checked={editingPlan.contact_sales}
+                                        onCheckedChange={(checked) =>
+                                          setEditingPlan({ ...editingPlan, contact_sales: checked })
+                                        }
+                                      />
+                                      <Label htmlFor={`contact-sales-${plan.id}`} className="text-xs">
+                                        Contact Sales
+                                      </Label>
+                                    </div>
+                                  </div>
                                 </td>
                                 <td className="p-3">
-                                  <Input
-                                    type="number"
-                                    value={editingPlan.price_yearly}
-                                    onChange={(e) =>
-                                      setEditingPlan({
-                                        ...editingPlan,
-                                        price_yearly: parseFloat(e.target.value) || 0,
-                                      })
-                                    }
-                                    className="w-20"
-                                  />
-                                </td>
-                                <td className="p-3">
-                                  <Input
-                                    value={editingPlan.stripe_price_id_monthly || ''}
-                                    onChange={(e) =>
-                                      setEditingPlan({
-                                        ...editingPlan,
-                                        stripe_price_id_monthly: e.target.value,
-                                      })
-                                    }
-                                    placeholder="price_xxx"
-                                    className="w-32 font-mono text-xs"
-                                  />
-                                </td>
-                                <td className="p-3">
-                                  <Input
-                                    value={editingPlan.stripe_price_id_yearly || ''}
-                                    onChange={(e) =>
-                                      setEditingPlan({
-                                        ...editingPlan,
-                                        stripe_price_id_yearly: e.target.value,
-                                      })
-                                    }
-                                    placeholder="price_xxx"
-                                    className="w-32 font-mono text-xs"
-                                  />
-                                </td>
-                                <td className="p-3">
-                                  <div className="flex gap-2">
+                                  <div className="space-y-1">
                                     <Input
-                                      type="number"
-                                      value={editingPlan.max_environments}
+                                      value={editingPlan.stripe_price_id_monthly || ''}
                                       onChange={(e) =>
                                         setEditingPlan({
                                           ...editingPlan,
-                                          max_environments: parseInt(e.target.value) || 0,
+                                          stripe_price_id_monthly: e.target.value,
                                         })
                                       }
-                                      className="w-16"
-                                      title="Max Environments (-1 = unlimited)"
+                                      placeholder="Monthly price_xxx"
+                                      className="w-36 font-mono text-xs"
                                     />
                                     <Input
-                                      type="number"
-                                      value={editingPlan.max_workflows}
+                                      value={editingPlan.stripe_price_id_yearly || ''}
                                       onChange={(e) =>
                                         setEditingPlan({
                                           ...editingPlan,
-                                          max_workflows: parseInt(e.target.value) || 0,
+                                          stripe_price_id_yearly: e.target.value,
                                         })
                                       }
-                                      className="w-16"
-                                      title="Max Workflows (-1 = unlimited)"
+                                      placeholder="Yearly price_xxx"
+                                      className="w-36 font-mono text-xs"
                                     />
                                   </div>
                                 </td>
                                 <td className="p-3">
-                                  <Switch
-                                    checked={editingPlan.is_active}
-                                    onCheckedChange={(checked) =>
-                                      setEditingPlan({ ...editingPlan, is_active: checked })
-                                    }
-                                  />
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1">
+                                      <Input
+                                        type="number"
+                                        value={editingPlan.max_environments}
+                                        onChange={(e) =>
+                                          setEditingPlan({
+                                            ...editingPlan,
+                                            max_environments: parseInt(e.target.value) || 0,
+                                          })
+                                        }
+                                        className="w-16"
+                                      />
+                                      <span className="text-xs text-muted-foreground">env</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <Input
+                                        type="number"
+                                        value={editingPlan.max_workflows}
+                                        onChange={(e) =>
+                                          setEditingPlan({
+                                            ...editingPlan,
+                                            max_workflows: parseInt(e.target.value) || 0,
+                                          })
+                                        }
+                                        className="w-16"
+                                      />
+                                      <span className="text-xs text-muted-foreground">wf</span>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">-1 = unlimited</p>
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex items-center gap-2">
+                                    <Switch
+                                      checked={editingPlan.is_active}
+                                      onCheckedChange={(checked) =>
+                                        setEditingPlan({ ...editingPlan, is_active: checked })
+                                      }
+                                    />
+                                    <span className="text-xs">{editingPlan.is_active ? 'Active' : 'Inactive'}</span>
+                                  </div>
                                 </td>
                                 <td className="p-3 text-right">
                                   <div className="flex justify-end gap-2">
@@ -371,6 +453,7 @@ function ProviderPlansManagement() {
                                             max_environments: editingPlan.max_environments,
                                             max_workflows: editingPlan.max_workflows,
                                             is_active: editingPlan.is_active,
+                                            contact_sales: editingPlan.contact_sales,
                                           },
                                         });
                                       }}
@@ -403,25 +486,35 @@ function ProviderPlansManagement() {
                                     </span>
                                   </div>
                                 </td>
-                                <td className="p-3">${plan.price_monthly}</td>
-                                <td className="p-3">${plan.price_yearly}</td>
                                 <td className="p-3">
-                                  {plan.stripe_price_id_monthly ? (
-                                    <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                                      {plan.stripe_price_id_monthly.substring(0, 12)}...
-                                    </code>
+                                  {plan.contact_sales ? (
+                                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                                      Contact Sales
+                                    </Badge>
                                   ) : (
-                                    <span className="text-muted-foreground">-</span>
+                                    <div className="text-xs space-y-0.5">
+                                      <div>${plan.price_monthly}/mo</div>
+                                      <div>${plan.price_yearly}/yr</div>
+                                    </div>
                                   )}
                                 </td>
                                 <td className="p-3">
-                                  {plan.stripe_price_id_yearly ? (
-                                    <code className="text-xs bg-muted px-1 py-0.5 rounded">
-                                      {plan.stripe_price_id_yearly.substring(0, 12)}...
-                                    </code>
-                                  ) : (
-                                    <span className="text-muted-foreground">-</span>
-                                  )}
+                                  <div className="space-y-0.5">
+                                    {plan.stripe_price_id_monthly ? (
+                                      <code className="text-xs bg-muted px-1 py-0.5 rounded block">
+                                        {plan.stripe_price_id_monthly.substring(0, 15)}...
+                                      </code>
+                                    ) : (
+                                      <span className="text-muted-foreground text-xs">No monthly</span>
+                                    )}
+                                    {plan.stripe_price_id_yearly ? (
+                                      <code className="text-xs bg-muted px-1 py-0.5 rounded block">
+                                        {plan.stripe_price_id_yearly.substring(0, 15)}...
+                                      </code>
+                                    ) : (
+                                      <span className="text-muted-foreground text-xs">No yearly</span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="p-3">
                                   <span className="text-xs">
@@ -435,18 +528,199 @@ function ProviderPlansManagement() {
                                   </Badge>
                                 </td>
                                 <td className="p-3 text-right">
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => setEditingPlan({ ...plan })}
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </Button>
+                                  <div className="flex justify-end gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setEditingPlan({ ...plan })}
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-destructive hover:text-destructive"
+                                      onClick={() => setDeletingPlan(plan)}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 </td>
                               </>
                             )}
                           </tr>
                         ))}
+                        {/* Add New Plan Row */}
+                        {creatingPlanForProvider === provider.id ? (
+                          <tr className="border-t bg-muted/30">
+                            <td className="p-3">
+                              <div className="space-y-1">
+                                <Input
+                                  value={newPlan.name}
+                                  onChange={(e) => setNewPlan({ ...newPlan, name: e.target.value })}
+                                  placeholder="plan_key"
+                                  className="w-28 font-mono text-xs"
+                                />
+                                <Input
+                                  value={newPlan.display_name}
+                                  onChange={(e) => setNewPlan({ ...newPlan, display_name: e.target.value })}
+                                  placeholder="Display Name"
+                                  className="w-32"
+                                />
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs w-8">$/mo</span>
+                                  <Input
+                                    type="number"
+                                    value={newPlan.price_monthly}
+                                    onChange={(e) =>
+                                      setNewPlan({ ...newPlan, price_monthly: parseFloat(e.target.value) || 0 })
+                                    }
+                                    className="w-20"
+                                    disabled={newPlan.contact_sales}
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs w-8">$/yr</span>
+                                  <Input
+                                    type="number"
+                                    value={newPlan.price_yearly}
+                                    onChange={(e) =>
+                                      setNewPlan({ ...newPlan, price_yearly: parseFloat(e.target.value) || 0 })
+                                    }
+                                    className="w-20"
+                                    disabled={newPlan.contact_sales}
+                                  />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    id="new-contact-sales"
+                                    checked={newPlan.contact_sales}
+                                    onCheckedChange={(checked) =>
+                                      setNewPlan({ ...newPlan, contact_sales: checked })
+                                    }
+                                  />
+                                  <Label htmlFor="new-contact-sales" className="text-xs">
+                                    Contact Sales
+                                  </Label>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <div className="space-y-1">
+                                <Input
+                                  value={newPlan.stripe_price_id_monthly}
+                                  onChange={(e) =>
+                                    setNewPlan({ ...newPlan, stripe_price_id_monthly: e.target.value })
+                                  }
+                                  placeholder="Monthly price_xxx"
+                                  className="w-36 font-mono text-xs"
+                                />
+                                <Input
+                                  value={newPlan.stripe_price_id_yearly}
+                                  onChange={(e) =>
+                                    setNewPlan({ ...newPlan, stripe_price_id_yearly: e.target.value })
+                                  }
+                                  placeholder="Yearly price_xxx"
+                                  className="w-36 font-mono text-xs"
+                                />
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1">
+                                  <Input
+                                    type="number"
+                                    value={newPlan.max_environments}
+                                    onChange={(e) =>
+                                      setNewPlan({ ...newPlan, max_environments: parseInt(e.target.value) || 0 })
+                                    }
+                                    className="w-16"
+                                  />
+                                  <span className="text-xs text-muted-foreground">env</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <Input
+                                    type="number"
+                                    value={newPlan.max_workflows}
+                                    onChange={(e) =>
+                                      setNewPlan({ ...newPlan, max_workflows: parseInt(e.target.value) || 0 })
+                                    }
+                                    className="w-16"
+                                  />
+                                  <span className="text-xs text-muted-foreground">wf</span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="number"
+                                  value={newPlan.sort_order}
+                                  onChange={(e) =>
+                                    setNewPlan({ ...newPlan, sort_order: parseInt(e.target.value) || 0 })
+                                  }
+                                  className="w-16"
+                                  placeholder="Order"
+                                />
+                              </div>
+                            </td>
+                            <td className="p-3 text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    createPlanMutation.mutate({
+                                      provider_id: provider.id,
+                                      name: newPlan.name,
+                                      display_name: newPlan.display_name,
+                                      description: newPlan.description,
+                                      price_monthly: newPlan.price_monthly,
+                                      price_yearly: newPlan.price_yearly,
+                                      stripe_price_id_monthly: newPlan.stripe_price_id_monthly || undefined,
+                                      stripe_price_id_yearly: newPlan.stripe_price_id_yearly || undefined,
+                                      features: {},
+                                      max_environments: newPlan.max_environments,
+                                      max_workflows: newPlan.max_workflows,
+                                      sort_order: newPlan.sort_order,
+                                      contact_sales: newPlan.contact_sales,
+                                    });
+                                  }}
+                                  disabled={createPlanMutation.isPending || !newPlan.name || !newPlan.display_name}
+                                >
+                                  {createPlanMutation.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Check className="h-4 w-4" />
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setCreatingPlanForProvider(null)}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr className="border-t">
+                            <td colSpan={6} className="p-3">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setCreatingPlanForProvider(provider.id)}
+                              >
+                                <Plus className="h-4 w-4 mr-2" />
+                                Add Plan
+                              </Button>
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -454,6 +728,34 @@ function ProviderPlansManagement() {
               )}
             </div>
           ))
+        )}
+
+        {/* Delete Confirmation Dialog */}
+        {deletingPlan && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-background rounded-lg p-6 max-w-md w-full mx-4 shadow-lg">
+              <h3 className="text-lg font-semibold mb-2">Delete Plan</h3>
+              <p className="text-muted-foreground mb-4">
+                Are you sure you want to delete the plan "{deletingPlan.display_name}"?
+                This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setDeletingPlan(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => deletePlanMutation.mutate(deletingPlan.id)}
+                  disabled={deletePlanMutation.isPending}
+                >
+                  {deletePlanMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : null}
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

@@ -25,7 +25,7 @@ interface AppState {
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
-      selectedEnvironment: 'dev',
+      selectedEnvironment: '',  // Empty string triggers auto-selection of first available environment
       setSelectedEnvironment: (env) => set({ selectedEnvironment: env }),
 
       sidebarOpen: true,

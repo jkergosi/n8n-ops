@@ -463,7 +463,7 @@ class ApiClient {
     status?: string;
     limit?: number;
   }): Promise<{ data: any[] }> {
-    const response = await this.client.get<any[]>('/incidents', {
+    const response = await this.client.get<any[]>('/incidents/', {
       params: {
         environment_id: params?.environmentId,
         status_filter: params?.status,
@@ -675,7 +675,7 @@ class ApiClient {
       git_branch: environment.git_branch,
       git_pat: environment.git_pat,
     };
-    const response = await this.client.post<Environment>('/environments', payload);
+    const response = await this.client.post<Environment>('/environments/', payload);
     return { data: response.data };
   }
 
@@ -715,7 +715,7 @@ class ApiClient {
 
   // Admin: Environment Types
   async getEnvironmentTypes(): Promise<{ data: EnvironmentTypeConfig[] }> {
-    const response = await this.client.get<any[]>('/admin/environment-types');
+    const response = await this.client.get<any[]>('/admin/environment-types/');
     const data = (response.data || []).map((t: any) => ({
       id: t.id,
       tenantId: t.tenant_id,
@@ -730,7 +730,7 @@ class ApiClient {
   }
 
   async createEnvironmentType(payload: { key: string; label: string; sort_order?: number; is_active?: boolean }): Promise<{ data: EnvironmentTypeConfig }> {
-    const response = await this.client.post<any>('/admin/environment-types', {
+    const response = await this.client.post<any>('/admin/environment-types/', {
       key: payload.key,
       label: payload.label,
       sort_order: payload.sort_order ?? 0,
@@ -931,7 +931,8 @@ class ApiClient {
   // Workflow endpoints
   async getWorkflows(environment: EnvironmentType, forceRefresh: boolean = false): Promise<{ data: Workflow[] }> {
     const params = { ...buildEnvironmentParams(environment), force_refresh: forceRefresh };
-    const response = await this.client.get<any[]>('/workflows', { params });
+    // Backend is configured with redirect_slashes=False, so list endpoints must include trailing slash.
+    const response = await this.client.get<any[]>('/workflows/', { params });
     // Add provider field with default for backward compatibility
     const data = response.data.map((wf: any) => ({
       ...wf,
@@ -1172,7 +1173,8 @@ class ApiClient {
     if (params?.includeInactive !== undefined) {
       queryParams.include_inactive = params.includeInactive;
     }
-    const response = await this.client.get<any[]>('/pipelines', { params: queryParams });
+    // Backend is configured with redirect_slashes=False, so list endpoints must include trailing slash.
+    const response = await this.client.get<any[]>('/pipelines/', { params: queryParams });
     return { data: response.data.map((p) => this.transformPipelineResponse(p)) };
   }
 
@@ -1228,7 +1230,8 @@ class ApiClient {
         },
       })),
     };
-    const response = await this.client.post<Pipeline>('/pipelines', payload);
+    // Backend is configured with redirect_slashes=False
+    const response = await this.client.post<Pipeline>('/pipelines/', payload);
     return { data: response.data };
   }
 
@@ -1554,7 +1557,7 @@ class ApiClient {
     if (params?.page) queryParams.page = params.page;
     if (params?.pageSize) queryParams.page_size = params.pageSize;
     
-    const response = await this.client.get<Snapshot[]>('/snapshots', { params: queryParams });
+    const response = await this.client.get<Snapshot[]>('/snapshots/', { params: queryParams });
     // Transform snake_case to camelCase
     const snapshots = (response.data || []).map((s: any) => this._transformSnapshot(s));
     return { data: snapshots };
@@ -2853,9 +2856,9 @@ class ApiClient {
     };
   }
 
-  // Admin Entitlements endpoints
+  // Platform Entitlements endpoints
   async getFeatureMatrix(): Promise<{ data: FeatureMatrix }> {
-    const response = await this.client.get('/admin/entitlements/features/matrix');
+    const response = await this.client.get('/platform/entitlements/features/matrix');
     const data = response.data;
     return {
       data: {
@@ -2892,7 +2895,7 @@ class ApiClient {
     if (params?.status) queryParams.status_filter = params.status;
     if (params?.type) queryParams.type_filter = params.type;
 
-    const response = await this.client.get('/admin/entitlements/features', { params: queryParams });
+    const response = await this.client.get('/platform/entitlements/features', { params: queryParams });
     return {
       data: {
         features: (response.data.features || []).map((f: any) => ({
@@ -2912,7 +2915,7 @@ class ApiClient {
   }
 
   async getAdminFeature(featureId: string): Promise<{ data: AdminFeature }> {
-    const response = await this.client.get(`/admin/entitlements/features/${featureId}`);
+    const response = await this.client.get(`/platform/entitlements/features/${featureId}`);
     const f = response.data;
     return {
       data: {
@@ -2930,7 +2933,7 @@ class ApiClient {
   }
 
   async getAdminPlans(): Promise<{ data: { plans: AdminPlan[]; total: number } }> {
-    const response = await this.client.get('/admin/entitlements/plans');
+    const response = await this.client.get('/platform/entitlements/plans');
     return {
       data: {
         plans: (response.data.plans || []).map((p: any) => ({
@@ -2950,7 +2953,7 @@ class ApiClient {
   }
 
   async getAdminPlan(planId: string): Promise<{ data: AdminPlan }> {
-    const response = await this.client.get(`/admin/entitlements/plans/${planId}`);
+    const response = await this.client.get(`/platform/entitlements/plans/${planId}`);
     const p = response.data;
     return {
       data: {
@@ -2973,7 +2976,7 @@ class ApiClient {
     value: Record<string, any>,
     reason?: string
   ): Promise<{ data: { planId: string; featureKey: string; value: Record<string, any>; updatedAt: string } }> {
-    const response = await this.client.patch(`/admin/entitlements/plans/${planId}/features/${featureKey}`, {
+    const response = await this.client.patch(`/platform/entitlements/plans/${planId}/features/${featureKey}`, {
       value,
       reason,
     });
@@ -2997,7 +3000,7 @@ class ApiClient {
       updatedAt: string;
     }>;
   }> {
-    const response = await this.client.get(`/admin/entitlements/plans/${planId}/features`);
+    const response = await this.client.get(`/platform/entitlements/plans/${planId}/features`);
     return {
       data: (response.data || []).map((f: any) => ({
         planId: f.plan_id,
@@ -3011,7 +3014,7 @@ class ApiClient {
   }
 
   async clearEntitlementsCache(): Promise<{ data: { message: string } }> {
-    const response = await this.client.post('/admin/entitlements/cache/clear');
+    const response = await this.client.post('/platform/entitlements/cache/clear');
     return { data: response.data };
   }
 
@@ -3468,6 +3471,7 @@ class ApiClient {
     max_environments: number;
     max_workflows: number;
     sort_order?: number;
+    contact_sales?: boolean;
   }): Promise<{ data: any }> {
     const response = await this.client.post('/providers/admin/plans', data);
     return { data: response.data };
@@ -3485,6 +3489,7 @@ class ApiClient {
     max_workflows?: number;
     is_active?: boolean;
     sort_order?: number;
+    contact_sales?: boolean;
   }): Promise<{ data: any }> {
     const response = await this.client.patch(`/providers/admin/plans/${planId}`, data);
     return { data: response.data };

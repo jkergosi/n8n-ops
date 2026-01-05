@@ -778,7 +778,7 @@ export function CredentialsPage() {
                           {cred.used_by_workflows.map((wf, index: number) => (
                             <span key={wf.id}>
                               <Link
-                                to={`/workflows/${wf.n8n_workflow_id || wf.id}?environment=${cred.environment?.type || 'dev'}`}
+                                to={`/workflows/${wf.n8n_workflow_id || wf.id}?environment=${cred.environment?.id || cred.environment_id || ''}`}
                                 className="text-sm text-primary hover:underline"
                               >
                                 {wf.name}

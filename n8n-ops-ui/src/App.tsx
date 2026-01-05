@@ -47,6 +47,7 @@ import {
   CredentialHealthPage,
   AdminDashboardPage,
   TenantProvidersPage,
+  FeatureMatrixPage,
 } from '@/pages/admin';
 import {
   SupportHomePage,
@@ -294,7 +295,7 @@ function App() {
                   </ProtectedRoute>
                 }
               >
-                {/* Core */}
+                {/* Operations */}
                 <Route path="/dashboard" element={<Navigate to="/" replace />} />
                 <Route path="/" element={<RoleProtectedRoute><DashboardPage /></RoleProtectedRoute>} />
                 <Route path="/environments" element={<RoleProtectedRoute><EnvironmentsPage /></RoleProtectedRoute>} />
@@ -345,8 +346,8 @@ function App() {
                     </RoleProtectedRoute>
                   } 
                 />
-                <Route path="/admin/feature-matrix" element={<RoleProtectedRoute><AdminEntitlementsPage /></RoleProtectedRoute>} />
-                <Route path="/admin/entitlements" element={<RoleProtectedRoute><AdminEntitlementsPage /></RoleProtectedRoute>} />
+                <Route path="/platform/feature-matrix" element={<RoleProtectedRoute><FeatureMatrixPage /></RoleProtectedRoute>} />
+                <Route path="/platform/entitlements" element={<RoleProtectedRoute><AdminEntitlementsPage /></RoleProtectedRoute>} />
                 <Route 
                   path="/admin/credential-health" 
                   element={
@@ -395,7 +396,9 @@ function App() {
                 <Route path="/admin/support" element={<Navigate to="/platform/support?tab=requests" replace />} />
                 <Route path="/admin/support-config" element={<Navigate to="/platform/support?tab=config" replace />} />
                 <Route path="/admin/audit-logs" element={<Navigate to="/platform/entitlements-audit" replace />} />
-                <Route path="/admin/entitlements/matrix" element={<Navigate to="/admin/feature-matrix" replace />} />
+                <Route path="/admin/entitlements/matrix" element={<Navigate to="/platform/feature-matrix" replace />} />
+                <Route path="/admin/feature-matrix" element={<Navigate to="/platform/feature-matrix" replace />} />
+                <Route path="/admin/entitlements" element={<Navigate to="/platform/entitlements" replace />} />
                 <Route path="/admin/plans-old" element={<Navigate to="/platform/tenants" replace />} />
                 <Route path="/admin/usage-old" element={<Navigate to="/platform/tenants" replace />} />
                 <Route path="/admin/billing-old" element={<Navigate to="/platform/tenants" replace />} />

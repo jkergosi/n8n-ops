@@ -54,6 +54,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   History,
+  Table,
+  Camera,
+  GitBranch,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { canSeePlatformNav, isAtLeastPlan, mapBackendRoleToFrontendRole, normalizePlan, type Plan, type Role } from '@/lib/permissions';
@@ -74,18 +77,22 @@ interface NavSection {
 
 const navigationSections: NavSection[] = [
   {
-    title: 'Core',
+    title: 'Operations',
     items: [
       { id: 'dashboard', name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { id: 'environments', name: 'Environments', href: '/environments', icon: Server },
       { id: 'workflows', name: 'Workflows', href: '/workflows', icon: Workflow },
-      { id: 'executions', name: 'Executions', href: '/executions', icon: ListChecks },
-      { id: 'activity', name: 'Activity', href: '/activity', icon: History },
+      { id: 'deployments', name: 'Deployments', href: '/deployments', icon: GitBranch, minPlan: 'pro' },
+      { id: 'snapshots', name: 'Snapshots', href: '/snapshots', icon: Camera, minPlan: 'pro' },
     ],
   },
   {
     title: 'Observability',
-    items: [{ id: 'observability', name: 'Observability', href: '/observability', icon: Activity, minPlan: 'pro' }],
+    items: [
+      { id: 'observability', name: 'Overview', href: '/observability', icon: Activity, minPlan: 'pro' },
+      { id: 'executions', name: 'Executions', href: '/executions', icon: ListChecks },
+      { id: 'activity', name: 'Activity', href: '/activity', icon: History },
+    ],
   },
   {
     title: 'Identity & Secrets',
@@ -97,7 +104,7 @@ const navigationSections: NavSection[] = [
   {
     title: 'Admin',
     items: [
-      // Admin Dashboard - Pro/Agency only (insight-first control plane)
+      // Admin Dashboard - Pro/Agency/Enterprise only (insight-first control plane)
       { id: 'adminDashboard', name: 'Admin Dashboard', href: '/admin', icon: LayoutGrid, minPlan: 'pro' },
       { id: 'members', name: 'Members', href: '/admin/members', icon: Users },
       { id: 'usage', name: 'Usage', href: '/admin/usage', icon: BarChart3, minPlan: 'pro' },
@@ -112,6 +119,8 @@ const navigationSections: NavSection[] = [
       { id: 'platformDashboard', name: 'Platform Dashboard', href: '/platform', icon: LayoutGrid },
       { id: 'platformTenants', name: 'Tenants', href: '/platform/tenants', icon: Building2 },
       { id: 'platformConsole', name: 'Support', href: '/platform/support', icon: HelpCircle },
+      { id: 'platformFeatureMatrix', name: 'Feature Matrix', href: '/platform/feature-matrix', icon: Table },
+      { id: 'platformEntitlements', name: 'Entitlements', href: '/platform/entitlements', icon: LayoutGrid },
       { id: 'platformOverrides', name: 'Tenant Overrides', href: '/platform/tenant-overrides', icon: Shield },
       { id: 'platformEntitlementsAudit', name: 'Entitlements Audit', href: '/platform/entitlements-audit', icon: History },
       { id: 'platformAdmins', name: 'Platform Admins', href: '/platform/admins', icon: Shield },
@@ -160,8 +169,11 @@ export function AppLayout() {
       // Admin section - admin or platform_admin
       if (sectionTitle === 'Admin' && userRole !== 'admin' && userRole !== 'platform_admin') return false;
       
-      // Core section - viewer+ only
-      if (sectionTitle === 'Core') {
+      // Feature Matrix - platform_admin only (requires platform admin API access)
+      if (item.href === '/admin/feature-matrix' && userRole !== 'platform_admin') return false;
+      
+      // Operations section - viewer+ only
+      if (sectionTitle === 'Operations') {
         const allowedRoles: Role[] = ['viewer', 'developer', 'admin', 'platform_admin'];
         if (!allowedRoles.includes(userRole)) return false;
       }

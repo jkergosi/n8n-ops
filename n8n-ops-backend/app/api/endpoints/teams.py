@@ -13,6 +13,7 @@ from app.services.database import db_service
 from app.core.entitlements_gate import require_entitlement
 from app.services.email_service import email_service
 from app.services.auth_service import get_current_user
+from app.services.feature_service import feature_service
 
 router = APIRouter()
 
@@ -62,14 +63,9 @@ async def get_team_limits(
 
         current_members = members_response.count or 0
 
-        # Get plan limits
-        sub_response = db_service.client.table("subscriptions").select(
-            "*, plan:plan_id(max_team_members)"
-        ).eq("tenant_id", tenant_id).single().execute()
-
-        max_members = None
-        if sub_response.data and sub_response.data.get("plan"):
-            max_members = sub_response.data["plan"].get("max_team_members")
+        # Get plan limits from feature_service (uses tenant_provider_subscriptions)
+        features = await feature_service.get_tenant_features(tenant_id)
+        max_members = features.get("max_team_members")
 
         can_add_more = True
         if max_members is not None:

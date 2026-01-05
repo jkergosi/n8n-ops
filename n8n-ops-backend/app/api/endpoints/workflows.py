@@ -76,6 +76,7 @@ async def resolve_environment_config(
         )
 
 
+@router.get("", response_model=List[Dict[str, Any]])
 @router.get("/", response_model=List[Dict[str, Any]])
 async def get_workflows(
     environment_id: Optional[str] = None,

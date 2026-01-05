@@ -1,11 +1,15 @@
-"""Entitlements service for plan-based feature access (Phase 1 + Phase 3 Overrides)."""
+"""Entitlements service for plan-based feature access (Phase 1 + Phase 3 Overrides).
+
+IMPORTANT: Plan determination now uses the plan_resolver module which queries
+tenant_provider_subscriptions as the single source of truth.
+"""
 from typing import Any, Dict, List, Optional, Tuple, Union
 from fastapi import HTTPException, status
 from datetime import datetime, timezone
 import logging
 
 from app.services.database import db_service
-from app.services.tenant_plan_service import get_current_active_plan
+from app.services.plan_resolver import resolve_effective_plan
 from app.services.audit_service import audit_service
 
 logger = logging.getLogger(__name__)
@@ -383,29 +387,60 @@ class EntitlementsService:
     # Private helper methods
 
     async def _get_tenant_plan(self, tenant_id: str) -> Optional[Dict[str, Any]]:
-        """Get tenant's current plan assignment with plan details."""
-        try:
-            current = await get_current_active_plan(tenant_id)
-            if not current:
-                return None
+        """
+        Get tenant's current plan from tenant_provider_subscriptions.
 
+        Uses plan_resolver as the SINGLE SOURCE OF TRUTH for plan determination.
+        The plans table is still used for plan_id lookup and feature configuration.
+        """
+        try:
+            # Use the canonical plan resolver (queries tenant_provider_subscriptions)
+            resolved = await resolve_effective_plan(tenant_id)
+            plan_name = resolved.get("plan_name", "free")
+
+            if plan_name == "free" and not resolved.get("highest_subscription_id"):
+                # No active subscription, use free plan defaults
+                # Still try to get the free plan from plans table for consistency
+                plan_response = (
+                    db_service.client.table("plans")
+                    .select("id, name, display_name")
+                    .eq("name", "free")
+                    .single()
+                    .execute()
+                )
+                plan = plan_response.data or {}
+                return {
+                    "plan_id": plan.get("id"),
+                    "plan_name": "free",
+                    "plan_display_name": plan.get("display_name", "Free"),
+                    "entitlements_version": 1,
+                }
+
+            # Get the plan details from plans table by name
             plan_response = (
                 db_service.client.table("plans")
                 .select("id, name, display_name")
-                .eq("id", current.plan_id)
+                .eq("name", plan_name)
                 .single()
                 .execute()
             )
 
             plan = plan_response.data or {}
             if not plan:
-                return None
+                # Plan not found in plans table, return with just the name
+                logger.warning(f"Plan '{plan_name}' not found in plans table for tenant {tenant_id}")
+                return {
+                    "plan_id": None,
+                    "plan_name": plan_name,
+                    "plan_display_name": plan_name.title(),
+                    "entitlements_version": 1,
+                }
 
             return {
                 "plan_id": plan.get("id"),
                 "plan_name": plan.get("name"),
                 "plan_display_name": plan.get("display_name"),
-                "entitlements_version": current.entitlements_version,
+                "entitlements_version": 1,  # Version tracking via resolver
             }
         except Exception as e:
             logger.error(f"Failed to get tenant plan for {tenant_id}: {e}")

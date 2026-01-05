@@ -40,7 +40,7 @@ export function EnvironmentSetupPage() {
     n8nUrl: '',
     n8nApiKey: '',
     gitRepoUrl: '',
-    gitBranch: 'main',
+    gitBranch: '',
     gitPat: '',
   });
 
@@ -166,6 +166,9 @@ export function EnvironmentSetupPage() {
           name: formData.name,
           base_url: formData.n8nUrl,
           api_key: formData.n8nApiKey,
+          git_repo_url: formData.gitRepoUrl || undefined,
+          git_branch: formData.gitBranch || undefined,
+          git_pat: formData.gitPat || undefined,
         });
         toast.success('Environment updated successfully!');
         navigate('/environments');
@@ -176,6 +179,9 @@ export function EnvironmentSetupPage() {
           type: formData.type,
           base_url: formData.n8nUrl,
           api_key: formData.n8nApiKey,
+          git_repo_url: formData.gitRepoUrl || undefined,
+          git_branch: formData.gitBranch || undefined,
+          git_pat: formData.gitPat || undefined,
         });
 
         // Start syncing in background

@@ -121,6 +121,10 @@ export function DeploymentsPage() {
     runningCount: 0,
   };
 
+  // Check if there are any active pipelines
+  const activePipelines = pipelines?.data?.filter(p => p.isActive) || [];
+  const hasActivePipelines = activePipelines.length > 0;
+
   const getStatusVariant = (status: string) => {
     switch (status) {
       case 'success':
@@ -391,10 +395,16 @@ export function DeploymentsPage() {
               : 'Track workflow deployments'}
           </p>
         </div>
-        {activeTab === 'deployments' && (
+        {activeTab === 'deployments' && hasActivePipelines && (
           <Button onClick={handlePromoteWorkflows}>
             <Rocket className="h-4 w-4 mr-2" />
             New Deployment
+          </Button>
+        )}
+        {activeTab === 'deployments' && !hasActivePipelines && canSeePipelines && (
+          <Button onClick={() => navigate('/pipelines/new')}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create Pipeline
           </Button>
         )}
         {activeTab === 'pipelines' && canSeePipelines && (
@@ -498,6 +508,16 @@ export function DeploymentsPage() {
         <CardContent>
           {isLoading ? (
             <div className="text-center py-8">Loading deployments...</div>
+          ) : !hasActivePipelines && canSeePipelines ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <GitBranch className="h-16 w-16 mx-auto mb-4 opacity-20" />
+              <h3 className="text-lg font-semibold mb-2">No pipelines found</h3>
+              <p className="mb-6">Create a pipeline to start deploying workflows between environments.</p>
+              <Button onClick={() => navigate('/pipelines/new')}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Your First Pipeline
+              </Button>
+            </div>
           ) : deployments.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Rocket className="h-12 w-12 mx-auto mb-4 opacity-20" />

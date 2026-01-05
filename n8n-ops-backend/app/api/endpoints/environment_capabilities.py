@@ -68,11 +68,12 @@ async def get_environment_capabilities(
     except ValueError:
         env_class = EnvironmentClass.DEV
     
-    # Get user role and plan - use provider-scoped entitlements as source of truth
+    # Get user role and plan - use plan_resolver as single source of truth
     user_role = user.get("role", "user")
-    # Provider-scoped plan check with fallback to tenant.subscription_tier for backwards compatibility
-    provider_entitlements = await feature_service.get_effective_entitlements(tenant_id, "n8n")
-    plan = provider_entitlements.get("plan_name") or tenant.get("subscription_tier", "free")
+    # Use plan_resolver (queries tenant_provider_subscriptions) as single source of truth
+    from app.services.plan_resolver import resolve_effective_plan
+    resolved = await resolve_effective_plan(tenant_id)
+    plan = resolved.get("plan_name", "free")
     
     # Get org policy flags (from environment metadata or defaults)
     org_policy_flags = env.get("policy_flags", {}) or {}

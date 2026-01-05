@@ -26,6 +26,7 @@ def get_tenant_id(user_info: dict) -> str:
     return tenant_id
 
 
+@router.get("", response_model=List[PipelineResponse])
 @router.get("/", response_model=List[PipelineResponse])
 async def get_pipelines(
     include_inactive: bool = Query(True, description="Include inactive/deactivated pipelines"),
@@ -119,6 +120,7 @@ async def get_pipeline(
         )
 
 
+@router.post("", response_model=PipelineResponse)
 @router.post("/", response_model=PipelineResponse)
 async def create_pipeline(
     pipeline: PipelineCreate,

@@ -73,6 +73,101 @@ async def get_all_features(
         )
 
 
+# Feature Matrix must come before /features/{feature_id} to avoid route conflict
+@router.get("/features/matrix", response_model=FeatureMatrixResponse)
+async def get_feature_matrix(_: dict = Depends(require_platform_admin())):
+    """
+    Get the full feature matrix showing all features and their values across all plans.
+    This is the main admin view for managing entitlements.
+    """
+    try:
+        # Get all plans
+        plans_response = db_service.client.table("plans").select("*").order("sort_order").execute()
+        plans = plans_response.data or []
+
+        # Get all features
+        features_response = db_service.client.table("features").select("*").order("name").execute()
+        features = features_response.data or []
+
+        # Get all plan-feature mappings
+        plan_features_response = db_service.client.table("plan_features").select(
+            "plan_id, feature_id, value"
+        ).execute()
+        plan_features = plan_features_response.data or []
+
+        # Build lookup: {feature_id: {plan_id: value}}
+        feature_plan_values = {}
+        for pf in plan_features:
+            feature_id = pf["feature_id"]
+            plan_id = pf["plan_id"]
+            if feature_id not in feature_plan_values:
+                feature_plan_values[feature_id] = {}
+            feature_plan_values[feature_id][plan_id] = pf["value"]
+
+        # Build plan_id to plan_name lookup
+        plan_id_to_name = {p["id"]: p["name"] for p in plans}
+
+        # Build matrix entries
+        matrix_entries = []
+        for feature in features:
+            feature_id = feature["id"]
+            feature_type = feature["type"]
+
+            # Build plan_values dict with plan names as keys
+            plan_values = {}
+            for plan in plans:
+                plan_id = plan["id"]
+                plan_name = plan["name"]
+                if feature_id in feature_plan_values and plan_id in feature_plan_values[feature_id]:
+                    raw_value = feature_plan_values[feature_id][plan_id]
+                    # Extract the actual value based on feature type
+                    if feature_type == "flag":
+                        plan_values[plan_name] = raw_value.get("enabled", False)
+                    else:  # limit
+                        plan_values[plan_name] = raw_value.get("value", 0)
+                else:
+                    # Default value if no mapping exists
+                    if feature_type == "flag":
+                        plan_values[plan_name] = False
+                    else:
+                        plan_values[plan_name] = 0
+
+            matrix_entries.append(FeatureMatrixEntry(
+                feature_id=feature_id,
+                feature_key=feature["name"],
+                feature_display_name=feature["display_name"],
+                feature_type=feature_type,
+                description=feature.get("description"),
+                status=feature.get("status", "active"),
+                plan_values=plan_values,
+            ))
+
+        # Build plan responses
+        plan_responses = [
+            PlanResponse(
+                id=p["id"],
+                name=p["name"],
+                display_name=p["display_name"],
+                description=p.get("description"),
+                sort_order=p.get("sort_order", 0),
+                is_active=p.get("is_active", True),
+            )
+            for p in plans
+        ]
+
+        return FeatureMatrixResponse(
+            features=matrix_entries,
+            plans=plan_responses,
+            total_features=len(matrix_entries),
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch feature matrix: {str(e)}"
+        )
+
+
 @router.get("/features/{feature_id}", response_model=AdminFeatureResponse)
 async def get_feature(feature_id: str, _: dict = Depends(require_platform_admin())):
     """Get a specific feature (admin only)."""
@@ -185,104 +280,6 @@ async def get_plan(plan_id: str, _: dict = Depends(require_platform_admin())):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch plan: {str(e)}"
-        )
-
-
-# =============================================================================
-# Feature Matrix
-# =============================================================================
-
-@router.get("/features/matrix", response_model=FeatureMatrixResponse)
-async def get_feature_matrix(_: dict = Depends(require_platform_admin())):
-    """
-    Get the full feature matrix showing all features and their values across all plans.
-    This is the main admin view for managing entitlements.
-    """
-    try:
-        # Get all plans
-        plans_response = db_service.client.table("plans").select("*").order("sort_order").execute()
-        plans = plans_response.data or []
-
-        # Get all features
-        features_response = db_service.client.table("features").select("*").order("name").execute()
-        features = features_response.data or []
-
-        # Get all plan-feature mappings
-        plan_features_response = db_service.client.table("plan_features").select(
-            "plan_id, feature_id, value"
-        ).execute()
-        plan_features = plan_features_response.data or []
-
-        # Build lookup: {feature_id: {plan_id: value}}
-        feature_plan_values = {}
-        for pf in plan_features:
-            feature_id = pf["feature_id"]
-            plan_id = pf["plan_id"]
-            if feature_id not in feature_plan_values:
-                feature_plan_values[feature_id] = {}
-            feature_plan_values[feature_id][plan_id] = pf["value"]
-
-        # Build plan_id to plan_name lookup
-        plan_id_to_name = {p["id"]: p["name"] for p in plans}
-
-        # Build matrix entries
-        matrix_entries = []
-        for feature in features:
-            feature_id = feature["id"]
-            feature_type = feature["type"]
-
-            # Build plan_values dict with plan names as keys
-            plan_values = {}
-            for plan in plans:
-                plan_id = plan["id"]
-                plan_name = plan["name"]
-                if feature_id in feature_plan_values and plan_id in feature_plan_values[feature_id]:
-                    raw_value = feature_plan_values[feature_id][plan_id]
-                    # Extract the actual value based on feature type
-                    if feature_type == "flag":
-                        plan_values[plan_name] = raw_value.get("enabled", False)
-                    else:  # limit
-                        plan_values[plan_name] = raw_value.get("value", 0)
-                else:
-                    # Default value if no mapping exists
-                    if feature_type == "flag":
-                        plan_values[plan_name] = False
-                    else:
-                        plan_values[plan_name] = 0
-
-            matrix_entries.append(FeatureMatrixEntry(
-                feature_id=feature_id,
-                feature_key=feature["name"],
-                feature_display_name=feature["display_name"],
-                feature_type=feature_type,
-                description=feature.get("description"),
-                status=feature.get("status", "active"),
-                plan_values=plan_values,
-            ))
-
-        # Build plan responses
-        plan_responses = [
-            PlanResponse(
-                id=p["id"],
-                name=p["name"],
-                display_name=p["display_name"],
-                description=p.get("description"),
-                sort_order=p.get("sort_order", 0),
-                is_active=p.get("is_active", True),
-            )
-            for p in plans
-        ]
-
-        return FeatureMatrixResponse(
-            features=matrix_entries,
-            plans=plan_responses,
-            total_features=len(matrix_entries),
-        )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch feature matrix: {str(e)}"
         )
 
 

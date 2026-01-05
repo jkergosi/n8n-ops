@@ -168,9 +168,31 @@ class DatabaseService:
         return True
 
     async def reorder_environment_types(self, tenant_id: str, ordered_ids: List[str]) -> List[Dict[str, Any]]:
-        # Update sort_order based on list position
-        updates = [{"id": _id, "tenant_id": tenant_id, "sort_order": idx * 10} for idx, _id in enumerate(ordered_ids)]
-        self.client.table("environment_types").upsert(updates).execute()
+        # Fetch existing data before update to preserve all fields
+        existing_response = self.client.table("environment_types").select("*").eq("tenant_id", tenant_id).execute()
+        existing_data = existing_response.data or []
+        
+        # Create a map of id -> existing data for quick lookup
+        existing_map = {item["id"]: item for item in existing_data}
+        
+        # Update sort_order for each environment type individually, preserving all existing fields
+        for idx, env_type_id in enumerate(ordered_ids):
+            if env_type_id not in existing_map:
+                continue
+            
+            existing_item = existing_map[env_type_id]
+            
+            # Update with sort_order AND preserve key/label to prevent null values
+            update_payload = {
+                "sort_order": idx * 10,
+                "key": existing_item.get("key"),
+                "label": existing_item.get("label"),
+            }
+            
+            self.client.table("environment_types").update(
+                update_payload
+            ).eq("id", env_type_id).eq("tenant_id", tenant_id).execute()
+        
         response = self.client.table("environment_types").select("*").eq("tenant_id", tenant_id).order("sort_order").execute()
         return response.data or []
 

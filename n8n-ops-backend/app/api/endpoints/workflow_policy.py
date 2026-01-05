@@ -45,11 +45,12 @@ async def get_workflow_action_policy(
             detail="Environment not found"
         )
 
-    # Get tenant plan and user role - use provider-scoped entitlements as source of truth
+    # Get tenant plan and user role - use plan_resolver as single source of truth
     role = user.get("role", "user")
-    # Provider-scoped plan check with fallback to tenant.subscription_tier for backwards compatibility
-    provider_entitlements = await feature_service.get_effective_entitlements(tenant_id, "n8n")
-    plan = provider_entitlements.get("plan_name") or tenant.get("subscription_tier", "free")
+    # Use plan_resolver (queries tenant_provider_subscriptions) as single source of truth
+    from app.services.plan_resolver import resolve_effective_plan
+    resolved = await resolve_effective_plan(tenant_id)
+    plan = resolved.get("plan_name", "free")
 
     # Use environment_class from DB - NEVER infer at runtime
     env_class_str = env.get("environment_class", "dev")
@@ -107,11 +108,12 @@ async def get_workflow_specific_policy(
         sync_status = workflow.get("sync_status", "in_sync")
         has_drift = sync_status in ["local_changes", "conflict"]
 
-    # Get tenant plan and user role - use provider-scoped entitlements as source of truth
+    # Get tenant plan and user role - use plan_resolver as single source of truth
     role = user.get("role", "user")
-    # Provider-scoped plan check with fallback to tenant.subscription_tier for backwards compatibility
-    provider_entitlements = await feature_service.get_effective_entitlements(tenant_id, "n8n")
-    plan = provider_entitlements.get("plan_name") or tenant.get("subscription_tier", "free")
+    # Use plan_resolver (queries tenant_provider_subscriptions) as single source of truth
+    from app.services.plan_resolver import resolve_effective_plan
+    resolved = await resolve_effective_plan(tenant_id)
+    plan = resolved.get("plan_name", "free")
 
     # Use environment_class from DB
     env_class_str = env.get("environment_class", "dev")

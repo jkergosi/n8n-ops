@@ -33,6 +33,7 @@ class ProviderPlanBase(BaseModel):
     features: Dict[str, Any] = {}
     max_environments: int = 1
     max_workflows: int = 10
+    contact_sales: bool = False  # If true, show "Contact Sales" instead of price
 
 
 class ProviderPlanResponse(ProviderPlanBase):
@@ -150,6 +151,7 @@ class AdminProviderPlanUpdate(BaseModel):
     max_workflows: Optional[int] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
+    contact_sales: Optional[bool] = None
 
 
 class AdminProviderPlanCreate(BaseModel):
@@ -166,6 +168,7 @@ class AdminProviderPlanCreate(BaseModel):
     max_environments: int = 1
     max_workflows: int = 10
     sort_order: int = 0
+    contact_sales: bool = False
 
 
 class ProviderEntitlementsResponse(BaseModel):

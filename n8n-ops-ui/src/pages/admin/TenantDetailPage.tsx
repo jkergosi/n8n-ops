@@ -72,9 +72,6 @@ import {
   Search,
   UserCog,
   MoreVertical,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -133,8 +130,8 @@ export function TenantDetailPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<string>('joined');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [sortBy] = useState<string>('joined');
+  const [sortOrder] = useState<'asc' | 'desc'>('desc');
   const [usersPage, setUsersPage] = useState(1);
   const [impersonateDialogOpen, setImpersonateDialogOpen] = useState(false);
   const [suspendUserDialogOpen, setSuspendUserDialogOpen] = useState(false);
@@ -207,7 +204,6 @@ export function TenantDetailPage() {
   const providers = providersData?.data || [];
   const subscriptions = (tenant as any)?.providerSubscriptions || [];
   const users = usersData?.data?.users || [];
-  const totalUsers = usersData?.data?.total || 0;
   
   // Find providers not yet subscribed
   const subscribedProviderIds = subscriptions.map((s: TenantProviderSubscriptionSummary) => s.provider_id);
@@ -539,6 +535,41 @@ export function TenantDetailPage() {
     return 'bg-green-500';
   };
 
+  // Calculate billing state from provider subscriptions
+  const getBillingState = (tenant: Tenant): string => {
+    const subs = tenant.provider_subscriptions || [];
+    if (subs.length === 0) {
+      return 'Free-only';
+    }
+    
+    // Check for past_due status (takes precedence)
+    const hasPastDue = subs.some((s: TenantProviderSubscriptionSummary) => s.status === 'past_due');
+    if (hasPastDue) {
+      return 'Past due';
+    }
+    
+    // Check if any subscription is on a paid plan (has stripe_subscription_id or plan name indicates paid)
+    const hasPaid = subs.some((s: TenantProviderSubscriptionSummary) => {
+      const planName = s.plan?.name?.toLowerCase() || '';
+      return s.stripe_subscription_id || (planName !== 'free' && planName !== 'trial');
+    });
+    
+    return hasPaid ? 'Has paid' : 'Free-only';
+  };
+
+  const getBillingStateBadgeVariant = (state: string) => {
+    switch (state) {
+      case 'Past due':
+        return 'destructive';
+      case 'Has paid':
+        return 'default';
+      case 'Free-only':
+        return 'secondary';
+      default:
+        return 'outline';
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3">
@@ -563,6 +594,9 @@ export function TenantDetailPage() {
   const primarySubscription = subscriptions.find((s: TenantProviderSubscriptionSummary) => s.status === 'active');
   const planName = primarySubscription?.plan?.name || (tenant.subscriptionPlan || (tenant as any).subscription_plan || (tenant as any).subscription_tier || 'free') as string;
   const statusName = (tenant.status || (tenant as any).status || 'active') as string;
+  
+  // Get active subscriptions for header summary
+  const activeSubscriptions = subscriptions.filter((s: TenantProviderSubscriptionSummary) => s.status === 'active');
 
   return (
     <div className="space-y-6">
@@ -573,10 +607,25 @@ export function TenantDetailPage() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-bold">{tenant.name}</h1>
               <Badge className={statusColors[statusName] || statusColors.active}>{statusName}</Badge>
-              <Badge className={planColors[planName] || planColors.free}>{planName}</Badge>
+              {activeSubscriptions.length > 0 ? (
+                <div className="flex items-center gap-1 flex-wrap">
+                  {activeSubscriptions.slice(0, 2).map((sub: TenantProviderSubscriptionSummary) => (
+                    <Badge key={sub.id} variant="outline" className="text-xs">
+                      {sub.provider?.display_name || sub.provider?.name || 'Unknown'} · {sub.plan?.display_name || sub.plan?.name || 'Free'}
+                    </Badge>
+                  ))}
+                  {activeSubscriptions.length > 2 && (
+                    <Badge variant="secondary" className="text-xs">
+                      +{activeSubscriptions.length - 2}
+                    </Badge>
+                  )}
+                </div>
+              ) : (
+                <Badge className={planColors[planName] || planColors.free} variant="outline">{planName}</Badge>
+              )}
             </div>
             <p className="text-muted-foreground">{tenant.email}</p>
           </div>
@@ -613,7 +662,7 @@ export function TenantDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="features">
             <Shield className="h-4 w-4 mr-2" />
-            Plan & Features
+            Feature Overrides
           </TabsTrigger>
           <TabsTrigger value="billing">
             <CreditCard className="h-4 w-4 mr-2" />
@@ -690,10 +739,29 @@ export function TenantDetailPage() {
                     <p className="text-sm text-muted-foreground">Users</p>
                   </div>
                   <div className="text-center p-4 bg-muted rounded-lg">
-                    <Badge className={planColors[planName] || planColors.free} variant="outline">
-                      {String(planName).toUpperCase()}
-                    </Badge>
-                    <p className="text-sm text-muted-foreground mt-1">Plan</p>
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="flex items-center gap-1 flex-wrap justify-center">
+                        {activeSubscriptions.length > 0 ? (
+                          <>
+                            {activeSubscriptions.slice(0, 2).map((sub: TenantProviderSubscriptionSummary) => (
+                              <Badge key={sub.id} variant="outline" className="text-xs">
+                                {sub.provider?.display_name || sub.provider?.name || 'Unknown'} · {sub.plan?.display_name || sub.plan?.name || 'Free'}
+                              </Badge>
+                            ))}
+                            {activeSubscriptions.length > 2 && (
+                              <Badge variant="secondary" className="text-xs">
+                                +{activeSubscriptions.length - 2}
+                              </Badge>
+                            )}
+                          </>
+                        ) : (
+                          <Badge className={planColors[planName] || planColors.free} variant="outline">
+                            {String(planName).toUpperCase()}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">Plan{activeSubscriptions.length > 1 ? 's' : ''}</p>
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -724,7 +792,7 @@ export function TenantDetailPage() {
                     Schedule Deletion
                   </Button>
                   <Button variant="outline" asChild>
-                    <Link to={`/admin/tenant-overrides?tenant=${tenantId}`}>
+                    <Link to={`/platform/tenant-overrides?tenant=${tenantId}`}>
                       <Shield className="h-4 w-4 mr-2" />
                       Manage Overrides
                     </Link>
@@ -912,51 +980,8 @@ export function TenantDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* Plan & Features Tab */}
+        {/* Feature Overrides Tab */}
         <TabsContent value="features" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Provider Subscriptions</CardTitle>
-              <CardDescription>
-                Active subscriptions for this tenant
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {subscriptions.length === 0 ? (
-                <div className="text-center py-4">
-                  <p className="text-muted-foreground">No provider subscriptions</p>
-                  <Button variant="outline" className="mt-2" onClick={() => setActiveTab('subscriptions')}>
-                    Add Provider Subscription
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {subscriptions.map((sub: TenantProviderSubscriptionSummary) => (
-                    <div key={sub.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center gap-4">
-                        <Workflow className="h-6 w-6 text-orange-500" />
-                        <div>
-                          <p className="font-medium">{sub.provider?.display_name || sub.provider?.name}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Badge className={`${planColors[sub.plan?.name || 'free'] || planColors.free}`}>
-                              {sub.plan?.display_name || sub.plan?.name || 'Free'}
-                            </Badge>
-                            <Badge variant={sub.status === 'active' ? 'default' : 'secondary'} className={sub.status === 'active' ? 'bg-green-600' : ''}>
-                              {sub.status}
-                            </Badge>
-                          </div>
-                        </div>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => setActiveTab('subscriptions')}>
-                        Manage
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle>Feature Overrides</CardTitle>
@@ -1008,7 +1033,7 @@ export function TenantDetailPage() {
               )}
               <div className="mt-4">
                 <Button variant="outline" asChild>
-                  <Link to={`/admin/tenant-overrides`}>
+                  <Link to={`/platform/tenant-overrides?tenant=${tenantId}`}>
                     <Plus className="h-4 w-4 mr-2" />
                     Manage Overrides
                   </Link>
@@ -1023,46 +1048,21 @@ export function TenantDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle>Billing Information</CardTitle>
-              <CardDescription>Provider subscriptions and payment details</CardDescription>
+              <CardDescription>Billing status and payment details</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {subscriptions.length > 0 ? (
-                  <>
-                    <div>
-                      <Label className="text-muted-foreground">Active Subscriptions</Label>
-                      <div className="space-y-2 mt-2">
-                        {subscriptions.map((sub: TenantProviderSubscriptionSummary) => (
-                          <div key={sub.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                            <div className="flex items-center gap-3">
-                              <Workflow className="h-5 w-5 text-orange-500" />
-                              <div>
-                                <p className="font-medium">{sub.provider?.display_name || sub.provider?.name}</p>
-                                <p className="text-sm text-muted-foreground capitalize">{sub.plan?.display_name || sub.plan?.name || 'Free'}</p>
-                              </div>
-                            </div>
-                            <Badge variant={sub.status === 'active' ? 'default' : 'secondary'} className={sub.status === 'active' ? 'bg-green-600' : ''}>
-                              {sub.status}
-                            </Badge>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <Button variant="outline" onClick={() => setActiveTab('subscriptions')}>
-                      <CreditCard className="h-4 w-4 mr-2" />
-                      Manage Subscriptions
-                    </Button>
-                  </>
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-muted-foreground">No provider subscriptions</p>
-                    <Button variant="outline" className="mt-2" onClick={() => setActiveTab('subscriptions')}>
-                      Add Provider Subscription
-                    </Button>
+                <div>
+                  <Label className="text-muted-foreground">Billing State</Label>
+                  <div className="mt-1">
+                    <Badge variant={getBillingStateBadgeVariant(getBillingState(tenant))}>
+                      {getBillingState(tenant)}
+                    </Badge>
                   </div>
-                )}
+                </div>
+                
                 {tenant.stripeCustomerId && (
-                  <div className="pt-4 border-t">
+                  <div>
                     <Label className="text-muted-foreground">Stripe Customer ID</Label>
                     <div className="flex items-center gap-2 mt-1">
                       <code className="text-sm bg-muted px-2 py-1 rounded">{tenant.stripeCustomerId}</code>
@@ -1076,6 +1076,16 @@ export function TenantDetailPage() {
                     </div>
                   </div>
                 )}
+
+                <div className="pt-4 border-t">
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Subscriptions are managed per provider. See Subscriptions tab for details.
+                  </p>
+                  <Button variant="outline" onClick={() => setActiveTab('subscriptions')}>
+                    <Workflow className="h-4 w-4 mr-2" />
+                    Manage Subscriptions
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

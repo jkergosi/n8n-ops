@@ -56,11 +56,11 @@ const ROUTE_RULES: Array<{ match: (path: string) => boolean; rule: RouteRule }> 
     rule: { roles: ['admin'], minPlan: 'pro' },
   },
   {
-    match: (p) => p === '/admin/feature-matrix' || p.startsWith('/admin/feature-matrix/'),
-    rule: { roles: ['admin'], minPlan: 'free' }, // Accessible via Billing page
+    match: (p) => p === '/platform/feature-matrix' || p.startsWith('/platform/feature-matrix/'),
+    rule: { roles: ['platform_admin'], minPlan: 'free' }, // Platform admin only - full feature matrix management
   },
   {
-    match: (p) => p === '/admin/entitlements' || p.startsWith('/admin/entitlements/'),
+    match: (p) => p === '/platform/entitlements' || p.startsWith('/platform/entitlements/'),
     rule: { roles: ['platform_admin'], minPlan: 'free' }, // Platform admin only
   },
   {

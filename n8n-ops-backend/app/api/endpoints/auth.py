@@ -12,6 +12,7 @@ from app.services.auth_service import (
 from app.services.database import db_service
 from app.services.feature_service import feature_service
 from app.services.entitlements_service import entitlements_service
+from app.services.plan_resolver import resolve_effective_plan
 from app.services.stripe_service import stripe_service
 from app.services.email_service import email_service
 from app.services.audit_service import audit_service
@@ -114,6 +115,13 @@ async def get_current_user_info(user_info: dict = Depends(get_current_user)):
     ).eq("tenant_id", tenant["id"]).execute()
     has_environment = (env_response.count or 0) > 0
 
+    # Get the canonical plan from plan_resolver (single source of truth)
+    try:
+        resolved_plan = await resolve_effective_plan(tenant["id"])
+        effective_plan = resolved_plan.get("plan_name", "free")
+    except Exception:
+        effective_plan = "free"
+
     return UserResponse(
         id=user["id"],
         email=user["email"],
@@ -121,7 +129,7 @@ async def get_current_user_info(user_info: dict = Depends(get_current_user)):
         role=user["role"],
         tenant_id=tenant["id"],
         tenant_name=tenant["name"],
-        subscription_plan=tenant.get("subscription_tier", "free"),
+        subscription_plan=effective_plan,  # From plan_resolver (single source of truth)
         has_environment=has_environment,
         is_new=False
     )
@@ -166,6 +174,7 @@ async def get_auth_status(user_info: dict = Depends(get_current_user_optional)):
     features = None
     usage = None
     entitlements = None
+    resolved_plan = None
     if tenant:
         try:
             usage = await feature_service.get_usage_summary(tenant["id"])
@@ -179,6 +188,20 @@ async def get_auth_status(user_info: dict = Depends(get_current_user_optional)):
             entitlements = await entitlements_service.get_tenant_entitlements(tenant["id"])
         except Exception:
             entitlements = None
+
+        # Get the canonical plan from plan_resolver (single source of truth)
+        try:
+            resolved_plan = await resolve_effective_plan(tenant["id"])
+        except Exception:
+            resolved_plan = None
+
+    # Use plan_resolver as the single source of truth for subscription_plan
+    # This ensures /auth/status and entitlements always agree
+    effective_plan = "free"
+    if resolved_plan:
+        effective_plan = resolved_plan.get("plan_name", "free")
+    elif entitlements:
+        effective_plan = entitlements.get("plan_name", "free")
 
     return {
         "authenticated": True,
@@ -196,7 +219,7 @@ async def get_auth_status(user_info: dict = Depends(get_current_user_optional)):
         "tenant": {
             "id": tenant["id"],
             "name": tenant["name"],
-            "subscription_plan": tenant.get("subscription_tier", "free")
+            "subscription_plan": effective_plan  # From plan_resolver (single source of truth)
         } if tenant else None,
         "features": features,
         "usage": {
@@ -237,6 +260,13 @@ async def complete_onboarding(
             ).eq("tenant_id", tenant["id"]).execute()
             has_environment = (env_response.count or 0) > 0
 
+        # Get the canonical plan from plan_resolver (single source of truth)
+        try:
+            resolved_plan = await resolve_effective_plan(tenant["id"])
+            effective_plan = resolved_plan.get("plan_name", "free")
+        except Exception:
+            effective_plan = "free"
+
         return {
             "success": True,
             "message": "User already exists",
@@ -247,7 +277,7 @@ async def complete_onboarding(
                 role=user["role"],
                 tenant_id=tenant["id"],
                 tenant_name=tenant["name"],
-                subscription_plan=tenant.get("subscription_tier", "free"),
+                subscription_plan=effective_plan,  # From plan_resolver (single source of truth)
                 has_environment=has_environment,
                 is_new=False
             )
@@ -274,6 +304,8 @@ async def complete_onboarding(
     user = result["user"]
     tenant = result["tenant"]
 
+    # For newly created users, they start on free plan
+    # (No subscription exists yet in tenant_provider_subscriptions)
     return {
         "success": True,
         "message": "User and tenant created successfully",
@@ -284,7 +316,7 @@ async def complete_onboarding(
             role=user["role"],
             tenant_id=tenant["id"],
             tenant_name=tenant["name"],
-            subscription_plan=tenant.get("subscription_tier", "free"),
+            subscription_plan="free",  # New users start on free plan
             has_environment=False,
             is_new=True
         )
@@ -820,6 +852,13 @@ async def impersonate_user(user_id: str, user_info: dict = Depends(get_current_u
             # Don't fail impersonation if audit logging fails
             pass
 
+        # Get the canonical plan from plan_resolver (single source of truth)
+        try:
+            resolved_plan = await resolve_effective_plan(tenant["id"])
+            effective_plan = resolved_plan.get("plan_name", "free")
+        except Exception:
+            effective_plan = "free"
+
         return {
             "token": token,
             "user": {
@@ -831,7 +870,7 @@ async def impersonate_user(user_id: str, user_info: dict = Depends(get_current_u
             "tenant": {
                 "id": tenant["id"],
                 "name": tenant["name"],
-                "subscription_tier": tenant.get("subscription_tier", "free"),
+                "subscription_tier": effective_plan,  # From plan_resolver (single source of truth)
             },
             "impersonating": True,
             "admin_id": user["id"]
@@ -907,6 +946,13 @@ async def update_current_user(
             )
         update_data["role"] = updates.role
 
+    # Get the canonical plan from plan_resolver (single source of truth)
+    try:
+        resolved_plan = await resolve_effective_plan(tenant["id"])
+        effective_plan = resolved_plan.get("plan_name", "free")
+    except Exception:
+        effective_plan = "free"
+
     if not update_data:
         # No updates provided
         return UserResponse(
@@ -916,7 +962,7 @@ async def update_current_user(
             role=user["role"],
             tenant_id=tenant["id"],
             tenant_name=tenant["name"],
-            subscription_plan=tenant.get("subscription_tier", "free"),
+            subscription_plan=effective_plan,  # From plan_resolver (single source of truth)
             has_environment=False,
             is_new=False
         )
@@ -948,7 +994,7 @@ async def update_current_user(
             role=updated_user["role"],
             tenant_id=tenant["id"],
             tenant_name=tenant["name"],
-            subscription_plan=tenant.get("subscription_tier", "free"),
+            subscription_plan=effective_plan,  # From plan_resolver (single source of truth)
             has_environment=has_environment,
             is_new=False
         )

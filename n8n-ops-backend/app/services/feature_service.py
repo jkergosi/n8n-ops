@@ -13,6 +13,8 @@ from fastapi import HTTPException, status
 
 from app.services.database import db_service
 
+# Import environment limits constant for consistency with entitlements_service
+from app.services.entitlements_service import PLAN_ENVIRONMENT_LIMITS
 
 # Default provider for MVP - all feature checks default to n8n
 DEFAULT_PROVIDER = "n8n"
@@ -102,23 +104,83 @@ class FeatureService:
     """Centralized service for checking plan-based feature access."""
 
     async def get_tenant_subscription(self, tenant_id: str) -> Optional[dict]:
-        """Get tenant's subscription with plan features."""
+        """
+        Get tenant's subscription with plan features.
+        
+        Uses tenant_provider_subscriptions (via get_effective_entitlements) as the
+        single source of truth, falling back to None if no subscription exists.
+        """
         try:
-            response = db_service.client.table("subscriptions").select(
-                "*, plan:plan_id(name, display_name, features, max_environments, max_team_members, max_workflows)"
-            ).eq("tenant_id", tenant_id).single().execute()
-
-            if response.data:
-                return response.data
+            # Use get_effective_entitlements which queries tenant_provider_subscriptions
+            entitlements = await self.get_effective_entitlements(tenant_id, DEFAULT_PROVIDER)
+            
+            if not entitlements.get("has_subscription"):
+                return None
+            
+            # Transform to match the expected format from old subscriptions table
+            plan_name = entitlements.get("plan_name", "free")
+            features = entitlements.get("features", {})
+            
+            # Get provider plan details for full plan info
+            provider_id = None
+            try:
+                provider_response = db_service.client.table("providers").select(
+                    "id"
+                ).eq("name", DEFAULT_PROVIDER).single().execute()
+                if provider_response.data:
+                    provider_id = provider_response.data["id"]
+            except Exception:
+                pass
+            
+            if provider_id:
+                sub_response = db_service.client.table("tenant_provider_subscriptions").select(
+                    "id, tenant_id, provider_id, plan_id, status, billing_cycle, "
+                    "current_period_start, current_period_end, cancel_at_period_end, "
+                    "stripe_subscription_id, created_at, updated_at, "
+                    "plan:plan_id(id, name, display_name, features, max_environments, max_workflows)"
+                ).eq("tenant_id", tenant_id).eq("provider_id", provider_id).maybe_single().execute()
+                
+                if sub_response and sub_response.data:
+                    sub_data = sub_response.data
+                    plan_data = sub_data.get("plan", {})
+                    
+                    # Build response in format expected by callers
+                    return {
+                        "id": sub_data.get("id"),
+                        "tenant_id": tenant_id,
+                        "plan_id": plan_data.get("id"),
+                        "status": sub_data.get("status", "active"),
+                        "billing_cycle": sub_data.get("billing_cycle", "monthly"),
+                        "current_period_start": sub_data.get("current_period_start"),
+                        "current_period_end": sub_data.get("current_period_end"),
+                        "cancel_at_period_end": sub_data.get("cancel_at_period_end", False),
+                        "stripe_subscription_id": sub_data.get("stripe_subscription_id"),
+                        "plan": {
+                            "id": plan_data.get("id"),
+                            "name": plan_data.get("name", plan_name),
+                            "display_name": plan_data.get("display_name", plan_name.title()),
+                            "features": features,
+                            "max_environments": entitlements.get("max_environments", 1),
+                            "max_workflows": entitlements.get("max_workflows", 10),
+                            "max_team_members": features.get("max_team_members", 1),
+                        }
+                    }
+            
             return None
         except Exception:
             return None
 
     async def get_tenant_features(self, tenant_id: str) -> dict:
-        """Get all features available for a tenant's plan."""
-        subscription = await self.get_tenant_subscription(tenant_id)
+        """
+        Get all features available for a tenant's plan.
+        
+        Uses tenant_provider_subscriptions (via get_effective_entitlements) as the
+        single source of truth, falling back to free plan defaults if no subscription exists.
+        """
+        # Use get_effective_entitlements which queries tenant_provider_subscriptions
+        entitlements = await self.get_effective_entitlements(tenant_id, DEFAULT_PROVIDER)
 
-        if not subscription or not subscription.get("plan"):
+        if not entitlements.get("has_subscription"):
             # Return free plan defaults if no subscription
             return {
                 "plan_name": "free",
@@ -149,13 +211,18 @@ class FeatureService:
                 "drift_policies": False,
             }
 
-        plan = subscription["plan"]
-        features = plan.get("features", {})
+        # Extract features from provider_plans.features JSONB
+        features = entitlements.get("features", {})
+        plan_name = entitlements.get("plan_name", "free")
+
+        # Use PLAN_ENVIRONMENT_LIMITS for consistency with entitlements_service
+        # This ensures environment limits match across all services
+        max_environments = PLAN_ENVIRONMENT_LIMITS.get(plan_name, 1)
 
         return {
-            "plan_name": plan.get("name", "free"),
-            "max_environments": features.get("max_environments", 1),
-            "max_team_members": features.get("max_team_members", 1),
+            "plan_name": plan_name,
+            "max_environments": max_environments,
+            "max_team_members": features.get("max_team_members", 1),  # May not be in provider_plans
             "github_backup": features.get("github_backup", "manual"),
             "github_restore": features.get("github_restore", True),
             "scheduled_backup": features.get("scheduled_backup", False),

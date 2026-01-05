@@ -500,13 +500,12 @@ async def _sync_environment_background(
             # Refresh workflow credential dependencies
             try:
                 provider = environment.get("provider", "n8n") or "n8n"
+                adapter_class = ProviderRegistry.get_adapter_class(provider)
                 for workflow in workflows:
                     workflow_id = workflow.get("id")
                     workflow_data = workflow.get("workflow_data") or workflow
-                    
+
                     # Extract logical credentials
-                    from app.services.provider_registry import ProviderRegistry
-                    adapter_class = ProviderRegistry.get_adapter_class(provider)
                     logical_keys = adapter_class.extract_logical_credentials(workflow_data)
                     
                     # Convert logical keys to logical credential IDs

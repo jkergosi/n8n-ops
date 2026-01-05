@@ -225,8 +225,8 @@ app.include_router(
 
 app.include_router(
     admin_entitlements.router,
-    prefix=f"{settings.API_V1_PREFIX}/admin/entitlements",
-    tags=["admin-entitlements"]
+    prefix=f"{settings.API_V1_PREFIX}/platform/entitlements",
+    tags=["platform-entitlements"]
 )
 
 app.include_router(

@@ -20,6 +20,8 @@ from app.services.tenant_plan_service import set_tenant_plan
 from app.services.auth_service import get_current_user
 from app.services.agency_billing_service import upsert_subscription_items
 from app.services.entitlements_service import entitlements_service
+from app.services.feature_service import feature_service
+from app.services.plan_resolver import resolve_effective_plan
 
 router = APIRouter()
 
@@ -92,27 +94,57 @@ async def get_current_subscription(user_info: dict = Depends(get_current_user)):
     try:
         tenant_id = user_info["tenant"]["id"]
 
-        # Get subscription with plan details (using maybe_single to avoid exception if not found)
-        response = db_service.client.table("subscriptions").select(
-            "*, plan:plan_id(*)"
-        ).eq("tenant_id", tenant_id).maybe_single().execute()
+        # Use tenant_provider_subscriptions as single source of truth
+        # Get the effective plan and subscription details
+        resolved = await resolve_effective_plan(tenant_id)
+        plan_name = resolved.get("plan_name", "free")
+        highest_sub_id = resolved.get("highest_subscription_id")
 
-        if response.data:
-            return response.data
+        if highest_sub_id:
+            # Get subscription details from tenant_provider_subscriptions
+            sub_response = db_service.client.table("tenant_provider_subscriptions").select(
+                "id, tenant_id, provider_id, plan_id, status, billing_cycle, "
+                "current_period_start, current_period_end, cancel_at_period_end, "
+                "stripe_subscription_id, created_at, updated_at, "
+                "plan:plan_id(id, name, display_name, features, max_environments, max_workflows)"
+            ).eq("id", highest_sub_id).maybe_single().execute()
 
-        # No subscription record - fall back to tenant's subscription_tier
-        subscription_tier = user_info["tenant"].get("subscription_tier", "free")
+            if sub_response and sub_response.data:
+                sub_data = sub_response.data
+                plan_data = sub_data.get("plan", {})
+                
+                # Get Stripe customer ID if available (may be in old subscriptions table as fallback)
+                stripe_customer_id = None
+                try:
+                    old_sub = db_service.client.table("subscriptions").select(
+                        "stripe_customer_id"
+                    ).eq("tenant_id", tenant_id).maybe_single().execute()
+                    if old_sub and old_sub.data:
+                        stripe_customer_id = old_sub.data.get("stripe_customer_id")
+                except Exception:
+                    pass
 
-        # Look up the plan by name
+                return {
+                    "id": sub_data.get("id"),
+                    "tenant_id": tenant_id,
+                    "plan_id": plan_data.get("id"),
+                    "plan": plan_data,
+                    "stripe_customer_id": stripe_customer_id,
+                    "stripe_subscription_id": sub_data.get("stripe_subscription_id"),
+                    "status": sub_data.get("status", "active"),
+                    "billing_cycle": sub_data.get("billing_cycle", "monthly"),
+                    "current_period_start": sub_data.get("current_period_start"),
+                    "current_period_end": sub_data.get("current_period_end"),
+                    "cancel_at_period_end": sub_data.get("cancel_at_period_end", False),
+                    "canceled_at": None,
+                    "trial_end": None
+                }
+
+        # No active subscription - fall back to free plan
+        # Look up the free plan from subscription_plans table
         plan_response = db_service.client.table("subscription_plans").select("*").eq(
-            "name", subscription_tier
+            "name", "free"
         ).maybe_single().execute()
-
-        if not plan_response.data:
-            # Fall back to free plan if tier not found
-            plan_response = db_service.client.table("subscription_plans").select("*").eq(
-                "name", "free"
-            ).maybe_single().execute()
 
         if not plan_response.data:
             raise HTTPException(
@@ -120,9 +152,9 @@ async def get_current_subscription(user_info: dict = Depends(get_current_user)):
                 detail="No subscription plan found"
             )
 
-        # Return a synthetic subscription based on tenant tier
+        # Return a synthetic subscription for free plan
         return {
-            "id": f"{tenant_id}_tier",
+            "id": f"{tenant_id}_free",
             "tenant_id": tenant_id,
             "plan": plan_response.data,
             "stripe_customer_id": None,

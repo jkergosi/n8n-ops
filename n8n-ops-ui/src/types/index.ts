@@ -52,6 +52,7 @@ export interface ProviderPlan {
   max_workflows: number;
   is_active: boolean;
   sort_order: number;
+  contact_sales: boolean;
   created_at?: string;
 }
 

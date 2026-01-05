@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
+import { useAppStore } from '@/store/use-app-store';
 import { analyzeWorkflow, formatNodeType, type WorkflowAnalysis, type NodeAnalysis } from '@/lib/workflow-analysis';
 import { WorkflowHeroSection } from '@/components/workflow/WorkflowHeroSection';
 import { WorkflowGraphTab } from '@/components/workflow/WorkflowGraphTab';
@@ -552,7 +553,9 @@ export function WorkflowDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const environment = (searchParams.get('environment') || 'dev') as EnvironmentType;
+  const selectedEnvironment = useAppStore((state) => state.selectedEnvironment);
+  // Use URL param if provided, otherwise fall back to store's selected environment
+  const environment = (searchParams.get('environment') || selectedEnvironment || '') as EnvironmentType;
   const [activeTab, setActiveTab] = useState('overview');
   const [analysisSection, setAnalysisSection] = useState<string>('graph');
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null);

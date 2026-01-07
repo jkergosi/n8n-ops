@@ -32,6 +32,7 @@ class BackgroundJobType:
     CANONICAL_ENV_SYNC = "canonical_env_sync"
     CANONICAL_RECONCILIATION = "canonical_reconciliation"
     CANONICAL_ONBOARDING_INVENTORY = "canonical_onboarding_inventory"
+    DEV_GIT_SYNC = "dev_git_sync"
 
 
 class BackgroundJobService:
@@ -249,6 +250,8 @@ class BackgroundJobService:
         resource_type: str,
         resource_id: str,
         tenant_id: Optional[str] = None,
+        job_type: Optional[str] = None,
+        status: Optional[str] = None,
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         """
@@ -258,6 +261,8 @@ class BackgroundJobService:
             resource_type: Type of resource ('promotion', 'environment', etc.)
             resource_id: ID of the resource
             tenant_id: Optional tenant ID filter
+            job_type: Optional job type filter
+            status: Optional status filter
             limit: Maximum number of jobs to return
             
         Returns:
@@ -267,6 +272,12 @@ class BackgroundJobService:
         
         if tenant_id:
             query = query.eq("tenant_id", tenant_id)
+        
+        if job_type:
+            query = query.eq("job_type", job_type)
+        
+        if status:
+            query = query.eq("status", status)
         
         response = query.order("created_at", desc=True).limit(limit).execute()
         return response.data

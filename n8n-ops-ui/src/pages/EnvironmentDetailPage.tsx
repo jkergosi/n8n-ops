@@ -116,12 +116,8 @@ export function EnvironmentDetailPage() {
 
   // Dialog states
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [backupDialogOpen, setBackupDialogOpen] = useState(false);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-
-  // Form states
-  const [forceBackup, setForceBackup] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   // Loading states
@@ -321,45 +317,18 @@ export function EnvironmentDetailPage() {
   }, [id, queryClient]);
 
   // Mutations
-  const backupMutation = useMutation({
-    mutationFn: ({ environment, force }: { environment: Environment; force: boolean }) =>
-      apiClient.syncWorkflowsToGithub(environment, force),
-    onSuccess: (result) => {
-      const { job_id, status, message } = result.data;
-
-      if (job_id && status === 'running') {
-        toast.success('Backup started in background');
-        setActiveJobs((prev) => ({
-          ...prev,
-          [id!]: {
-            jobId: job_id,
-            jobType: 'backup',
-            status: 'running',
-            current: 0,
-            total: 1,
-            message: 'Starting backup...',
-          },
-        }));
-        setBackupDialogOpen(false);
-      } else {
-        toast.error(message || 'Failed to start backup');
-      }
-
-      queryClient.invalidateQueries({ queryKey: ['environment-jobs', id] });
-    },
-    onError: (error: any) => {
-      const message = error.response?.data?.detail || 'Failed to backup workflows';
-      toast.error(message);
-    },
-  });
 
   const syncMutation = useMutation({
     mutationFn: (environmentId: string) => apiClient.syncEnvironment(environmentId),
     onSuccess: (result, environmentId) => {
       const { job_id, status, message } = result.data;
 
-      if (job_id && (status === 'running' || status === 'pending')) {
-        toast.success('Sync started in background');
+      if (job_id && (status === 'running' || status === 'pending' || status === 'already_running')) {
+        if (status === 'already_running') {
+          toast.info('Sync already in progress');
+        } else {
+          toast.success('Syncing environment state (background)');
+        }
         setActiveJobs((prev) => ({
           ...prev,
           [environmentId]: {
@@ -368,7 +337,7 @@ export function EnvironmentDetailPage() {
             status: 'running',
             current: 0,
             total: 1,
-            message: 'Starting sync...',
+            message: status === 'already_running' ? 'Sync already in progress...' : 'Starting sync...',
           },
         }));
         queryClient.invalidateQueries({ queryKey: ['environment', id] });
@@ -562,17 +531,6 @@ export function EnvironmentDetailPage() {
     }
   };
 
-  const handleBackup = () => {
-    if (!environment) return;
-    setForceBackup(false);
-    setBackupDialogOpen(true);
-  };
-
-  const handleBackupConfirm = () => {
-    if (environment) {
-      backupMutation.mutate({ environment, force: forceBackup });
-    }
-  };
 
   const handleDownload = () => {
     if (!environment) return;
@@ -1644,7 +1602,10 @@ export function EnvironmentDetailPage() {
                   </p>
                   <Button
                     variant="outline"
-                    onClick={handleBackup}
+                    onClick={() => {
+                      // TODO: Implement snapshot creation
+                      toast.info('Snapshot creation will be implemented');
+                    }}
                     disabled={activeJob?.jobType === 'backup' && activeJob?.status === 'running'}
                   >
                     <Database className={`h-4 w-4 mr-2 ${activeJob?.jobType === 'backup' && activeJob?.status === 'running' ? 'animate-spin' : ''}`} />
@@ -1938,45 +1899,6 @@ export function EnvironmentDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Backup Confirmation Dialog */}
-      <Dialog open={backupDialogOpen} onOpenChange={setBackupDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Backup Workflows to GitHub</DialogTitle>
-            <DialogDescription>
-              This will push workflows from {environment.name} environment to your configured GitHub repository.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4 space-y-4">
-            <p className="text-sm text-muted-foreground">
-              By default, only workflows changed since the last backup will be pushed.
-            </p>
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="forceBackup"
-                checked={forceBackup}
-                onChange={(e) => setForceBackup(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300"
-              />
-              <Label htmlFor="forceBackup" className="cursor-pointer text-sm">
-                Force full backup (re-upload all workflows)
-              </Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBackupDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleBackupConfirm}
-              disabled={backupMutation.isPending}
-            >
-              {backupMutation.isPending ? 'Backing up...' : 'Backup'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Download Confirmation Dialog */}
       <Dialog open={downloadDialogOpen} onOpenChange={setDownloadDialogOpen}>

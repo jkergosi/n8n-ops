@@ -112,6 +112,10 @@ export function ActivityDetailPage() {
         return 'Restore';
       case 'snapshot_restore':
         return 'Snapshot Restore';
+      case 'canonical_env_sync':
+        return 'Canonical Sync';
+      case 'dev_git_sync':
+        return 'DEV Git Sync';
       default:
         return jobType;
     }
@@ -131,6 +135,44 @@ export function ActivityDetailPage() {
   const formatDateTime = (dateString?: string) => {
     if (!dateString) return '—';
     return new Date(dateString).toLocaleString();
+  };
+
+  // Phase labels for canonical sync jobs
+  const getPhaseLabel = (currentStep?: string): string => {
+    if (!currentStep) return 'Unknown';
+    
+    const phaseMap: Record<string, string> = {
+      'discovering_workflows': 'Discovering workflows',
+      'updating_environment_state': 'Updating environment state',
+      'reconciling_drift': 'Reconciling drift',
+      'finalizing_sync': 'Finalizing sync',
+      'persisting_to_git': 'Persisting workflows to Git',
+      'completed': 'Completed',
+      'failed': 'Failed',
+      'initializing': 'Initializing'
+    };
+    
+    return phaseMap[currentStep] || currentStep;
+  };
+
+  // Format progress message with counts
+  const formatProgressMessage = (progress: any, currentStep?: string): string => {
+    if (!progress) return '';
+    
+    const { current, total, message } = progress;
+    
+    // If message already contains phase info, use it
+    if (message && !message.includes('batch') && !message.includes('Completed batch')) {
+      return message;
+    }
+    
+    // For phase-based steps, show counts
+    if (currentStep && current !== undefined && total !== undefined && total > 0) {
+      const phaseLabel = getPhaseLabel(currentStep);
+      return `${phaseLabel}: ${current} / ${total} workflows`;
+    }
+    
+    return message || '';
   };
 
   if (isLoading) {
@@ -243,42 +285,86 @@ export function ActivityDetailPage() {
       </Card>
 
       {/* Progress */}
-      {progress && (progress.current !== undefined || progress.total !== undefined) && (
+      {progress && (progress.current !== undefined || progress.total !== undefined || progress.current_step) && (
         <Card>
           <CardHeader>
             <CardTitle>Progress</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {progress.current !== undefined && progress.total !== undefined && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span>Progress</span>
-                  <span>
-                    {progress.current} / {progress.total} ({progress.percentage || Math.round((progress.current / progress.total) * 100)}%)
-                  </span>
+            {job.status === 'completed' && result?.completion_summary ? (
+              // Completion Summary Card
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                  <h3 className="font-semibold">Sync complete</h3>
                 </div>
-                <Progress 
-                  value={progress.percentage || (progress.total > 0 ? (progress.current / progress.total) * 100 : 0)} 
-                  className="h-2" 
-                />
+                <div className="space-y-2 pl-7">
+                  <p className="text-sm">
+                    <span className="font-medium">{result.completion_summary.workflows_processed}</span> workflow(s) processed
+                  </p>
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <span>{result.completion_summary.workflows_linked} linked</span>
+                    {result.completion_summary.workflows_untracked > 0 && (
+                      <span>· {result.completion_summary.workflows_untracked} untracked</span>
+                    )}
+                    {result.completion_summary.workflows_missing > 0 && (
+                      <span>· {result.completion_summary.workflows_missing} missing</span>
+                    )}
+                  </div>
+                  {result.completion_summary.drift_detected_count > 0 && (
+                    <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                      Drift detected in {result.completion_summary.drift_detected_count} workflow(s)
+                    </p>
+                  )}
+                  {result.workflows_persisted !== undefined && result.workflows_persisted > 0 && (
+                    <p className="text-sm text-green-600 dark:text-green-400">
+                      DEV workflows persisted to Git
+                    </p>
+                  )}
+                </div>
               </div>
-            )}
-            {progress.message && (
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium">Current step:</span> {progress.message}
-              </p>
-            )}
-            {progress.current_step && (
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium">Step:</span> {progress.current_step}
-              </p>
+            ) : (
+              // Running Progress
+              <>
+                {progress.current_step && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">
+                      {getPhaseLabel(progress.current_step)}
+                    </p>
+                    {progress.current !== undefined && progress.total !== undefined && progress.total > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {progress.current} / {progress.total} workflows
+                      </p>
+                    )}
+                  </div>
+                )}
+                {progress.current !== undefined && progress.total !== undefined && progress.total > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span>Progress</span>
+                      <span>
+                        {progress.current} / {progress.total} ({progress.percentage || Math.round((progress.current / progress.total) * 100)}%)
+                      </span>
+                    </div>
+                    <Progress 
+                      value={progress.percentage || (progress.total > 0 ? (progress.current / progress.total) * 100 : 0)} 
+                      className="h-2" 
+                    />
+                  </div>
+                )}
+                {formatProgressMessage(progress, progress.current_step) && (
+                  <p className="text-sm text-muted-foreground">
+                    {formatProgressMessage(progress, progress.current_step)}
+                  </p>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
       )}
 
-      {/* Results */}
-      {job.status === 'completed' && result && Object.keys(result).length > 0 && (
+      {/* Results - Only show if not already shown in completion summary */}
+      {job.status === 'completed' && result && Object.keys(result).length > 0 && !result.completion_summary && (
         <Card>
           <CardHeader>
             <CardTitle>Results</CardTitle>

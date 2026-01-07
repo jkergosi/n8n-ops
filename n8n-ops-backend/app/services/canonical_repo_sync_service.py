@@ -1,5 +1,9 @@
 """
 Canonical Repository Sync Service - Git → DB sync
+
+Greenfield Sync Model:
+- Git is source of truth for non-DEV environments
+- Skip processing if git_content_hash is unchanged (optimization)
 """
 import json
 import logging
@@ -61,6 +65,7 @@ class CanonicalRepoSyncService:
         
         results = {
             "workflows_synced": 0,
+            "workflows_unchanged": 0,  # Skipped due to unchanged git_content_hash
             "workflows_created": 0,
             "workflows_updated": 0,
             "sidecars_ingested": 0,
@@ -93,6 +98,15 @@ class CanonicalRepoSyncService:
                     
                     # Compute content hash
                     content_hash = compute_workflow_hash(workflow_data)
+                    
+                    # Skip-if-unchanged optimization: check existing git_content_hash
+                    existing_git_state = await CanonicalWorkflowService.get_canonical_workflow_git_state(
+                        tenant_id, environment_id, canonical_id
+                    )
+                    if existing_git_state and existing_git_state.get("git_content_hash") == content_hash:
+                        # Git content unchanged - skip processing
+                        results["workflows_unchanged"] += 1
+                        continue
                     
                     # Get or create canonical workflow
                     canonical = await CanonicalWorkflowService.get_canonical_workflow(
@@ -151,7 +165,8 @@ class CanonicalRepoSyncService:
             
             logger.info(
                 f"Repo sync completed for tenant {tenant_id}, env {environment_id}: "
-                f"{results['workflows_synced']} workflows, {results['sidecars_ingested']} sidecars"
+                f"{results['workflows_synced']} synced, {results['workflows_unchanged']} unchanged, "
+                f"{results['sidecars_ingested']} sidecars"
             )
             
             return results
@@ -209,7 +224,7 @@ class CanonicalRepoSyncService:
             try:
                 db_service.client.table("workflow_env_map").upsert(
                     mapping_data,
-                    on_conflict="tenant_id,environment_id,canonical_id"
+                    on_conflict="tenant_id,environment_id,n8n_workflow_id"
                 ).execute()
             except Exception as e:
                 logger.warning(f"Failed to ingest sidecar mapping for {env_id}: {str(e)}")

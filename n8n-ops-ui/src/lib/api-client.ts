@@ -960,6 +960,12 @@ class ApiClient {
     return { data: response.data };
   }
 
+  async getWorkflowExecutionCounts(environment: EnvironmentType): Promise<{ data: Record<string, number> }> {
+    const params = buildEnvironmentParams(environment);
+    const response = await this.client.get<Record<string, number>>('/workflows/execution-counts', { params });
+    return { data: response.data };
+  }
+
   async uploadWorkflows(
     files: File[],
     environment: EnvironmentType,

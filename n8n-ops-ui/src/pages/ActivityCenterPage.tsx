@@ -202,9 +202,30 @@ export function ActivityCenterPage() {
         return 'Restore';
       case 'snapshot_restore':
         return 'Snapshot Restore';
+      case 'canonical_env_sync':
+        return 'Canonical Sync';
+      case 'dev_git_sync':
+        return 'DEV Git Sync';
       default:
         return jobType;
     }
+  };
+
+  const getPhaseLabelForJob = (currentStep?: string): string => {
+    if (!currentStep) return 'Unknown';
+    
+    const phaseMap: Record<string, string> = {
+      'discovering_workflows': 'Discovering workflows',
+      'updating_environment_state': 'Updating environment state',
+      'reconciling_drift': 'Reconciling drift',
+      'finalizing_sync': 'Finalizing sync',
+      'persisting_to_git': 'Persisting to Git',
+      'completed': 'Completed',
+      'failed': 'Failed',
+      'initializing': 'Initializing'
+    };
+    
+    return phaseMap[currentStep] || currentStep;
   };
 
   const getStatusIcon = (status: string) => {
@@ -380,10 +401,17 @@ export function ActivityCenterPage() {
                     <TableCell>
                       {job.progress ? (
                         <div className="space-y-1">
-                          <div className="text-sm">
-                            {job.progress.current} / {job.progress.total} ({job.progress.percentage}%)
-                          </div>
-                          {job.progress.message && (
+                          {job.progress.current_step ? (
+                            <div className="text-sm font-medium">
+                              {getPhaseLabelForJob(job.progress.current_step)}
+                            </div>
+                          ) : null}
+                          {job.progress.current !== undefined && job.progress.total !== undefined && job.progress.total > 0 ? (
+                            <div className="text-sm">
+                              {job.progress.current} / {job.progress.total} ({job.progress.percentage || Math.round((job.progress.current / job.progress.total) * 100)}%)
+                            </div>
+                          ) : null}
+                          {job.progress.message && !job.progress.message.includes('batch') && !job.progress.message.includes('Completed batch') && (
                             <div className="text-xs text-muted-foreground">
                               {job.progress.message}
                             </div>

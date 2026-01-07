@@ -15,79 +15,30 @@ Before reporting that a change is complete or asking the user to test:
 
 If tests fail, fix the issues before reporting completion. Do not hand off broken code to the user.
 
-## Server and Port Rules (MANDATORY)
+## Server Restart Policy (MANDATORY)
 
-**Ask before restarting servers:**
-- If a change requires restarting the backend or frontend server, **ASK THE USER FIRST**
-- Do not restart servers without explicit permission
-- Explain why the restart is needed before asking
+**When changes require a server restart, ASK the user to restart:**
 
-**NEVER change ports without permission:**
-- Port configuration in `.env.local` is sacred - **NEVER modify without asking**
-- Do not change `VITE_API_BASE_URL`, `BACKEND_PORT`, `FRONTEND_PORT`, or any port settings
-- If you believe a port change is needed, explain why and get explicit approval first
+### Changes That Require Backend Restart:
+- Installing new Python packages (`pip install`)
+- Changes to `requirements.txt`
+- Changes to `.env` files
+- Changes to `app/main.py` router registration
+- Database migration changes (though migrations auto-run on start)
 
-## Quick Start
+### Changes That Require Frontend Restart:
+- Installing new npm packages (`npm install`)
+- Changes to `vite.config.ts`
+- Changes to `package.json` scripts
+- Changes to `.env` files
 
-### 1. Check Ports
-```bash
-cat .env.local
-```
+### Changes That DO NOT Require Restart (Hot-Reload):
+- Backend: `.py` file changes, route modifications, schema updates
+- Frontend: `.tsx`, `.ts`, `.css` file changes, component updates
 
-### 2. Start Backend
-```bash
-cd n8n-ops-backend
-python scripts/start_with_migrations.py
-```
-
-### 3. Start Frontend
-```bash
-cd n8n-ops-ui
-npm run dev
-```
-
-### Stop Servers
-```powershell
-# Kill both ports 3000 and 4000
-.\scripts\kill-ports.ps1
-
-# Kill specific port
-.\scripts\kill-ports.ps1 -Port 3000
-```
-
-## Hot-Reload vs Manual Restart
-
-**Start servers once, let hot-reload handle changes.**
-
-### ✅ Hot-Reload Handles (No Restart Needed)
-
-| Frontend (Vite) | Backend (uvicorn --reload) |
-|-----------------|---------------------------|
-| `.tsx`, `.ts`, `.css` changes | `.py` file changes |
-| Component updates | Route modifications |
-| State management changes | Schema updates |
-
-### ⚠️ Manual Restart Required
-
-| Frontend | Backend |
-|----------|---------|
-| New npm packages | New Python packages |
-| `vite.config.ts` changes | `requirements.txt` changes |
-| `.env` file changes | `.env` file changes |
-| `package.json` script changes | Database migrations (auto on start) |
-
-### Troubleshooting
-
-**Port already in use:** Run `.\scripts\kill-ports.ps1`
-
-**Hot-reload not working:**
-- Frontend: Hard refresh (Ctrl+Shift+R), check browser console
-- Backend: Check terminal for reload messages, verify no syntax errors
-- If still broken: `.\scripts\kill-ports.ps1` then restart
+**Format:** "This change requires a [backend/frontend] restart to take effect. Please restart the [backend/frontend] server when convenient."
 
 ## Port Configuration
-
-**Always read `.env.local` for ports. Never use defaults (8000, 5173).**
 
 | Worktree | Frontend | Backend |
 |----------|----------|---------|
@@ -96,6 +47,8 @@ npm run dev
 | f2       | 3002     | 4002    |
 | f3       | 3003     | 4003    |
 | f4       | 3004     | 4004    |
+
+Port configuration is in `.env.local` (root) and should not be modified without user approval.
 
 ## Architecture
 
@@ -142,6 +95,8 @@ npm run dev
 - **Entitlements**: Plan-based feature access with overrides
 - **Admin Portal**: 16 admin pages for system management
 - **Real-time Updates**: SSE-based live notifications
+- **Canonical Workflows**: Repository-based workflow management with environment synchronization
+- **Background Jobs**: Async task execution with progress tracking
 
 ## Dev Mode Authentication
 
@@ -160,17 +115,17 @@ n8n-ops/
 │   ├── CLAUDE.md                # Backend-specific docs
 │   ├── app/
 │   │   ├── main.py              # App entry, router registration
-│   │   ├── api/endpoints/       # 38 API routers
-│   │   ├── services/            # 28 business logic services
-│   │   ├── schemas/             # 21 Pydantic model files
+│   │   ├── api/endpoints/       # 40+ API routers
+│   │   ├── services/            # 30+ business logic services
+│   │   ├── schemas/             # 25+ Pydantic model files
 │   │   └── core/                # Config, feature gates
 │   ├── alembic/                 # Alembic migrations
 │   ├── migrations/              # SQL migrations
-│   └── tests/                   # 35 pytest test files
+│   └── tests/                   # 35+ pytest test files
 ├── n8n-ops-ui/                  # React frontend
 │   ├── CLAUDE.md                # Frontend-specific docs
 │   └── src/
-│       ├── pages/               # 29 pages + 4 support + 16 admin pages
+│       ├── pages/               # 30+ pages + 4 support + 16 admin pages
 │       ├── components/          # UI, workflow, pipeline components
 │       ├── hooks/               # Custom React hooks
 │       ├── lib/                 # API client, auth, features
@@ -201,32 +156,27 @@ n8n-ops/
 2. Add endpoint in `app/api/endpoints/`
 3. Register router in `app/main.py`
 4. Add DB methods in `app/services/database.py`
+5. Write tests in `tests/`
 
 ### Frontend
 1. Add API method in `src/lib/api-client.ts`
 2. Create page in `src/pages/`
 3. Add route in `src/App.tsx`
 4. Add nav item in `src/components/AppLayout.tsx`
+5. Add types in `src/types/index.ts`
 
 ## Common Commands
 
 ```bash
-# Backend (with port enforcement & migrations)
-cd n8n-ops-backend
-pip install -r requirements.txt
-python scripts/start_with_migrations.py
+# Backend testing
+cd n8n-ops-backend && pytest                    # All tests
+cd n8n-ops-backend && pytest tests/test_file.py # Specific test
 
-# Frontend (with port enforcement)
-cd n8n-ops-ui
-npm install
-npm run dev
-npm run build
-npm run lint
-
-# Testing
-cd n8n-ops-backend && pytest                    # Backend tests
-cd n8n-ops-ui && npm test                       # Frontend tests
+# Frontend testing
+cd n8n-ops-ui && npm test                       # Run tests
 cd n8n-ops-ui && npm test -- --coverage         # With coverage
+cd n8n-ops-ui && npm run build                  # Type check & build
+cd n8n-ops-ui && npm run lint                   # Lint check
 ```
 
 ## Resources

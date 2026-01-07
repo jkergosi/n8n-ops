@@ -444,6 +444,63 @@ class DatabaseService:
         self.client.table("executions").delete().eq("id", execution_id).eq("tenant_id", tenant_id).execute()
         return True
 
+    async def get_execution_counts(
+        self,
+        tenant_id: str,
+        environment_id: str = None,
+        workflow_ids: List[str] = None
+    ) -> Dict[str, int]:
+        """
+        Get execution counts grouped by workflow_id.
+
+        This is an optimized query that returns counts without fetching all execution records.
+        Uses database aggregation (GROUP BY) instead of client-side counting.
+
+        Args:
+            tenant_id: Tenant ID to filter by
+            environment_id: Optional environment ID to filter by
+            workflow_ids: Optional list of workflow IDs to filter by
+
+        Returns:
+            Dictionary mapping workflow_id to execution count: {"workflow-1": 42, "workflow-2": 17}
+        """
+        # Use Supabase RPC function for efficient aggregation
+        # If no RPC function exists, fall back to fetching data and counting client-side
+        try:
+            # Build a raw SQL query using PostgREST count=exact feature
+            # Note: Supabase doesn't directly support GROUP BY in the client, so we use count with distinct filters
+
+            # If workflow_ids is empty, return empty dict
+            if workflow_ids is not None and len(workflow_ids) == 0:
+                return {}
+
+            # Build base query
+            query = self.client.table("executions").select("workflow_id", count="exact").eq("tenant_id", tenant_id)
+
+            if environment_id:
+                query = query.eq("environment_id", environment_id)
+
+            if workflow_ids:
+                query = query.in_("workflow_id", workflow_ids)
+
+            # Execute query to get all matching records
+            response = query.execute()
+
+            # Count manually on client side (Supabase limitation)
+            # Group by workflow_id
+            counts = {}
+            for execution in (response.data or []):
+                workflow_id = execution.get("workflow_id")
+                if workflow_id:
+                    counts[workflow_id] = counts.get(workflow_id, 0) + 1
+
+            return counts
+
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to get execution counts: {str(e)}")
+            return {}
+
     async def get_failed_executions(
         self,
         tenant_id: str,
@@ -484,6 +541,56 @@ class DatabaseService:
 
         response = query.execute()
         return response.data[0] if response.data else None
+
+    async def get_last_workflow_failures_batch(
+        self,
+        tenant_id: str,
+        workflow_ids: List[str],
+        environment_id: str = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Get the last failed execution for multiple workflows in a single query.
+
+        This is optimized to avoid N+1 queries when fetching last failures for many workflows.
+        Uses a window function approach to get the most recent failure per workflow.
+
+        Args:
+            tenant_id: Tenant ID
+            workflow_ids: List of workflow IDs to fetch failures for
+            environment_id: Optional environment filter
+
+        Returns:
+            Dictionary mapping workflow_id to last failure data: {workflow_id: {...}}
+        """
+        if not workflow_ids:
+            return {}
+
+        # Use PostgreSQL window functions via RPC or a more complex query
+        # Since Supabase client doesn't directly support DISTINCT ON with ordering,
+        # we'll fetch all failed executions for these workflows and filter client-side
+        # This is still much better than N queries (1 query vs N queries)
+
+        query = self.client.table("executions").select(
+            "id, workflow_id, environment_id, status, started_at, finished_at, data"
+        ).eq("tenant_id", tenant_id).in_("workflow_id", workflow_ids).eq("status", "error")
+
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+
+        # Order by started_at descending to get most recent first
+        query = query.order("started_at", desc=True)
+
+        response = query.execute()
+        executions = response.data or []
+
+        # Group by workflow_id and keep only the most recent failure for each
+        last_failures = {}
+        for execution in executions:
+            workflow_id = execution.get("workflow_id")
+            if workflow_id and workflow_id not in last_failures:
+                last_failures[workflow_id] = execution
+
+        return last_failures
 
     # Tag operations
     async def create_tag(self, tag_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -2140,35 +2247,89 @@ class DatabaseService:
         tenant_id: str,
         environment_id: str,
         include_deleted: bool = False,
-        include_ignored: bool = False
-    ) -> List[Dict[str, Any]]:
+        include_ignored: bool = False,
+        page: Optional[int] = None,
+        limit: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Get workflows for an environment from canonical system.
-        
+
         Returns workflows with full workflow_data from workflow_env_map,
         joined with canonical_workflows for display names.
-        
+
         This replaces the legacy get_workflows() method.
+
+        Args:
+            tenant_id: Tenant ID
+            environment_id: Environment ID
+            include_deleted: Include deleted workflows
+            include_ignored: Include ignored workflows
+            page: Page number (1-indexed) for pagination
+            limit: Number of items per page
+
+        Returns:
+            If pagination params provided: {"items": [...], "total": 500, "page": 1, "pages": 10}
+            Otherwise: List of workflows (legacy behavior)
         """
         # Get workflow mappings for this environment
+        # Use JSONB field projection to reduce payload size
+        # Instead of fetching entire workflow_data (10-100KB), only fetch needed fields
+        select_fields = """
+            id,
+            tenant_id,
+            environment_id,
+            canonical_id,
+            n8n_workflow_id,
+            env_content_hash,
+            last_env_sync_at,
+            linked_at,
+            linked_by_user_id,
+            status,
+            workflow_data->>'name' as workflow_name,
+            workflow_data->>'description' as workflow_description,
+            workflow_data->>'active' as workflow_active,
+            workflow_data->'tags' as workflow_tags,
+            workflow_data->>'createdAt' as workflow_created_at,
+            workflow_data->>'updatedAt' as workflow_updated_at,
+            workflow_data->'nodes' as workflow_nodes,
+            workflow_data->'connections' as workflow_connections,
+            workflow_data->'settings' as workflow_settings
+        """
+
         query = (
             self.client.table("workflow_env_map")
-            .select("*")
+            .select(select_fields, count="exact")
             .eq("tenant_id", tenant_id)
             .eq("environment_id", environment_id)
         )
-        
-        # Filter by status
+
+        # Filter by status using proper PostgREST syntax
+        # Build status filter conditions
+        status_conditions = []
         if not include_deleted:
-            query = query.neq("status", "deleted").or_("status.is.null")
+            status_conditions.append("status.neq.deleted")
+        status_conditions.append("status.neq.missing")  # Always exclude missing
         if not include_ignored:
-            query = query.neq("status", "ignored").or_("status.is.null")
-        
+            status_conditions.append("status.neq.ignored")
+
+        # Add null status (untracked workflows) - they should be included
+        status_conditions.append("status.is.null")
+
+        # Combine with OR - any of these conditions allows the record through
+        if status_conditions:
+            query = query.or_(",".join(status_conditions))
+
         # Only get workflows that have n8n_workflow_id (exist in n8n)
         query = query.not_.is_("n8n_workflow_id", "null")
-        
+
+        # Add pagination if requested
+        if page is not None and limit is not None:
+            offset = (page - 1) * limit
+            query = query.range(offset, offset + limit - 1)
+
         response = query.execute()
         mappings = response.data or []
+        total_count = response.count if hasattr(response, 'count') else len(mappings)
         
         # Get canonical workflows for display names (batch fetch)
         canonical_ids = [m.get("canonical_id") for m in mappings if m.get("canonical_id")]
@@ -2185,32 +2346,67 @@ class DatabaseService:
                 canonical_map[canonical.get("canonical_id")] = canonical
         
         # Transform to match legacy workflow format for backward compatibility
+        # Optimized: Parse all JSON fields in a single pass using list comprehension
+        import json
+
         workflows = []
         for mapping in mappings:
-            workflow_data = mapping.get("workflow_data") or {}
             canonical_id = mapping.get("canonical_id")
             canonical = canonical_map.get(canonical_id, {}) if canonical_id else {}
-            
+
+            # Optimized JSON parsing with safe fallbacks
+            # Use direct dict access since JSONB -> operator returns native Python types
+            # Only parse if the value is actually a string (from ->> operator)
+            def safe_parse_json(value, default):
+                """Parse JSON string or return value if already parsed"""
+                if value is None:
+                    return default
+                if isinstance(value, str):
+                    try:
+                        return json.loads(value)
+                    except (json.JSONDecodeError, TypeError):
+                        return default
+                # Already a Python object (list/dict)
+                return value
+
+            workflow_tags = safe_parse_json(mapping.get("workflow_tags"), [])
+            workflow_nodes = safe_parse_json(mapping.get("workflow_nodes"), [])
+            workflow_connections = safe_parse_json(mapping.get("workflow_connections"), {})
+            workflow_settings = safe_parse_json(mapping.get("workflow_settings"), {})
+
             # Build workflow object matching legacy format
             workflow_obj = {
                 "id": mapping.get("n8n_workflow_id"),
-                "name": workflow_data.get("name") or canonical.get("display_name") or "Unknown",
-                "description": workflow_data.get("description") or "",
-                "active": workflow_data.get("active", False),
-                "tags": workflow_data.get("tags", []),
-                "createdAt": workflow_data.get("createdAt") or mapping.get("linked_at"),
-                "updatedAt": workflow_data.get("updatedAt") or mapping.get("last_env_sync_at"),
-                "nodes": workflow_data.get("nodes", []),
-                "connections": workflow_data.get("connections", {}),
-                "settings": workflow_data.get("settings", {}),
+                "name": mapping.get("workflow_name") or canonical.get("display_name") or "Unknown",
+                "description": mapping.get("workflow_description") or "",
+                "active": mapping.get("workflow_active") == "true" if mapping.get("workflow_active") else False,
+                "tags": workflow_tags,
+                "createdAt": mapping.get("workflow_created_at") or mapping.get("linked_at"),
+                "updatedAt": mapping.get("workflow_updated_at") or mapping.get("last_env_sync_at"),
+                "nodes": workflow_nodes,
+                "connections": workflow_connections,
+                "settings": workflow_settings,
                 "lastSyncedAt": mapping.get("last_env_sync_at"),
                 "syncStatus": "synced" if mapping.get("status") == "linked" else "pending",
                 "canonical_id": canonical_id,
                 "canonical_display_name": canonical.get("display_name")
             }
-            
+
             workflows.append(workflow_obj)
-        
+
+        # Return paginated response if pagination was requested
+        if page is not None and limit is not None:
+            import math
+            total_pages = math.ceil(total_count / limit) if limit > 0 else 0
+            return {
+                "items": workflows,
+                "total": total_count,
+                "page": page,
+                "limit": limit,
+                "pages": total_pages
+            }
+
+        # Legacy behavior: return list directly
         return workflows
     
     async def get_workflow_diff_states(

@@ -2,76 +2,26 @@
 
 FastAPI backend for N8N Ops platform.
 
-## Running
+## Server Restart Policy
 
-### Quick Start Scripts (Windows PowerShell)
+**Changes requiring restart must prompt the user to restart the backend.**
 
-```powershell
-# Start backend (automatically runs migrations first)
-.\backend_cycle.ps1 -Action start
+User starts the backend with: `python scripts/start_with_migrations.py`
 
-# Stop backend
-.\backend_cycle.ps1 -Action stop
+**When to ask for restart:**
+- Installing new Python packages (`pip install`)
+- Changes to `requirements.txt`
+- Changes to `.env` files
+- Changes to `app/main.py` router registration
+- Database migration changes (though migrations auto-run on start)
 
-# Restart backend
-.\backend_cycle.ps1 -Action restart
-```
+**Format:** "This change requires a backend restart to take effect. Please restart the backend server when convenient."
 
-### Manual Start with Migrations (Recommended)
-
-```bash
-# Automatically runs migrations before starting the app
-python scripts/start_with_migrations.py
-
-# With custom port
-python scripts/start_with_migrations.py --port 4000
-
-# Production mode (no reload)
-python scripts/start_with_migrations.py --no-reload
-```
-
-### Manual Start (Without Migrations - Not Recommended)
-
-```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port <BACKEND_PORT>
-```
-
-**Note:** The startup script (`start_with_migrations.py`) automatically runs `alembic upgrade head` before starting the application. This ensures your database schema is always up-to-date. If migrations fail, the application will not start.
-
-Check port in `../.env.local` (default: 4000 for main worktree).
-
-### Stop Server
-
-```powershell
-# Kill backend port
-..\scripts\kill-ports.ps1 -Port 4000
-```
-
-## Hot-Reload vs Manual Restart
-
-**Start server once, let hot-reload handle changes.**
-
-### ✅ Hot-Reload Handles (No Restart Needed)
+**Hot-reload handles automatically (no restart needed):**
 - Changes to `.py` files
 - Route modifications
 - Schema updates
 - Most code changes
-
-### ⚠️ Manual Restart Required
-- Installing new Python packages
-- Changes to `requirements.txt`
-- Changes to `.env` files
-- Major dependency updates
-
-**Note:** Database migrations run automatically on start via `start_with_migrations.py`.
-
-### Troubleshooting
-
-**Hot-reload not working:**
-- Check terminal for uvicorn reload messages
-- Verify `--reload` flag is present (included in `start_with_migrations.py`)
-- Check for Python syntax errors (reload won't work with syntax errors)
-- If still broken: kill port and restart
 
 ## API Endpoints
 
@@ -120,6 +70,16 @@ All endpoints prefixed with `/api/v1`.
 | POST | `/sync-from-github` | Import from GitHub |
 | GET | `/download` | Download as ZIP |
 
+### Canonical Workflows (`/canonical-workflows`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/git-state` | List canonical workflow Git state |
+| GET | `/env-map` | List workflow environment mappings |
+| POST | `/sync-repository/{environment_id}` | Sync Git repository to canonical state |
+| POST | `/sync-environment/{environment_id}` | Sync N8N environment to canonical state |
+| POST | `/reconcile/{environment_id}` | Reconcile Git and environment state |
+| POST | `/onboard-inventory` | Onboard existing workflows to canonical system |
+
 ### Pipelines (`/pipelines`)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -144,6 +104,7 @@ All endpoints prefixed with `/api/v1`.
 |--------|----------|-------------|
 | GET | `/` | List deployments (paginated, filtered) |
 | GET | `/{id}` | Get deployment with workflows, snapshots |
+| POST | `/schedule` | Schedule deployment for future execution |
 
 ### Snapshots (`/snapshots`)
 | Method | Endpoint | Description |
@@ -197,6 +158,7 @@ All endpoints prefixed with `/api/v1`.
 | `providers` | `/providers` | Workflow automation providers |
 | `background_jobs` | `/background-jobs` | Background job status |
 | `health` | `/health` | Health check endpoint |
+| `github_webhooks` | `/github-webhooks` | GitHub webhook handlers |
 
 ### Admin Endpoints
 | Router | Prefix | Description |
@@ -231,7 +193,7 @@ All endpoints prefixed with `/api/v1`.
 | `email_service.py` | Email notifications |
 | `support_service.py` | Support ticket handling |
 | `entitlements_service.py` | Feature entitlement logic |
-| `background_job_service.py` | Async background tasks |
+| `background_job_service.py` | Async background tasks with progress tracking |
 | `sse_pubsub_service.py` | Real-time event publishing |
 | `provider_adapter.py` | Multi-provider workflow abstraction |
 | `provider_registry.py` | Provider registration system |
@@ -242,6 +204,10 @@ All endpoints prefixed with `/api/v1`.
 | `drift_retention_service.py` | Drift data retention and cleanup |
 | `deployment_scheduler.py` | Scheduled deployment execution |
 | `environment_action_guard.py` | Policy-based action validation per environment |
+| `canonical_repo_sync_service.py` | Repository synchronization for canonical workflows |
+| `canonical_env_sync_service.py` | Environment synchronization for canonical workflows |
+| `canonical_reconciliation_service.py` | Reconciliation between Git and environment state |
+| `canonical_sync_scheduler.py` | Scheduled canonical workflow sync operations |
 
 ## Schemas (Pydantic Models)
 
@@ -268,6 +234,8 @@ All endpoints prefixed with `/api/v1`.
 | `drift_incident.py` | `DriftIncidentCreate`, `DriftIncidentResponse`, `DriftIncidentStatus` |
 | `drift_policy.py` | `DriftPolicyCreate`, `DriftPolicyResponse`, `DriftPolicyTemplate` |
 | `workflow_policy.py` | `WorkflowPolicyResponse`, `EnvironmentClass`, `ActionPermissions` |
+| `background_job.py` | `BackgroundJobResponse`, `BackgroundJobCreate` |
+| `canonical_workflow.py` | `CanonicalWorkflowGitState`, `WorkflowEnvMap` |
 
 ## Database Tables
 
@@ -293,6 +261,9 @@ All endpoints prefixed with `/api/v1`.
 | `workflow_archive` | Archived/deleted workflow history |
 | `drift_check_history` | Historical drift check results per environment |
 | `drift_check_workflow_flags` | Per-workflow status in each drift check |
+| `background_jobs` | Background job execution tracking with progress and metadata |
+| `canonical_workflow_git_state` | Git repository state for canonical workflows |
+| `workflow_env_map` | Mapping between workflows and environments |
 
 ## Core Patterns
 
@@ -320,6 +291,33 @@ from app.services.auth_service import get_current_user
 async def get_user(user_info: dict = Depends(get_current_user)):
     user = user_info["user"]
     tenant = user_info["tenant"]
+```
+
+### Background Jobs
+```python
+from app.services.background_job_service import background_job_service, BackgroundJobType, BackgroundJobStatus
+
+# Create job
+job = await background_job_service.create_job(
+    tenant_id=tenant_id,
+    job_type=BackgroundJobType.ENVIRONMENT_SYNC,
+    resource_id=environment_id,
+    resource_type="environment"
+)
+
+# Update status
+await background_job_service.update_job_status(
+    job_id=job["id"],
+    status=BackgroundJobStatus.RUNNING,
+    progress={"current": 50, "total": 100}
+)
+
+# Complete job
+await background_job_service.update_job_status(
+    job_id=job["id"],
+    status=BackgroundJobStatus.COMPLETED,
+    result={"synced_count": 50}
+)
 ```
 
 ### Error Handling
@@ -374,3 +372,20 @@ SECRET_KEY=xxx
    )
    ```
 4. Add DB methods in `app/services/database.py`
+5. Write tests in `tests/test_newfeature.py`
+
+## Testing
+
+```bash
+# Run all tests
+pytest
+
+# Run specific test file
+pytest tests/test_background_job_service.py
+
+# Run with coverage
+pytest --cov=app --cov-report=html
+
+# Run specific test
+pytest tests/test_background_job_service.py::test_create_job -v
+```

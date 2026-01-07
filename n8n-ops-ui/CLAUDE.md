@@ -2,48 +2,26 @@
 
 React frontend for N8N Ops platform.
 
-## Running
+## Server Restart Policy
 
-```bash
-npm run dev
-```
+**Changes requiring restart must prompt the user to restart the frontend.**
 
-Check port in `../.env.local` (default: 3000 for main worktree).
+User starts the frontend with: `npm run dev`
 
-### Stop Server
-
-```powershell
-# Kill frontend port
-..\scripts\kill-ports.ps1 -Port 3000
-
-# Or from this directory
-npm run kill
-```
-
-## Hot-Reload vs Manual Restart
-
-**Start server once, let hot-reload handle changes.**
-
-### ✅ Hot-Reload Handles (No Restart Needed)
-- Changes to `.tsx`, `.ts`, `.css` files
-- Component updates
-- State management changes
-- Most code changes
-
-### ⚠️ Manual Restart Required
-- Installing new npm packages
+**When to ask for restart:**
+- Installing new npm packages (`npm install`)
 - Changes to `vite.config.ts`
 - Changes to `package.json` scripts
 - Changes to `.env` files
 - Major dependency updates
 
-### Troubleshooting
+**Format:** "This change requires a frontend restart to take effect. Please restart the frontend server when convenient."
 
-**Hot-reload not working:**
-- Check browser console for errors
-- Hard refresh (Ctrl+Shift+R)
-- Check if Vite is watching files (look for file change messages in terminal)
-- If still broken: kill port and restart
+**Hot-reload handles automatically (no restart needed):**
+- Changes to `.tsx`, `.ts`, `.css` files
+- Component updates
+- State management changes
+- Most code changes
 
 ## Pages
 
@@ -81,6 +59,11 @@ npm run kill
 | `DriftDashboardPage` | `/drift-dashboard` | Drift overview, history, and analytics |
 | `IncidentsPage` | `/incidents` | List drift incidents, filter by status |
 | `IncidentDetailPage` | `/incidents/:id` | Incident details, acknowledge, resolve |
+
+### Canonical Workflows
+| Page | Route | Description |
+|------|-------|-------------|
+| `CanonicalWorkflowsPage` | `/canonical-workflows` | Canonical workflow management |
 
 ### Activity Center
 | Page | Route | Description |
@@ -166,6 +149,13 @@ await apiClient.getWorkflows(environmentId, forceRefresh);
 await apiClient.uploadWorkflows(files, environmentId, syncToGithub);
 await apiClient.activateWorkflow(id, environmentId);
 
+// Canonical Workflows
+await apiClient.getCanonicalGitState(tenantId);
+await apiClient.getCanonicalEnvMap(tenantId);
+await apiClient.syncCanonicalRepository(environmentId);
+await apiClient.syncCanonicalEnvironment(environmentId);
+await apiClient.reconcileCanonical(environmentId);
+
 // Pipelines
 await apiClient.getPipelines();
 await apiClient.createPipeline(data);
@@ -177,6 +167,11 @@ await apiClient.executePromotion(id);
 // Deployments & Snapshots
 await apiClient.getDeployments({ status, page });
 await apiClient.getSnapshots({ environmentId, type });
+await apiClient.scheduleDeployment(data);
+
+// Background Jobs
+await apiClient.getBackgroundJobs({ resourceType, status });
+await apiClient.getBackgroundJob(jobId);
 
 // Auth (dev mode)
 await apiClient.getDevUsers();
@@ -229,7 +224,7 @@ if (canAccessRoute('/admin/tenants', userRole)) {
 - `FeatureGate.tsx` - Conditional feature rendering
 
 ### UI Components (`src/components/ui/`)
-shadcn/ui components: `button`, `card`, `dialog`, `table`, `tabs`, `input`, `select`, `checkbox`, `switch`, `badge`, `dropdown-menu`, `command`, `tooltip`, `alert`, `alert-dialog`, `textarea`, `multi-select`
+shadcn/ui components: `button`, `card`, `dialog`, `table`, `tabs`, `input`, `select`, `checkbox`, `switch`, `badge`, `dropdown-menu`, `command`, `tooltip`, `alert`, `alert-dialog`, `textarea`, `multi-select`, `progress`, `skeleton`
 
 ### Workflow Components (`src/components/workflow/`)
 - `WorkflowGraphTab.tsx` - Interactive graph with react-flow
@@ -250,6 +245,7 @@ shadcn/ui components: `button`, `card`, `dialog`, `table`, `tabs`, `input`, `sel
 |------|---------|
 | `useWorkflowActionPolicy.ts` | Fetches workflow action permissions based on environment class |
 | `useEnvironmentCapabilities.ts` | Fetches environment capabilities and action guards |
+| `useBackgroundJobs.ts` | Manages background job queries and updates |
 
 ### Workflow Action Policy (`src/lib/workflow-action-policy.ts`)
 ```typescript
@@ -278,6 +274,9 @@ interface WorkflowActionPolicy { canDirectEdit, canDelete, canActivate, requires
 interface ProviderInfo { id, name, displayName, isActive, ... }
 interface ProviderPlan { id, providerId, name, priceMonthly, maxEnvironments, ... }
 interface TenantProviderSubscription { id, tenantId, providerId, planId, status, ... }
+interface BackgroundJob { id, jobType, status, progress, result, ... }
+interface CanonicalWorkflowGitState { id, tenantId, environmentId, workflowId, ... }
+interface WorkflowEnvMap { id, tenantId, workflowId, environmentId, ... }
 ```
 
 ## Environment Variables
@@ -343,8 +342,36 @@ const mutation = useMutation({
 });
 ```
 
+### Background Job Polling
+```tsx
+const { data: job } = useQuery({
+  queryKey: ['background-job', jobId],
+  queryFn: () => apiClient.getBackgroundJob(jobId),
+  refetchInterval: (data) => {
+    // Poll every 2s if job is still running
+    return data?.status === 'running' || data?.status === 'pending' ? 2000 : false;
+  },
+});
+```
+
 ### Styling
 - TailwindCSS utility classes
 - `className="space-y-4"` for vertical spacing
 - `className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"` for responsive grids
 - shadcn/ui components from `@/components/ui/`
+
+## Testing
+
+```bash
+# Run tests
+npm test
+
+# Run tests with coverage
+npm test -- --coverage
+
+# Type check and build
+npm run build
+
+# Lint check
+npm run lint
+```

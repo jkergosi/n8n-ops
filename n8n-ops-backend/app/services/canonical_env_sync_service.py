@@ -1,5 +1,9 @@
 """
 Canonical Environment Sync Service - n8n → DB sync (async, batched, resumable)
+
+Greenfield Sync Model:
+- DEV: n8n is source of truth. Full sync: workflow_data + env_content_hash + n8n_updated_at
+- Non-DEV: Git is source of truth. Observational sync: env_content_hash + n8n_updated_at only (not workflow_data)
 """
 import logging
 from typing import Dict, Any, List, Optional
@@ -16,6 +20,14 @@ from app.schemas.canonical_workflow import WorkflowMappingStatus
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 25  # Process 25-30 workflows per batch (checkpoint after each)
+
+
+def _normalize_timestamp(ts: Optional[str]) -> Optional[str]:
+    """Normalize timestamp to comparable format (strip timezone variations)"""
+    if not ts:
+        return None
+    # Remove 'Z' suffix and microseconds for comparison
+    return ts.replace("Z", "+00:00").split(".")[0] if ts else None
 
 
 class CanonicalEnvSyncService:
@@ -52,16 +64,53 @@ class CanonicalEnvSyncService:
         
         results = {
             "workflows_synced": 0,
+            "workflows_skipped": 0,  # Short-circuited due to unchanged n8n_updated_at
             "workflows_linked": 0,
             "workflows_untracked": 0,
-            "workflows_deleted": 0,
-            "errors": []
+            "workflows_missing": 0,
+            "errors": [],
+            "observed_workflow_ids": [],  # All workflows observed in Phase 1
+            "created_workflow_ids": []  # New untracked workflows created in Phase 1
         }
         
         try:
+            # Phase 1: Discovering workflows
+            if job_id and tenant_id_for_sse:
+                try:
+                    from app.api.endpoints.sse import emit_sync_progress
+                    await emit_sync_progress(
+                        job_id=job_id,
+                        environment_id=environment_id,
+                        status="running",
+                        current_step="discovering_workflows",
+                        current=0,
+                        total=0,
+                        message="Discovering workflows from n8n...",
+                        tenant_id=tenant_id_for_sse
+                    )
+                except Exception as sse_err:
+                    logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+            
             # Get all workflows from n8n (may be summaries, we'll fetch full data in batch)
             n8n_workflow_summaries = await adapter.get_workflows()
             total_workflows = len(n8n_workflow_summaries)
+            
+            # Emit discovery complete
+            if job_id and tenant_id_for_sse:
+                try:
+                    from app.api.endpoints.sse import emit_sync_progress
+                    await emit_sync_progress(
+                        job_id=job_id,
+                        environment_id=environment_id,
+                        status="running",
+                        current_step="updating_environment_state",
+                        current=0,
+                        total=total_workflows,
+                        message=f"Found {total_workflows} workflow(s). Updating environment state...",
+                        tenant_id=tenant_id_for_sse
+                    )
+                except Exception as sse_err:
+                    logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
             
             # Determine starting point from checkpoint
             start_index = checkpoint.get("last_processed_index", 0) if checkpoint else 0
@@ -84,7 +133,7 @@ class CanonicalEnvSyncService:
                             # Fallback to summary if full fetch fails
                             batch_workflows.append(summary)
                 
-                # Update progress if job_id provided
+                # Update progress if job_id provided (phase: updating_environment_state)
                 if job_id:
                     await background_job_service.update_job_status(
                         job_id=job_id,
@@ -93,11 +142,12 @@ class CanonicalEnvSyncService:
                             "current": batch_start,
                             "total": total_workflows,
                             "percentage": int((batch_start / total_workflows) * 100) if total_workflows > 0 else 0,
-                            "message": f"Processing batch {batch_start // BATCH_SIZE + 1}: workflows {batch_start + 1}-{batch_end}"
+                            "message": f"Updating environment state: {batch_start} / {total_workflows} workflows processed",
+                            "current_step": "updating_environment_state"
                         }
                     )
                     
-                    # Emit SSE event for real-time updates
+                    # Emit SSE event for real-time updates (phase-based, not batch-based)
                     if tenant_id_for_sse:
                         try:
                             from app.api.endpoints.sse import emit_sync_progress
@@ -105,28 +155,35 @@ class CanonicalEnvSyncService:
                                 job_id=job_id,
                                 environment_id=environment_id,
                                 status="running",
-                                current_step="syncing_workflows",
+                                current_step="updating_environment_state",
                                 current=batch_start,
                                 total=total_workflows,
-                                message=f"Processing batch {batch_start // BATCH_SIZE + 1}: workflows {batch_start + 1}-{batch_end}",
+                                message=f"{batch_start} / {total_workflows} workflows processed",
                                 tenant_id=tenant_id_for_sse
                             )
                         except Exception as sse_err:
                             logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
                 
+                # Determine environment class for sync behavior
+                env_class = environment.get("environment_class", "dev").lower()
+                is_dev = env_class == "dev"
+                
                 # Process batch
                 batch_results = await CanonicalEnvSyncService._process_workflow_batch(
                     tenant_id,
                     environment_id,
-                    batch_workflows
+                    batch_workflows,
+                    is_dev=is_dev
                 )
                 
                 # Aggregate results
                 results["workflows_synced"] += batch_results["synced"]
+                results["workflows_skipped"] += batch_results.get("skipped", 0)
                 results["workflows_linked"] += batch_results["linked"]
                 results["workflows_untracked"] += batch_results["untracked"]
-                results["workflows_deleted"] += batch_results["deleted"]
                 results["errors"].extend(batch_results["errors"])
+                results["observed_workflow_ids"].extend(batch_results.get("observed_workflow_ids", []))
+                results["created_workflow_ids"].extend(batch_results.get("created_workflow_ids", []))
                 
                 # Checkpoint after batch (store in job progress for resumability)
                 if job_id:
@@ -137,16 +194,18 @@ class CanonicalEnvSyncService:
                     }
                     await background_job_service.update_job_status(
                         job_id=job_id,
+                        status=BackgroundJobStatus.RUNNING,
                         progress={
                             "current": batch_end,
                             "total": total_workflows,
                             "percentage": int((batch_end / total_workflows) * 100) if total_workflows > 0 else 100,
-                            "message": f"Completed batch {batch_start // BATCH_SIZE + 1}",
+                            "message": f"Updating environment state: {batch_end} / {total_workflows} workflows processed",
+                            "current_step": "updating_environment_state",
                             "checkpoint": checkpoint_data
                         }
                     )
                     
-                    # Emit SSE event after batch completion
+                    # Emit SSE event after batch completion (phase-based, not batch-based)
                     if tenant_id_for_sse:
                         try:
                             from app.api.endpoints.sse import emit_sync_progress
@@ -154,26 +213,28 @@ class CanonicalEnvSyncService:
                                 job_id=job_id,
                                 environment_id=environment_id,
                                 status="running",
-                                current_step="syncing_workflows",
+                                current_step="updating_environment_state",
                                 current=batch_end,
                                 total=total_workflows,
-                                message=f"Completed batch {batch_start // BATCH_SIZE + 1}: {batch_end}/{total_workflows} workflows processed",
+                                message=f"{batch_end} / {total_workflows} workflows processed",
                                 tenant_id=tenant_id_for_sse
                             )
                         except Exception as sse_err:
                             logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
             
-            # Mark workflows as deleted if they no longer exist in n8n
+            # Mark workflows as missing if they no longer exist in n8n
             n8n_workflow_ids = {w.get("id") for w in n8n_workflow_summaries}
-            await CanonicalEnvSyncService._mark_missing_workflows_deleted(
+            missing_count = await CanonicalEnvSyncService._mark_missing_workflows_missing(
                 tenant_id,
                 environment_id,
                 n8n_workflow_ids
             )
+            results["workflows_missing"] = missing_count
             
             logger.info(
                 f"Environment sync completed for tenant {tenant_id}, env {environment_id}: "
-                f"{results['workflows_synced']} synced, {results['workflows_untracked']} untracked"
+                f"{results['workflows_synced']} synced, {results['workflows_skipped']} skipped, "
+                f"{results['workflows_untracked']} untracked, {results['workflows_missing']} missing"
             )
             
             return results
@@ -188,15 +249,26 @@ class CanonicalEnvSyncService:
     async def _process_workflow_batch(
         tenant_id: str,
         environment_id: str,
-        workflows: List[Dict[str, Any]]
+        workflows: List[Dict[str, Any]],
+        is_dev: bool = True
     ) -> Dict[str, Any]:
-        """Process a batch of workflows"""
+        """
+        Process a batch of workflows.
+        
+        Greenfield Sync Model:
+        - DEV (is_dev=True): Full sync - update workflow_data + env_content_hash + n8n_updated_at
+        - Non-DEV (is_dev=False): Observational sync - update env_content_hash + n8n_updated_at only
+        
+        Short-circuit optimization: If n8n_updated_at is unchanged, skip processing.
+        """
         batch_results = {
             "synced": 0,
+            "skipped": 0,  # Short-circuited due to unchanged n8n_updated_at
             "linked": 0,
             "untracked": 0,
-            "deleted": 0,
-            "errors": []
+            "errors": [],
+            "observed_workflow_ids": [],  # All workflows observed in this batch
+            "created_workflow_ids": []  # New workflows created in this batch (untracked)
         }
         
         for workflow in workflows:
@@ -205,8 +277,11 @@ class CanonicalEnvSyncService:
                 if not n8n_workflow_id:
                     continue
                 
-                # Compute content hash
-                content_hash = compute_workflow_hash(workflow)
+                # Track all observed workflows
+                batch_results["observed_workflow_ids"].append(n8n_workflow_id)
+                
+                # Get n8n's updatedAt timestamp for short-circuit check
+                n8n_updated_at = workflow.get("updatedAt")
                 
                 # Check if this n8n workflow is already mapped
                 existing_mapping = await CanonicalEnvSyncService._get_mapping_by_n8n_id(
@@ -216,28 +291,66 @@ class CanonicalEnvSyncService:
                 )
                 
                 if existing_mapping:
-                    # Update existing mapping (store workflow_data for UI caching)
+                    existing_status = existing_mapping.get("status")
+                    existing_canonical_id = existing_mapping.get("canonical_id")
+                    existing_n8n_updated_at = existing_mapping.get("n8n_updated_at")
+                    
+                    # Short-circuit optimization: skip if n8n_updated_at unchanged
+                    # Only applies when workflow is not in "missing" state (reappeared workflows need full processing)
+                    if existing_status != "missing" and existing_n8n_updated_at and n8n_updated_at:
+                        if _normalize_timestamp(existing_n8n_updated_at) == _normalize_timestamp(n8n_updated_at):
+                            # Workflow unchanged - skip processing
+                            batch_results["skipped"] += 1
+                            if existing_canonical_id:
+                                batch_results["linked"] += 1
+                            continue
+                    
+                    # Compute content hash (only if not short-circuited)
+                    content_hash = compute_workflow_hash(workflow)
+                    
+                    # Determine new status based on canonical_id presence for missing workflows
+                    new_status = None
+                    if existing_status == "missing":
+                        # Workflow reappeared - transition based on canonical_id
+                        if existing_canonical_id:
+                            new_status = WorkflowMappingStatus.LINKED
+                        else:
+                            new_status = WorkflowMappingStatus.UNTRACKED
+                    
+                    # Update existing mapping
+                    # DEV: update workflow_data + hash
+                    # Non-DEV: update hash only (observational)
                     await CanonicalEnvSyncService._update_workflow_mapping(
                         tenant_id,
                         environment_id,
-                        existing_mapping["canonical_id"],
+                        existing_canonical_id,
                         n8n_workflow_id,
                         content_hash,
-                        workflow_data=workflow  # Store full workflow JSON
+                        status=new_status,
+                        workflow_data=workflow if is_dev else None,  # Only store workflow_data in DEV
+                        n8n_updated_at=n8n_updated_at
                     )
                     batch_results["synced"] += 1
-                    if existing_mapping.get("status") == "linked":
+                    if existing_canonical_id or (existing_status == "missing" and existing_canonical_id):
                         batch_results["linked"] += 1
+                    elif existing_status == "missing" and not existing_canonical_id:
+                        batch_results["untracked"] += 1
                 else:
-                    # New workflow - check if we can auto-link by hash
+                    # New workflow - compute hash
+                    content_hash = compute_workflow_hash(workflow)
+                    
+                    # Try to auto-link by hash
                     canonical_id = await CanonicalEnvSyncService._try_auto_link_by_hash(
                         tenant_id,
                         environment_id,
-                        content_hash
+                        content_hash,
+                        n8n_workflow_id
                     )
                     
                     if canonical_id:
-                        # Auto-linked (store workflow_data for UI caching)
+                        # Auto-linked
+                        # DEV: store workflow_data
+                        # Non-DEV: observational only
                         await CanonicalEnvSyncService._create_workflow_mapping(
                             tenant_id,
                             environment_id,
@@ -245,15 +358,25 @@ class CanonicalEnvSyncService:
                             n8n_workflow_id,
                             content_hash,
                             status=WorkflowMappingStatus.LINKED,
-                            workflow_data=workflow  # Store full workflow JSON
+                            workflow_data=workflow if is_dev else None,
+                            n8n_updated_at=n8n_updated_at
                         )
                         batch_results["synced"] += 1
                         batch_results["linked"] += 1
                     else:
-                        # Untracked - no mapping created (absence of row = untracked)
-                        # Will be surfaced in UI for user to adopt/ignore/delete
+                        # Untracked - create mapping row with canonical_id=NULL
+                        await CanonicalEnvSyncService._create_untracked_mapping(
+                            tenant_id,
+                            environment_id,
+                            n8n_workflow_id,
+                            content_hash,
+                            workflow_data=workflow if is_dev else None,
+                            n8n_updated_at=n8n_updated_at
+                        )
                         batch_results["synced"] += 1
                         batch_results["untracked"] += 1
+                        # Track newly created (untracked) workflows
+                        batch_results["created_workflow_ids"].append(n8n_workflow_id)
                 
             except Exception as e:
                 error_msg = f"Error processing workflow {workflow.get('id', 'unknown')}: {str(e)}"
@@ -287,7 +410,8 @@ class CanonicalEnvSyncService:
     async def _try_auto_link_by_hash(
         tenant_id: str,
         environment_id: str,
-        content_hash: str
+        content_hash: str,
+        n8n_workflow_id: str
     ) -> Optional[str]:
         """
         Try to auto-link n8n workflow to canonical workflow by content hash.
@@ -295,6 +419,7 @@ class CanonicalEnvSyncService:
         Only links if:
         - Hash matches exactly
         - Match is unique (one canonical workflow with this hash)
+        - canonical_id is not already linked to a different n8n_workflow_id in same environment
         
         Returns canonical_id if linked, None otherwise.
         """
@@ -312,10 +437,33 @@ class CanonicalEnvSyncService:
             matching_canonical_ids = [row["canonical_id"] for row in (git_state_response.data or [])]
             
             # Only auto-link if exactly one match
-            if len(matching_canonical_ids) == 1:
-                return matching_canonical_ids[0]
+            if len(matching_canonical_ids) != 1:
+                return None
             
-            return None
+            canonical_id = matching_canonical_ids[0]
+            
+            # Check if this canonical_id is already linked to a different n8n_workflow_id in same environment
+            existing_mapping_response = (
+                db_service.client.table("workflow_env_map")
+                .select("n8n_workflow_id")
+                .eq("tenant_id", tenant_id)
+                .eq("environment_id", environment_id)
+                .eq("canonical_id", canonical_id)
+                .neq("status", "missing")
+                .execute()
+            )
+            
+            for mapping in (existing_mapping_response.data or []):
+                existing_n8n_id = mapping.get("n8n_workflow_id")
+                if existing_n8n_id and existing_n8n_id != n8n_workflow_id:
+                    # Conflict: canonical_id already linked to different n8n_workflow_id
+                    logger.warning(
+                        f"Cannot auto-link {n8n_workflow_id} to canonical {canonical_id}: "
+                        f"already linked to {existing_n8n_id}"
+                    )
+                    return None
+            
+            return canonical_id
         except Exception as e:
             logger.warning(f"Error in auto-link by hash: {str(e)}")
             return None
@@ -324,31 +472,43 @@ class CanonicalEnvSyncService:
     async def _create_workflow_mapping(
         tenant_id: str,
         environment_id: str,
-        canonical_id: str,
+        canonical_id: Optional[str],
         n8n_workflow_id: str,
         content_hash: str,
         status: Optional[WorkflowMappingStatus] = None,
         linked_by_user_id: Optional[str] = None,
-        workflow_data: Optional[Dict[str, Any]] = None
+        workflow_data: Optional[Dict[str, Any]] = None,
+        n8n_updated_at: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create a new workflow environment mapping"""
         mapping_data = {
             "tenant_id": tenant_id,
             "environment_id": environment_id,
-            "canonical_id": canonical_id,
             "n8n_workflow_id": n8n_workflow_id,
             "env_content_hash": content_hash,
             "last_env_sync_at": datetime.utcnow().isoformat(),
             "linked_at": datetime.utcnow().isoformat() if status == WorkflowMappingStatus.LINKED else None,
             "linked_by_user_id": linked_by_user_id,
             "status": status.value if status else None,
-            "workflow_data": workflow_data  # Store full workflow JSON for UI caching
         }
         
+        # Store workflow_data only if provided (DEV mode)
+        if workflow_data is not None:
+            mapping_data["workflow_data"] = workflow_data
+        
+        # Store n8n_updated_at for short-circuit optimization
+        if n8n_updated_at is not None:
+            mapping_data["n8n_updated_at"] = n8n_updated_at
+        
+        # Only include canonical_id if it's not None
+        if canonical_id is not None:
+            mapping_data["canonical_id"] = canonical_id
+        
         try:
+            # Use unique constraint on (tenant_id, environment_id, n8n_workflow_id)
             response = (
                 db_service.client.table("workflow_env_map")
-                .upsert(mapping_data, on_conflict="tenant_id,environment_id,canonical_id")
+                .upsert(mapping_data, on_conflict="tenant_id,environment_id,n8n_workflow_id")
                 .execute()
             )
             return response.data[0] if response.data else mapping_data
@@ -357,38 +517,96 @@ class CanonicalEnvSyncService:
             raise
     
     @staticmethod
+    async def _create_untracked_mapping(
+        tenant_id: str,
+        environment_id: str,
+        n8n_workflow_id: str,
+        content_hash: str,
+        workflow_data: Optional[Dict[str, Any]] = None,
+        n8n_updated_at: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Create a mapping row for an untracked workflow (canonical_id=NULL)"""
+        return await CanonicalEnvSyncService._create_workflow_mapping(
+            tenant_id=tenant_id,
+            environment_id=environment_id,
+            canonical_id=None,  # NULL for untracked
+            n8n_workflow_id=n8n_workflow_id,
+            content_hash=content_hash,
+            status=WorkflowMappingStatus.UNTRACKED,
+            workflow_data=workflow_data,
+            n8n_updated_at=n8n_updated_at
+        )
+    
+    @staticmethod
     async def _update_workflow_mapping(
         tenant_id: str,
         environment_id: str,
-        canonical_id: str,
+        canonical_id: Optional[str],
         n8n_workflow_id: str,
         content_hash: str,
-        workflow_data: Optional[Dict[str, Any]] = None
+        status: Optional[WorkflowMappingStatus] = None,
+        workflow_data: Optional[Dict[str, Any]] = None,
+        n8n_updated_at: Optional[str] = None
     ) -> None:
-        """Update existing workflow mapping"""
+        """
+        Update existing workflow mapping.
+        
+        Greenfield behavior:
+        - DEV: workflow_data is provided - full update
+        - Non-DEV: workflow_data is None - only update env_content_hash (observational)
+        """
         try:
             update_data = {
                 "n8n_workflow_id": n8n_workflow_id,
                 "env_content_hash": content_hash,
                 "last_env_sync_at": datetime.utcnow().isoformat()
             }
+            
+            # Update canonical_id if provided (handles NULL → value or value → value)
+            if canonical_id is not None:
+                update_data["canonical_id"] = canonical_id
+            
+            # Update status if explicitly provided (for transitions like missing→linked)
+            if status is not None:
+                update_data["status"] = status.value
+                # Update linked_at if transitioning to linked
+                if status == WorkflowMappingStatus.LINKED:
+                    update_data["linked_at"] = datetime.utcnow().isoformat()
+            
+            # Only update workflow_data if provided (DEV mode)
+            # In non-DEV mode, workflow_data=None means don't overwrite existing
             if workflow_data is not None:
-                update_data["workflow_data"] = workflow_data  # Update cached workflow JSON
-            db_service.client.table("workflow_env_map").update(update_data).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq("canonical_id", canonical_id).execute()
+                update_data["workflow_data"] = workflow_data
+            
+            # Always update n8n_updated_at for short-circuit optimization
+            if n8n_updated_at is not None:
+                update_data["n8n_updated_at"] = n8n_updated_at
+            
+            # Use n8n_workflow_id for update (more reliable than canonical_id which may be NULL)
+            update_query = (
+                db_service.client.table("workflow_env_map")
+                .update(update_data)
+                .eq("tenant_id", tenant_id)
+                .eq("environment_id", environment_id)
+                .eq("n8n_workflow_id", n8n_workflow_id)
+            )
+            update_query.execute()
         except Exception as e:
             logger.error(f"Error updating workflow mapping: {str(e)}")
             raise
     
     @staticmethod
-    async def _mark_missing_workflows_deleted(
+    async def _mark_missing_workflows_missing(
         tenant_id: str,
         environment_id: str,
         existing_n8n_ids: set
     ) -> int:
         """
-        Mark workflows as deleted if they no longer exist in n8n.
+        Mark workflows as missing if they no longer exist in n8n.
         
-        Returns count of workflows marked as deleted.
+        Preserves n8n_workflow_id for history/audit.
+        
+        Returns count of workflows marked as missing.
         """
         try:
             # Get all mappings for this environment
@@ -397,23 +615,33 @@ class CanonicalEnvSyncService:
                 .select("canonical_id, n8n_workflow_id, status")
                 .eq("tenant_id", tenant_id)
                 .eq("environment_id", environment_id)
+                .neq("status", "missing")
                 .neq("status", "deleted")
                 .execute()
             )
             
-            deleted_count = 0
+            missing_count = 0
             for mapping in (response.data or []):
                 n8n_id = mapping.get("n8n_workflow_id")
                 if n8n_id and n8n_id not in existing_n8n_ids:
-                    # Workflow no longer exists in n8n - mark as deleted
-                    db_service.client.table("workflow_env_map").update({
-                        "status": WorkflowMappingStatus.DELETED.value,
-                        "n8n_workflow_id": None  # Clear n8n_workflow_id since it no longer exists
-                    }).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq("canonical_id", mapping["canonical_id"]).execute()
-                    deleted_count += 1
+                    # Workflow no longer exists in n8n - mark as missing
+                    # Preserve n8n_workflow_id for history
+                    # Update last_env_sync_at when marking as missing
+                    update_filter = (
+                        db_service.client.table("workflow_env_map")
+                        .update({
+                            "status": WorkflowMappingStatus.MISSING.value,
+                            "last_env_sync_at": datetime.utcnow().isoformat()
+                        })
+                        .eq("tenant_id", tenant_id)
+                        .eq("environment_id", environment_id)
+                        .eq("n8n_workflow_id", n8n_id)
+                    )
+                    update_filter.execute()
+                    missing_count += 1
             
-            return deleted_count
+            return missing_count
         except Exception as e:
-            logger.error(f"Error marking missing workflows as deleted: {str(e)}")
+            logger.error(f"Error marking missing workflows: {str(e)}")
             return 0
 

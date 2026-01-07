@@ -15,10 +15,56 @@ If tests fail, fix the issues before reporting completion. Do not hand off broke
 
 ## Server and Port Rules (MANDATORY)
 
-**Ask before restarting servers:**
-- If a change requires restarting the backend or frontend server, **ASK THE USER FIRST**
-- Do not restart servers without explicit permission
-- Explain why the restart is needed before asking
+**NEVER start, stop, or restart servers:**
+- Cursor does NOT manage starting, stopping, or restarting the frontend or backend
+- Do NOT attempt to start, stop, or restart servers
+- Do NOT force-kill processes or manage ports
+- Do NOT use port enforcement scripts or reload functionality
+
+**When servers need to be started/stopped/restarted:**
+- **ALWAYS tell the user in SIMPLE, ALL-CAPS terms**
+- Use clear, prominent formatting to make it impossible to miss
+- Examples:
+  ```
+  ════════════════════════════════════════════════════════════
+  ⚠️  ACTION REQUIRED: START BACKEND SERVER
+  ════════════════════════════════════════════════════════════
+  
+  The backend server is not running. Please start it:
+  
+  cd n8n-ops-backend
+  python scripts/start_with_migrations.py
+  ```
+  
+  ```
+  ════════════════════════════════════════════════════════════
+  ⚠️  ACTION REQUIRED: RESTART BACKEND SERVER
+  ════════════════════════════════════════════════════════════
+  
+  This change requires a backend restart. Please restart the backend server.
+  ```
+  
+  ```
+  ════════════════════════════════════════════════════════════
+  ⚠️  ACTION REQUIRED: START FRONTEND SERVER
+  ════════════════════════════════════════════════════════════
+  
+  The frontend server is not running. Please start it:
+  
+  cd n8n-ops-ui
+  npm run dev
+  ```
+
+- **Use these exact phrases when appropriate:**
+  - `⚠️  ACTION REQUIRED: START BACKEND SERVER`
+  - `⚠️  ACTION REQUIRED: START FRONTEND SERVER`
+  - `⚠️  ACTION REQUIRED: RESTART BACKEND SERVER`
+  - `⚠️  ACTION REQUIRED: RESTART FRONTEND SERVER`
+  - `⚠️  ACTION REQUIRED: STOP BACKEND SERVER`
+  - `⚠️  ACTION REQUIRED: STOP FRONTEND SERVER`
+
+- Explain why the action is needed (e.g., "This change requires a backend restart to take effect.")
+- Do not attempt to start/stop/restart servers yourself
 
 **NEVER change ports without permission:**
 - Port configuration in `.env.local` is sacred - **NEVER modify without asking**

@@ -71,7 +71,9 @@ import { UpgradeRequiredModal } from '@/components/upsell/UpgradeRequiredModal';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 5, // 5 minutes
+      staleTime: 30_000, // 30 seconds - balance between freshness and performance
+      gcTime: 5 * 60 * 1000, // 5 minutes - keep unused data in cache for 5 minutes
+      refetchOnWindowFocus: true, // Refetch when user returns to tab
       retry: 1,
     },
   },

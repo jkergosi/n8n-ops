@@ -54,15 +54,12 @@ import { useEnvironmentTypes, getEnvironmentTypeLabel } from '@/hooks/useEnviron
 export function EnvironmentsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { refreshEntitlements } = useAuth();
   const setSelectedEnvironment = useAppStore((state) => state.setSelectedEnvironment);
   const [editingEnv, setEditingEnv] = useState<Environment | null>(null);
   const [isAddMode, setIsAddMode] = useState(false);
-  
-  // Refresh entitlements on mount to ensure we have latest values
-  useEffect(() => {
-    refreshEntitlements();
-  }, [refreshEntitlements]);
+
+  // Note: Entitlements are already refreshed on login and after plan changes
+  // No need to refresh on every page mount
 
   useEffect(() => {
     document.title = 'Environments - WorkflowOps';
@@ -131,37 +128,48 @@ export function EnvironmentsPage() {
     enabled: !isLoading && !!environments?.data?.length,
   });
 
-  // Fetch active jobs for each environment
+  // Fetch active jobs for ALL environments in a single query (optimized)
   const environmentIds = environments?.data?.map((e: Environment) => e.id) || [];
   const jobsQueries = useQuery({
-    queryKey: ['environment-jobs', environmentIds],
+    queryKey: ['environment-jobs-all'],
     queryFn: async () => {
       const jobsMap: Record<string, any> = {};
-      for (const envId of environmentIds) {
-        try {
-          const jobs = await apiClient.getEnvironmentJobs(envId);
-          const runningJob = jobs.data?.find((j: any) => 
-            j.status === 'running' || j.status === 'pending'
-          );
-          if (runningJob && runningJob.job_type === 'environment_sync') {
+      try {
+        // Fetch all environment jobs in a single query (N+1 optimization)
+        const response = await apiClient.getAllBackgroundJobs({
+          resource_type: 'environment',
+          status: 'running',  // Only fetch active jobs
+          limit: 50
+        });
+
+        const jobs = response.data?.jobs || [];
+
+        // Map jobs to environment IDs
+        for (const job of jobs) {
+          const envId = job.resource_id;
+          if (envId && job.job_type === 'environment_sync' && (job.status === 'running' || job.status === 'pending')) {
             jobsMap[envId] = {
-              jobId: runningJob.id,
+              jobId: job.id,
               jobType: 'sync',
-              status: runningJob.status === 'pending' ? 'running' : runningJob.status,
-              current: runningJob.progress?.current || 0,
-              total: runningJob.progress?.total || 1,
-              message: runningJob.progress?.message,
-              currentStep: runningJob.progress?.currentStep,
+              status: job.status === 'pending' ? 'running' : job.status,
+              current: job.progress?.current || 0,
+              total: job.progress?.total || 1,
+              message: job.progress?.message,
+              currentStep: job.progress?.currentStep,
             };
           }
-        } catch (error) {
-          // Ignore errors for individual environment job fetches
         }
+      } catch (error) {
+        console.error('[Jobs] Failed to fetch background jobs:', error);
       }
       return jobsMap;
     },
     enabled: environmentIds.length > 0,
-    refetchInterval: 10000, // Poll every 10 seconds as fallback
+    // Only poll if there are active jobs (smart polling)
+    refetchInterval: (data) => {
+      const hasActiveJobs = data && Object.keys(data).length > 0;
+      return hasActiveJobs ? 5000 : false;  // Poll every 5s only when jobs are active
+    },
   });
 
   // Update active jobs when queries update
@@ -309,9 +317,13 @@ export function EnvironmentsPage() {
       setSyncingEnvId(null);
       const { job_id, status, message } = result.data;
 
-      // Accept both 'pending' and 'running' as valid statuses
-      if (job_id && (status === 'running' || status === 'pending')) {
-        toast.success('Sync started in background');
+      // Accept 'pending', 'running', and 'already_running' as valid statuses
+      if (job_id && (status === 'running' || status === 'pending' || status === 'already_running')) {
+        if (status === 'already_running') {
+          toast.info('Sync already in progress');
+        } else {
+          toast.success('Syncing environment state (background)');
+        }
         // Job progress will be updated via SSE
         setActiveJobs((prev) => ({
           ...prev,
@@ -321,7 +333,7 @@ export function EnvironmentsPage() {
             status: 'running', // Always set to 'running' for UI consistency
             current: 0,
             total: 5, // workflows, executions, credentials, users, tags
-            message: 'Starting sync...',
+            message: status === 'already_running' ? 'Sync already in progress...' : 'Starting sync...',
           },
         }));
       } else {
@@ -414,17 +426,6 @@ export function EnvironmentsPage() {
     }
   };
 
-  const handleBackupClick = (env: Environment) => {
-    setSelectedEnvForAction(env);
-    setForceBackup(false);
-    setBackupDialogOpen(true);
-  };
-
-  const handleBackupConfirm = () => {
-    if (selectedEnvForAction) {
-      backupMutation.mutate({ environment: selectedEnvForAction.id, force: forceBackup });
-    }
-  };
 
   const handleDownloadClick = (env: Environment) => {
     setSelectedEnvForAction(env);
@@ -781,7 +782,7 @@ export function EnvironmentsPage() {
                               <TooltipContent>
                                 <p>
                                   {env.environmentClass?.toLowerCase() === 'dev'
-                                    ? 'Sync captures current dev workflows and commits them to Git.'
+                                    ? 'Sync discovers workflows from n8n and commits changes to Git when configured.'
                                     : 'Sync checks this environment against the canonical Git version.'}
                                 </p>
                               </TooltipContent>
@@ -1036,15 +1037,15 @@ export function EnvironmentsPage() {
             <DialogTitle>Sync Environment</DialogTitle>
             <DialogDescription>
               {selectedEnvForAction?.environmentClass?.toLowerCase() === 'dev'
-                ? `Capture and commit changes from ${selectedEnvForAction?.name}`
+                ? `Sync and commit changes from ${selectedEnvForAction?.name}`
                 : `Check ${selectedEnvForAction?.name} against canonical Git version`}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <p className="text-sm text-muted-foreground">
               {selectedEnvForAction?.environmentClass?.toLowerCase() === 'dev'
-                ? 'This will pull the latest workflows from the n8n instance and commit any changes to Git. The sync will run in the background.'
-                : 'This will pull the latest workflows from the n8n instance and compare against the canonical Git version. The sync will run in the background.'}
+                ? 'This will discover workflows from n8n and commit changes to Git when configured. The sync will run in the background.'
+                : 'This will discover workflows from n8n and check against the canonical Git version. The sync will run in the background.'}
             </p>
           </div>
           <DialogFooter>

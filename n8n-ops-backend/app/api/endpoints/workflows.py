@@ -76,12 +76,14 @@ async def resolve_environment_config(
         )
 
 
-@router.get("", response_model=List[Dict[str, Any]])
-@router.get("/", response_model=List[Dict[str, Any]])
+@router.get("")
+@router.get("/")
 async def get_workflows(
     environment_id: Optional[str] = None,
     environment: Optional[str] = None,  # Deprecated: use environment_id instead
     force_refresh: bool = False,
+    page: Optional[int] = None,  # Page number (1-indexed) for pagination
+    limit: Optional[int] = None,  # Number of items per page
     user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("workflow_read"))
 ):
@@ -90,10 +92,20 @@ async def get_workflows(
 
     By default, returns cached workflows from the database.
     Use force_refresh=true to fetch fresh data from N8N API and update the cache.
-    
+
+    Note: When force_refresh=true, this triggers an async canonical environment sync
+    via CanonicalEnvSyncService (legacy compatibility mechanism). The canonical
+    endpoint for environment sync is POST /canonical/sync/env/{environment_id}.
+
     Args:
         environment_id: Environment UUID (preferred)
         environment: Environment type string (deprecated, for backward compatibility)
+        page: Page number (1-indexed) for pagination. If provided with limit, returns paginated response.
+        limit: Number of items per page. If provided with page, returns paginated response.
+
+    Returns:
+        If page and limit provided: {"items": [...], "total": 500, "page": 1, "pages": 10}
+        Otherwise: List of workflows (legacy behavior)
     """
     try:
         tenant_id = get_tenant_id(user_info)
@@ -108,13 +120,22 @@ async def get_workflows(
                     tenant_id=tenant_id,
                     environment_id=env_id,
                     include_deleted=False,
-                    include_ignored=False
+                    include_ignored=False,
+                    page=page,
+                    limit=limit
                 )
-                
+
                 if cached_workflows:
+                    # Handle both paginated response and list response
+                    workflows_to_analyze = (
+                        cached_workflows.get("items")
+                        if isinstance(cached_workflows, dict)
+                        else cached_workflows
+                    )
+
                     # Compute analysis for cached workflows if needed
                     from app.services.workflow_analysis_service import analyze_workflow
-                    for workflow in cached_workflows:
+                    for workflow in workflows_to_analyze:
                         try:
                             # Only analyze if workflow_data has nodes
                             if workflow.get("nodes"):
@@ -124,7 +145,7 @@ async def get_workflows(
                             # Log error but continue - analysis is optional
                             import logging
                             logging.warning(f"Failed to analyze workflow {workflow.get('id', 'unknown')}: {str(e)}")
-                    
+
                     return cached_workflows
             except Exception as e:
                 # If canonical system fails, fall through to n8n fetch
@@ -310,6 +331,49 @@ def _sanitize_filename(name: str) -> str:
     if len(sanitized) > 200:
         sanitized = sanitized[:200]
     return sanitized if sanitized else "workflow"
+
+
+@router.get("/execution-counts")
+async def get_workflow_execution_counts(
+    environment_id: Optional[str] = None,
+    environment: Optional[str] = None,  # Deprecated: use environment_id instead
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("workflow_read"))
+):
+    """
+    Get execution counts for all workflows in an environment.
+
+    Returns a mapping of workflow_id to execution count.
+    This is optimized to avoid fetching all execution records.
+
+    Args:
+        environment_id: Environment UUID (preferred)
+        environment: Environment type string (deprecated)
+
+    Returns:
+        {"workflow-1": 42, "workflow-2": 17, ...}
+    """
+    try:
+        tenant_id = get_tenant_id(user_info)
+        env_config = await resolve_environment_config(environment_id, environment, tenant_id)
+        env_id = env_config.get("id")
+
+        # Get execution counts using optimized aggregation
+        counts = await db_service.get_execution_counts(
+            tenant_id=tenant_id,
+            environment_id=env_id
+        )
+
+        return counts
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get execution counts: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get execution counts: {str(e)}"
+        )
 
 
 @router.get("/download")

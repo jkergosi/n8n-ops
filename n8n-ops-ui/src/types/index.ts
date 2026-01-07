@@ -201,7 +201,7 @@ export interface Snapshot {
 export type WorkflowDiffStatus = 'added' | 'removed' | 'modified' | 'unchanged';
 
 // Canonical Workflow Types
-export type WorkflowMappingStatus = 'linked' | 'ignored' | 'deleted';
+export type WorkflowMappingStatus = 'linked' | 'ignored' | 'deleted' | 'untracked' | 'missing';
 export type LinkSuggestionStatus = 'open' | 'accepted' | 'rejected' | 'expired';
 export type CanonicalWorkflowDiffStatus = 'unchanged' | 'modified' | 'added' | 'target_only' | 'target_hotfix';
 

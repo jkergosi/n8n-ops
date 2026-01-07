@@ -88,7 +88,6 @@ export function WorkflowsPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>('');
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [workflowToEdit, setWorkflowToEdit] = useState<Workflow | null>(null);
@@ -102,9 +101,7 @@ export function WorkflowsPage() {
 
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [workflowsToBackupCount, setWorkflowsToBackupCount] = useState<number | null>(null);
 
   const [editForm, setEditForm] = useState({
     name: '',
@@ -115,6 +112,7 @@ export function WorkflowsPage() {
   const { data: workflows, isLoading } = useQuery({
     queryKey: ['workflows', selectedEnvironment],
     queryFn: () => api.getWorkflows(selectedEnvironment),
+    enabled: !!selectedEnvironment,
   });
 
   // Fetch environments to get the n8n base URL for opening workflows
@@ -143,23 +141,15 @@ export function WorkflowsPage() {
     }
   }, [availableEnvironments, selectedEnvironment, setSelectedEnvironment]);
 
-  // Fetch executions for the current environment to get execution counts per workflow
-  const { data: executions } = useQuery({
-    queryKey: ['executions', currentEnvironment?.id],
-    queryFn: () => currentEnvironment?.id ? api.getExecutions(currentEnvironment.id) : Promise.resolve({ data: [] }),
+  // Fetch execution counts for workflows (optimized endpoint)
+  const { data: executionCounts } = useQuery({
+    queryKey: ['workflow-execution-counts', currentEnvironment?.id],
+    queryFn: () => currentEnvironment?.id ? api.getWorkflowExecutionCounts(currentEnvironment.id) : Promise.resolve({ data: {} }),
     enabled: !!currentEnvironment?.id,
   });
 
-  // Compute execution counts per workflow
-  const executionCountsByWorkflow = useMemo(() => {
-    if (!executions?.data) return {};
-    const counts: Record<string, number> = {};
-    executions.data.forEach((execution: any) => {
-      const workflowId = execution.workflowId;
-      counts[workflowId] = (counts[workflowId] || 0) + 1;
-    });
-    return counts;
-  }, [executions]);
+  // Use execution counts directly from API (no client-side aggregation needed)
+  const executionCountsByWorkflow = executionCounts?.data || {};
 
   const openInN8N = (workflowId: string) => {
     if (currentEnvironment?.baseUrl) {
@@ -281,7 +271,11 @@ export function WorkflowsPage() {
     if (!workflows?.data) return [];
     const tags = new Set<string>();
     workflows.data.forEach((workflow) => {
-      workflow.tags?.forEach((tag) => tags.add(tag));
+      workflow.tags?.forEach((tag) => {
+        // Handle both string tags and tag objects
+        const tagName = typeof tag === 'string' ? tag : tag.name;
+        tags.add(tagName);
+      });
     });
     return Array.from(tags).sort();
   }, [workflows]);
@@ -305,7 +299,12 @@ export function WorkflowsPage() {
     // Apply tag filter
     if (selectedTag.length > 0) {
       result = result.filter((workflow) =>
-        selectedTag.some((tag) => workflow.tags?.includes(tag))
+        selectedTag.some((selectedTagName) =>
+          workflow.tags?.some((tag) => {
+            const tagName = typeof tag === 'string' ? tag : tag.name;
+            return tagName === selectedTagName;
+          })
+        )
       );
     }
 
@@ -453,78 +452,6 @@ export function WorkflowsPage() {
     setSelectedStatus('');
   };
 
-  const handleUploadClick = async () => {
-    setUploadDialogOpen(true);
-    setWorkflowsToBackupCount(null); // Reset count
-
-    // Fetch count of workflows needing backup
-    try {
-      // Get workflows and environment to calculate count
-      const workflowsData = await api.getWorkflows(selectedEnvironment);
-      const environmentsData = await api.getEnvironments();
-      const currentEnv = environmentsData.data.find((env: { type: string }) => env.type === selectedEnvironment);
-
-      if (currentEnv && currentEnv.lastBackup) {
-        // Filter workflows updated since last backup
-        const lastBackupDate = new Date(currentEnv.lastBackup);
-        const workflowsNeedingBackup = workflowsData.data.filter(workflow => {
-          if (workflow.updatedAt) {
-            const workflowUpdatedDate = new Date(workflow.updatedAt);
-            return workflowUpdatedDate > lastBackupDate;
-          }
-          return true; // Include workflows without updatedAt
-        });
-        setWorkflowsToBackupCount(workflowsNeedingBackup.length);
-      } else {
-        // No last backup, all workflows need backup
-        setWorkflowsToBackupCount(workflowsData.data.length);
-      }
-    } catch (error) {
-      console.error('Error calculating workflows to backup:', error);
-      setWorkflowsToBackupCount(null);
-    }
-  };
-
-  const handleUpload = async () => {
-    try {
-      setIsBackingUp(true);
-      toast.info('Backing up workflows to GitHub...');
-
-      const result = await api.syncWorkflowsToGithub(selectedEnvironment);
-
-      if (result.data.success) {
-        const { synced, skipped = 0, failed } = result.data;
-
-        // Build success message
-        let message = '';
-        if (synced > 0 && skipped > 0) {
-          message = `Backed up ${synced} workflow${synced !== 1 ? 's' : ''}, ${skipped} already up to date`;
-        } else if (synced > 0) {
-          message = `Successfully backed up ${synced} workflow${synced !== 1 ? 's' : ''} to GitHub`;
-        } else if (skipped > 0) {
-          message = `All ${skipped} workflow${skipped !== 1 ? 's are' : ' is'} already up to date`;
-        } else {
-          message = 'No workflows to backup';
-        }
-
-        toast.success(message);
-
-        if (result.data.errors && result.data.errors.length > 0) {
-          toast.warning(`${failed} workflow${failed !== 1 ? 's' : ''} failed to sync`);
-          console.error('Sync errors:', result.data.errors);
-        }
-      } else {
-        toast.error('Failed to backup workflows to GitHub');
-      }
-
-      setUploadDialogOpen(false);
-    } catch (error: any) {
-      console.error('Error syncing to GitHub:', error);
-      toast.error(error.response?.data?.detail || 'Failed to backup workflows to GitHub');
-    } finally {
-      setIsBackingUp(false);
-    }
-  };
 
   const hasActiveFilters = searchQuery || selectedTag.length > 0 || selectedStatus;
 
@@ -534,7 +461,7 @@ export function WorkflowsPage() {
     setEditForm({
       name: workflow.name,
       active: workflow.active,
-      tags: workflow.tags || [],
+      tags: (workflow.tags || []).map((tag) => typeof tag === 'string' ? tag : tag.name),
     });
     setEditDialogOpen(true);
   };
@@ -627,7 +554,7 @@ export function WorkflowsPage() {
   const handleRefresh = async () => {
     try {
       setIsRefreshing(true);
-      toast.info('Refreshing workflows from N8N...');
+      toast.info('Refreshing environment state...');
 
       // Fetch with force_refresh=true
       await api.getWorkflows(selectedEnvironment, true);
@@ -826,20 +753,23 @@ export function WorkflowsPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">
-                        {workflow.tags?.map((tag) => (
-                          <Badge
-                            key={tag}
-                            variant="secondary"
-                            className="text-xs cursor-pointer hover:bg-secondary/80"
-                            onClick={() => {
-                              if (!selectedTag.includes(tag)) {
-                                setSelectedTag([...selectedTag, tag]);
-                              }
-                            }}
-                          >
-                            {tag}
-                          </Badge>
-                        ))}
+                        {workflow.tags?.map((tag) => {
+                          const tagName = typeof tag === 'string' ? tag : tag.name;
+                          return (
+                            <Badge
+                              key={typeof tag === 'string' ? tag : tag.id}
+                              variant="secondary"
+                              className="text-xs cursor-pointer hover:bg-secondary/80"
+                              onClick={() => {
+                                if (!selectedTag.includes(tagName)) {
+                                  setSelectedTag([...selectedTag, tagName]);
+                                }
+                              }}
+                            >
+                              {tagName}
+                            </Badge>
+                          );
+                        })}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -944,59 +874,6 @@ export function WorkflowsPage() {
         </CardContent>
       </Card>
 
-      {/* Upload Dialog */}
-      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Backup Workflows to GitHub</DialogTitle>
-            <DialogDescription>
-              Back up your workflows to the configured GitHub repository
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {/* Workflows to Backup Count */}
-            <div className="p-4 bg-muted rounded-lg">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Workflows to back up:</span>
-                <span className="text-lg font-bold">
-                  {workflowsToBackupCount === null ? (
-                    <span className="text-muted-foreground">Calculating...</span>
-                  ) : (
-                    <span className={workflowsToBackupCount > 0 ? "text-primary" : "text-muted-foreground"}>
-                      {workflowsToBackupCount}
-                    </span>
-                  )}
-                </span>
-              </div>
-              {workflowsToBackupCount === 0 && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  All workflows are already backed up
-                </p>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setUploadDialogOpen(false)} disabled={isBackingUp}>
-              Cancel
-            </Button>
-            <Button onClick={handleUpload} disabled={isBackingUp}>
-              {isBackingUp ? (
-                <>
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" style={{ animation: 'spin 1s linear infinite' }} />
-                  Backing Up...
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Yes, Backup
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Edit Workflow Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

@@ -9,6 +9,8 @@ class WorkflowMappingStatus(str, Enum):
     LINKED = "linked"
     IGNORED = "ignored"
     DELETED = "deleted"
+    UNTRACKED = "untracked"
+    MISSING = "missing"
 
 
 class LinkSuggestionStatus(str, Enum):
@@ -89,6 +91,7 @@ class WorkflowEnvMapCreate(BaseModel):
     env_content_hash: str
     linked_by_user_id: Optional[str] = None
     status: Optional[WorkflowMappingStatus] = None
+    n8n_updated_at: Optional[datetime] = None
 
 
 class WorkflowEnvMapUpdate(BaseModel):
@@ -97,6 +100,7 @@ class WorkflowEnvMapUpdate(BaseModel):
     status: Optional[WorkflowMappingStatus] = None
     linked_at: Optional[datetime] = None
     linked_by_user_id: Optional[str] = None
+    n8n_updated_at: Optional[datetime] = None
 
 
 class WorkflowEnvMapResponse(BaseModel):
@@ -109,6 +113,7 @@ class WorkflowEnvMapResponse(BaseModel):
     linked_at: Optional[datetime] = None
     linked_by_user_id: Optional[str] = None
     status: Optional[WorkflowMappingStatus] = None
+    n8n_updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

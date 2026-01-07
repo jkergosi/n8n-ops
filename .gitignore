@@ -293,5 +293,47 @@ coverage/
 # Claude Code
 # ============================================================================
 .claude/
-n8n-ops-backend/.env 
+n8n-ops-backend/.env
 nul
+
+# ============================================================================
+# Temporary Documentation & Status Files
+# ============================================================================
+
+# Implementation status and review documents (root)
+*_REVIEW*.md
+*_STATUS*.md
+*_COMPLETE*.md
+*_IMPLEMENTATION*.md
+*_ANALYSIS*.md
+*_SUMMARY*.md
+*_TRACE*.md
+*_FIXES*.md
+*_FIX*.md
+*_GUIDE*.md
+*_REPORT*.md
+*_DIAGRAM*.md
+*_VERIFICATION*.md
+
+# Implementation status and review documents (backend)
+n8n-ops-backend/*_REVIEW*.md
+n8n-ops-backend/*_STATUS*.md
+n8n-ops-backend/*_COMPLETE*.md
+n8n-ops-backend/*_IMPLEMENTATION*.md
+n8n-ops-backend/*_SUMMARY*.md
+n8n-ops-backend/*_RESULTS*.md
+n8n-ops-backend/*_PLAN*.md
+n8n-ops-backend/*_CHECKLIST*.md
+n8n-ops-backend/*_TESTING*.md
+n8n-ops-backend/COMPLETE.md
+n8n-ops-backend/QUICK_TEST_GUIDE.md
+n8n-ops-backend/SECURITY_FIX_*.md
+
+# Test scripts for development
+n8n-ops-backend/test_dev_*.py
+
+# Frontend test artifacts
+n8n-ops-ui/src/pages/__tests__/
+
+# Requirements directory (if temporary)
+reqs/

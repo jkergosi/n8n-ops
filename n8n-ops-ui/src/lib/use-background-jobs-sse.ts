@@ -40,6 +40,15 @@ interface UseBackgroundJobsSSEOptions {
   enabled?: boolean;
   environmentId?: string; // For filtering by environment
   jobId?: string; // For filtering by specific job
+  onLogMessage?: (message: LogMessage) => void; // Callback for log messages
+}
+
+export interface LogMessage {
+  timestamp: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+  phase?: string;
+  details?: any;
 }
 
 interface UseBackgroundJobsSSEReturn {
@@ -50,8 +59,21 @@ interface UseBackgroundJobsSSEReturn {
 export function useBackgroundJobsSSE(
   options: UseBackgroundJobsSSEOptions = {}
 ): UseBackgroundJobsSSEReturn {
-  const { enabled = true, environmentId, jobId } = options;
+  const { enabled = true, environmentId, jobId, onLogMessage } = options;
   const queryClient = useQueryClient();
+  
+  // Helper to emit log messages
+  const emitLog = useCallback((level: LogMessage['level'], message: string, phase?: string, details?: any) => {
+    if (onLogMessage) {
+      onLogMessage({
+        timestamp: new Date().toISOString(),
+        level,
+        message,
+        phase,
+        details,
+      });
+    }
+  }, [onLogMessage]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -76,22 +98,49 @@ export function useBackgroundJobsSSE(
 
   const handleSyncProgress = useCallback(
     (data: any) => {
-      const progress = transformKeys(data);
-      const envId = progress.environmentId || environmentId;
-      const jId = progress.jobId || jobId;
+      const sseData = transformKeys(data);
+      const envId = sseData.environmentId || environmentId;
+      const jId = sseData.jobId || jobId;
+      
+      // Emit log message for this progress event
+      const logLevel: LogMessage['level'] = sseData.status === 'failed' ? 'error' : 
+                                             sseData.status === 'completed' ? 'info' : 'info';
+      const logMessage = sseData.message || `${sseData.currentStep}: ${sseData.current}/${sseData.total}`;
+      emitLog(logLevel, logMessage, sseData.currentStep, {
+        current: sseData.current,
+        total: sseData.total,
+        percentage: sseData.percentage,
+        status: sseData.status,
+      });
 
       // Update job status in cache
       if (jId) {
         queryClient.setQueryData(['background-job', jId], (old: any) => {
-          if (!old) return { data: progress };
-          return {
-            ...old,
-            data: {
-              ...old.data,
-              ...progress,
+          if (!old) return { data: sseData };
+          
+          // Properly merge progress object
+          const updatedJob = {
+            ...old.data,
+            status: sseData.status || old.data?.status,
+            progress: {
+              ...(old.data?.progress || {}),
+              current: sseData.current,
+              total: sseData.total,
+              percentage: sseData.percentage,
+              message: sseData.message,
+              current_step: sseData.currentStep, // Note: transformed from current_step
+              currentStep: sseData.currentStep,
             },
           };
+          
+          return {
+            ...old,
+            data: updatedJob,
+          };
         });
+        
+        // Invalidate to trigger refetch and get complete data
+        queryClient.invalidateQueries({ queryKey: ['background-job', jId] });
       }
 
       // Update environment jobs list
@@ -101,13 +150,25 @@ export function useBackgroundJobsSSE(
           return {
             ...old,
             data: old.data.map((job: any) =>
-              job.id === jId ? { ...job, ...progress } : job
+              job.id === jId ? { 
+                ...job, 
+                status: sseData.status || job.status,
+                progress: {
+                  ...(job.progress || {}),
+                  current: sseData.current,
+                  total: sseData.total,
+                  percentage: sseData.percentage,
+                  message: sseData.message,
+                  current_step: sseData.currentStep,
+                  currentStep: sseData.currentStep,
+                },
+              } : job
             ),
           };
         });
       }
     },
-    [queryClient, environmentId, jobId]
+    [queryClient, environmentId, jobId, emitLog]
   );
 
   const handleBackupProgress = useCallback(

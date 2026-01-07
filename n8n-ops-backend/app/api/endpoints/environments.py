@@ -505,18 +505,38 @@ async def _sync_environment_background(
                 env_sync_result.get("workflows_synced", 0)
             )
             
-            # Trigger reconciliation after env sync
-            try:
-                await CanonicalReconciliationService.reconcile_all_pairs_for_environment(
-                    tenant_id=tenant_id,
-                    changed_env_id=environment_id
-                )
-            except Exception as recon_error:
-                logger.warning(f"Failed to trigger reconciliation after env sync: {str(recon_error)}")
+            # Greenfield model: Drift detection only for non-DEV environments
+            # DEV: n8n is source of truth, no drift concept
+            # Non-DEV: Git is source of truth, detect drift
+            env_class = environment.get("environment_class", "").lower()
+            is_dev = env_class == "dev"
+            
+            if not is_dev:
+                # Trigger reconciliation (drift detection) for non-DEV environments
+                try:
+                    await CanonicalReconciliationService.reconcile_all_pairs_for_environment(
+                        tenant_id=tenant_id,
+                        changed_env_id=environment_id
+                    )
+                except Exception as recon_error:
+                    logger.warning(f"Failed to trigger reconciliation after env sync: {str(recon_error)}")
+            else:
+                logger.info(f"DEV environment {environment_id}: Skipping drift detection (n8n is source of truth)")
 
             # DEV environments: commit changed workflows to Git
-            env_class = environment.get("environment_class", "").lower()
-            if env_class == "dev":
+            if is_dev:
+                # Emit SSE: starting Git phase
+                await emit_sync_progress(
+                    job_id=job_id,
+                    environment_id=environment_id,
+                    status="running",
+                    current_step="persisting_to_git",
+                    current=0,
+                    total=0,
+                    message="Preparing to persist workflows to Git...",
+                    tenant_id=tenant_id
+                )
+                
                 try:
                     from app.services.github_service import GitHubService
                     from app.services.canonical_workflow_service import compute_workflow_hash
@@ -524,6 +544,8 @@ async def _sync_environment_background(
                     git_repo_url = environment.get("git_repo_url")
                     git_branch = environment.get("git_branch", "main")
                     git_pat = environment.get("git_pat")
+                    
+                    logger.info(f"DEV sync Git config: repo_url={git_repo_url}, branch={git_branch}, has_pat={bool(git_pat)}")
 
                     if git_repo_url and git_pat:
                         # Parse repo owner/name from URL
@@ -531,6 +553,8 @@ async def _sync_environment_background(
                         match = re.match(r'https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$', git_repo_url)
                         if match:
                             repo_owner, repo_name = match.groups()
+                            logger.info(f"DEV sync: Parsed repo {repo_owner}/{repo_name}")
+                            
                             github = GitHubService(
                                 token=git_pat,
                                 repo_owner=repo_owner,
@@ -542,38 +566,71 @@ async def _sync_environment_background(
                             env_map_result = db_service.client.table("workflow_env_map").select(
                                 "canonical_id, env_content_hash, workflow_data"
                             ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).execute()
+                            
+                            logger.info(f"DEV sync: Found {len(env_map_result.data or [])} workflows in env_map")
 
                             git_state_result = db_service.client.table("canonical_workflow_git_state").select(
                                 "canonical_id, git_content_hash"
                             ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).execute()
+                            
+                            logger.info(f"DEV sync: Found {len(git_state_result.data or [])} workflows in git_state")
 
                             # Build lookup for Git hashes
                             git_hashes = {row["canonical_id"]: row["git_content_hash"] for row in (git_state_result.data or [])}
 
-                            # Find workflows with changes
+                            # Find workflows with changes - debug each decision
                             workflows_to_commit = []
+                            skipped_no_data = 0
+                            skipped_no_hash = 0
+                            skipped_unchanged = 0
+                            
                             for mapping in (env_map_result.data or []):
                                 canonical_id = mapping["canonical_id"]
                                 env_hash = mapping.get("env_content_hash")
                                 git_hash = git_hashes.get(canonical_id)
                                 workflow_data = mapping.get("workflow_data")
 
-                                # If hashes differ or no Git hash exists, workflow has changes
-                                if workflow_data and env_hash and env_hash != git_hash:
-                                    workflows_to_commit.append({
-                                        "canonical_id": canonical_id,
-                                        "workflow_data": workflow_data,
-                                        "env_hash": env_hash
-                                    })
+                                if not workflow_data:
+                                    skipped_no_data += 1
+                                    continue
+                                if not env_hash:
+                                    skipped_no_hash += 1
+                                    continue
+                                if env_hash == git_hash:
+                                    skipped_unchanged += 1
+                                    continue
+                                    
+                                workflows_to_commit.append({
+                                    "canonical_id": canonical_id,
+                                    "workflow_data": workflow_data,
+                                    "env_hash": env_hash
+                                })
+                            
+                            logger.info(f"DEV sync: {len(workflows_to_commit)} to commit, {skipped_no_data} no workflow_data, {skipped_no_hash} no hash, {skipped_unchanged} unchanged")
+                            
+                            # Emit SSE with commit count
+                            await emit_sync_progress(
+                                job_id=job_id,
+                                environment_id=environment_id,
+                                status="running",
+                                current_step="persisting_to_git",
+                                current=0,
+                                total=len(workflows_to_commit),
+                                message=f"Committing {len(workflows_to_commit)} workflow(s) to Git...",
+                                tenant_id=tenant_id
+                            )
 
                             # Commit changed workflows to Git
                             if workflows_to_commit:
                                 git_folder = environment.get("git_folder") or "dev"
                                 committed_count = 0
+                                commit_errors = []
 
-                                for wf in workflows_to_commit:
+                                for idx, wf in enumerate(workflows_to_commit):
                                     try:
                                         workflow_name = wf["workflow_data"].get("name", "Unknown")
+                                        logger.info(f"DEV sync: Committing {wf['canonical_id']} ({workflow_name}) to {git_folder}/")
+                                        
                                         await github.write_workflow_file(
                                             canonical_id=wf["canonical_id"],
                                             workflow_data=wf["workflow_data"],
@@ -591,19 +648,74 @@ async def _sync_environment_background(
                                         }, on_conflict="tenant_id,environment_id,canonical_id").execute()
 
                                         committed_count += 1
+                                        
+                                        # Emit SSE progress
+                                        await emit_sync_progress(
+                                            job_id=job_id,
+                                            environment_id=environment_id,
+                                            status="running",
+                                            current_step="persisting_to_git",
+                                            current=committed_count,
+                                            total=len(workflows_to_commit),
+                                            message=f"Committed {committed_count}/{len(workflows_to_commit)}: {workflow_name}",
+                                            tenant_id=tenant_id
+                                        )
                                     except Exception as commit_err:
-                                        logger.warning(f"Failed to commit workflow {wf['canonical_id']} to Git: {commit_err}")
+                                        error_msg = f"Failed to commit {wf['canonical_id']}: {commit_err}"
+                                        logger.error(error_msg, exc_info=True)
+                                        commit_errors.append(error_msg)
 
-                                logger.info(f"DEV sync: committed {committed_count} workflows to Git")
+                                logger.info(f"DEV sync: committed {committed_count}/{len(workflows_to_commit)} workflows to Git")
+                                if commit_errors:
+                                    logger.error(f"DEV sync Git errors: {commit_errors}")
                             else:
                                 logger.info("DEV sync: no workflow changes to commit to Git")
+                                await emit_sync_progress(
+                                    job_id=job_id,
+                                    environment_id=environment_id,
+                                    status="running",
+                                    current_step="persisting_to_git",
+                                    current=0,
+                                    total=0,
+                                    message="No workflow changes to commit to Git",
+                                    tenant_id=tenant_id
+                                )
                         else:
-                            logger.warning(f"Could not parse Git repo URL: {git_repo_url}")
+                            logger.error(f"DEV sync: Could not parse Git repo URL: {git_repo_url}")
+                            await emit_sync_progress(
+                                job_id=job_id,
+                                environment_id=environment_id,
+                                status="running",
+                                current_step="persisting_to_git",
+                                current=0,
+                                total=0,
+                                message=f"Git config error: invalid repo URL format",
+                                tenant_id=tenant_id
+                            )
                     else:
-                        logger.debug("DEV environment has no Git configuration, skipping Git commit")
+                        logger.warning(f"DEV environment has no Git configuration: repo_url={git_repo_url}, has_pat={bool(git_pat)}")
+                        await emit_sync_progress(
+                            job_id=job_id,
+                            environment_id=environment_id,
+                            status="running",
+                            current_step="persisting_to_git",
+                            current=0,
+                            total=0,
+                            message="Skipping Git: no repository configured",
+                            tenant_id=tenant_id
+                        )
                 except Exception as git_err:
-                    logger.warning(f"Failed to commit DEV changes to Git: {git_err}")
-                    # Don't fail sync if Git commit fails
+                    logger.error(f"Failed to commit DEV changes to Git: {git_err}", exc_info=True)
+                    await emit_sync_progress(
+                        job_id=job_id,
+                        environment_id=environment_id,
+                        status="running",
+                        current_step="persisting_to_git",
+                        current=0,
+                        total=0,
+                        message=f"Git error: {str(git_err)[:100]}",
+                        tenant_id=tenant_id
+                    )
 
             # Refresh workflow credential dependencies
             try:

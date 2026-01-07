@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
-import { useBackgroundJobsSSE } from '@/lib/use-background-jobs-sse';
+import { useBackgroundJobsSSE, LogMessage } from '@/lib/use-background-jobs-sse';
 import { 
   ArrowLeft, 
   Activity, 
@@ -18,11 +18,17 @@ import {
   Server,
   Calendar,
   User,
-  FileText
+  FileText,
+  Circle,
+  CircleDot,
+  ChevronDown,
+  ChevronRight,
+  Terminal
 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 export function ActivityDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -52,9 +58,38 @@ export function ActivityDetailPage() {
 
   const job = jobData;
 
+  // Live log messages state
+  const [logMessages, setLogMessages] = useState<LogMessage[]>([]);
+  const [isLogOpen, setIsLogOpen] = useState(true);
+  const logContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Handler for log messages from SSE
+  const handleLogMessage = useCallback((message: LogMessage) => {
+    setLogMessages(prev => {
+      // Avoid duplicate consecutive messages
+      if (prev.length > 0 && prev[prev.length - 1].message === message.message) {
+        return prev;
+      }
+      // Keep last 100 messages
+      const newMessages = [...prev, message];
+      if (newMessages.length > 100) {
+        return newMessages.slice(-100);
+      }
+      return newMessages;
+    });
+  }, []);
+  
+  // Auto-scroll log to bottom when new messages arrive
+  useEffect(() => {
+    if (logContainerRef.current && isLogOpen) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logMessages, isLogOpen]);
+
   // Subscribe to real-time updates if job is running
   useBackgroundJobsSSE({
     enabled: !isLoading && !!id && (job?.status === 'running' || job?.status === 'pending'),
+    onLogMessage: handleLogMessage,
   });
 
   // Fetch environment name if resource_type is environment
@@ -65,6 +100,8 @@ export function ActivityDetailPage() {
   });
 
   const environmentName = environmentData?.data?.name || job?.resource_id;
+  const environmentClass = environmentData?.data?.environment_class?.toLowerCase() || '';
+  const isDevEnvironment = environmentClass === 'dev';
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -132,26 +169,110 @@ export function ActivityDetailPage() {
     return `${minutes}m ${remainingSeconds}s`;
   };
 
+  // Live duration counter for running jobs
+  const [liveDuration, setLiveDuration] = useState<string>('—');
+  
+  useEffect(() => {
+    if (!job?.started_at) {
+      setLiveDuration('—');
+      return;
+    }
+    
+    // If job is completed, show final duration
+    if (job.completed_at) {
+      setLiveDuration(formatDuration(job.started_at, job.completed_at));
+      return;
+    }
+    
+    // For running jobs, update every second
+    const updateDuration = () => {
+      setLiveDuration(formatDuration(job.started_at, undefined));
+    };
+    
+    updateDuration(); // Initial update
+    const interval = setInterval(updateDuration, 1000);
+    
+    return () => clearInterval(interval);
+  }, [job?.started_at, job?.completed_at, job?.status]);
+
+  // Define sync phases for the timeline - differs by environment type
+  // DEV: n8n → DB → Git (no drift concept)
+  // Non-DEV: Git → DB, then detect drift against n8n
+  const SYNC_PHASES_DEV = [
+    { key: 'initializing', label: 'Initializing', order: 0 },
+    { key: 'discovering_workflows', label: 'Discovering workflows from n8n', order: 1 },
+    { key: 'updating_environment_state', label: 'Syncing n8n → Database', order: 2 },
+    { key: 'persisting_to_git', label: 'Persisting to Git', order: 3 },
+    { key: 'finalizing_sync', label: 'Finalizing', order: 4 },
+    { key: 'completed', label: 'Completed', order: 5 },
+  ];
+  
+  const SYNC_PHASES_NON_DEV = [
+    { key: 'initializing', label: 'Initializing', order: 0 },
+    { key: 'discovering_workflows', label: 'Discovering workflows', order: 1 },
+    { key: 'updating_environment_state', label: 'Capturing n8n state', order: 2 },
+    { key: 'reconciling_drift', label: 'Detecting drift (n8n vs Git)', order: 3 },
+    { key: 'finalizing_sync', label: 'Finalizing', order: 4 },
+    { key: 'completed', label: 'Completed', order: 5 },
+  ];
+  
+  const SYNC_PHASES = isDevEnvironment ? SYNC_PHASES_DEV : SYNC_PHASES_NON_DEV;
+
+  // Determine phase status for timeline
+  const getPhaseStatus = (phaseKey: string, currentStep?: string) => {
+    if (!currentStep) return 'pending';
+    
+    const currentPhase = SYNC_PHASES.find(p => p.key === currentStep);
+    const targetPhase = SYNC_PHASES.find(p => p.key === phaseKey);
+    
+    if (!currentPhase || !targetPhase) return 'pending';
+    
+    if (job?.status === 'completed') {
+      return 'completed';
+    }
+    if (job?.status === 'failed') {
+      if (targetPhase.order < currentPhase.order) return 'completed';
+      if (targetPhase.order === currentPhase.order) return 'failed';
+      return 'pending';
+    }
+    
+    if (targetPhase.order < currentPhase.order) return 'completed';
+    if (targetPhase.order === currentPhase.order) return 'active';
+    return 'pending';
+  };
+
   const formatDateTime = (dateString?: string) => {
     if (!dateString) return '—';
     return new Date(dateString).toLocaleString();
   };
 
-  // Phase labels for canonical sync jobs
+  // Phase labels for canonical sync jobs - context-aware for DEV vs non-DEV
   const getPhaseLabel = (currentStep?: string): string => {
     if (!currentStep) return 'Unknown';
     
-    const phaseMap: Record<string, string> = {
-      'discovering_workflows': 'Discovering workflows',
-      'updating_environment_state': 'Updating environment state',
-      'reconciling_drift': 'Reconciling drift',
+    // DEV-specific labels (n8n is source of truth)
+    const devPhaseMap: Record<string, string> = {
+      'discovering_workflows': 'Discovering workflows from n8n',
+      'updating_environment_state': 'Syncing n8n → Database',
+      'persisting_to_git': 'Persisting to Git',
       'finalizing_sync': 'Finalizing sync',
-      'persisting_to_git': 'Persisting workflows to Git',
       'completed': 'Completed',
       'failed': 'Failed',
       'initializing': 'Initializing'
     };
     
+    // Non-DEV labels (Git is source of truth, detecting drift)
+    const nonDevPhaseMap: Record<string, string> = {
+      'discovering_workflows': 'Discovering workflows',
+      'updating_environment_state': 'Capturing n8n state',
+      'reconciling_drift': 'Detecting drift (n8n vs Git)',
+      'finalizing_sync': 'Finalizing sync',
+      'completed': 'Completed',
+      'failed': 'Failed',
+      'initializing': 'Initializing'
+    };
+    
+    const phaseMap = isDevEnvironment ? devPhaseMap : nonDevPhaseMap;
     return phaseMap[currentStep] || currentStep;
   };
 
@@ -205,7 +326,13 @@ export function ActivityDetailPage() {
     );
   }
 
-  const progress = job.progress || {};
+  // Normalize progress - handle both camelCase and snake_case
+  const rawProgress = job.progress || {};
+  const progress = {
+    ...rawProgress,
+    current_step: rawProgress.current_step || rawProgress.currentStep,
+    currentStep: rawProgress.current_step || rawProgress.currentStep,
+  };
   const result = job.result || {};
   const errorDetails = job.error_details || {};
 
@@ -278,7 +405,12 @@ export function ActivityDetailPage() {
             </div>
             <div>
               <label className="text-sm font-medium text-muted-foreground">Duration</label>
-              <p className="text-sm mt-1">{formatDuration(job.started_at, job.completed_at)}</p>
+              <p className="text-sm mt-1 font-mono tabular-nums">
+                {liveDuration}
+                {(job.status === 'running' || job.status === 'pending') && !job.completed_at && (
+                  <span className="ml-1 text-blue-500 animate-pulse">●</span>
+                )}
+              </p>
             </div>
           </div>
         </CardContent>
@@ -310,15 +442,33 @@ export function ActivityDetailPage() {
                     {result.completion_summary.workflows_missing > 0 && (
                       <span>· {result.completion_summary.workflows_missing} missing</span>
                     )}
+                    {result.completion_summary.workflows_skipped > 0 && (
+                      <span>· {result.completion_summary.workflows_skipped} skipped</span>
+                    )}
                   </div>
-                  {result.completion_summary.drift_detected_count > 0 && (
+                  {/* DEV environment: show Git persist status (no drift concept for DEV) */}
+                  {isDevEnvironment && (
+                    <>
+                      {result.workflows_persisted !== undefined && result.workflows_persisted > 0 ? (
+                        <p className="text-sm text-green-600 dark:text-green-400">
+                          {result.workflows_persisted} workflow(s) persisted to Git
+                        </p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          Git is in sync with n8n (no changes to persist)
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {/* Non-DEV environment: show drift detection (Git is source of truth) */}
+                  {!isDevEnvironment && result.completion_summary.drift_detected_count > 0 && (
                     <p className="text-sm text-yellow-600 dark:text-yellow-400">
                       Drift detected in {result.completion_summary.drift_detected_count} workflow(s)
                     </p>
                   )}
-                  {result.workflows_persisted !== undefined && result.workflows_persisted > 0 && (
+                  {!isDevEnvironment && result.completion_summary.drift_detected_count === 0 && (
                     <p className="text-sm text-green-600 dark:text-green-400">
-                      DEV workflows persisted to Git
+                      No drift detected - n8n matches Git
                     </p>
                   )}
                 </div>
@@ -360,6 +510,177 @@ export function ActivityDetailPage() {
               </>
             )}
           </CardContent>
+        </Card>
+      )}
+
+      {/* Sync Phase Timeline */}
+      {(job.job_type === 'canonical_env_sync' || job.job_type === 'environment_sync') && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Sync Phases</CardTitle>
+            <CardDescription>Timeline of sync operation phases</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="relative">
+              {/* Vertical line */}
+              <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-border" />
+              
+              <div className="space-y-4">
+                {SYNC_PHASES.filter(p => p.key !== 'completed').map((phase, index) => {
+                  const status = getPhaseStatus(phase.key, progress?.current_step);
+                  const isActive = status === 'active';
+                  const isCompleted = status === 'completed';
+                  const isFailed = status === 'failed';
+                  
+                  return (
+                    <div key={phase.key} className="relative flex items-start gap-4 pl-0">
+                      {/* Phase indicator */}
+                      <div className={`relative z-10 flex items-center justify-center w-6 h-6 rounded-full border-2 ${
+                        isCompleted ? 'bg-green-500 border-green-500' :
+                        isActive ? 'bg-blue-500 border-blue-500' :
+                        isFailed ? 'bg-red-500 border-red-500' :
+                        'bg-background border-muted-foreground/30'
+                      }`}>
+                        {isCompleted && <CheckCircle2 className="h-4 w-4 text-white" />}
+                        {isActive && <Loader2 className="h-3 w-3 text-white animate-spin" />}
+                        {isFailed && <XCircle className="h-4 w-4 text-white" />}
+                        {!isCompleted && !isActive && !isFailed && (
+                          <Circle className="h-3 w-3 text-muted-foreground/50" />
+                        )}
+                      </div>
+                      
+                      {/* Phase content */}
+                      <div className="flex-1 min-w-0 pb-4">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-medium ${
+                            isActive ? 'text-blue-600 dark:text-blue-400' :
+                            isCompleted ? 'text-foreground' :
+                            'text-muted-foreground'
+                          }`}>
+                            {phase.label}
+                          </span>
+                          {isActive && (
+                            <Badge variant="secondary" className="text-xs">
+                              In Progress
+                            </Badge>
+                          )}
+                        </div>
+                        
+                        {/* Show progress details for active phase */}
+                        {isActive && progress?.current !== undefined && progress?.total !== undefined && progress.total > 0 && (
+                          <div className="mt-2 space-y-1">
+                            <Progress 
+                              value={(progress.current / progress.total) * 100} 
+                              className="h-1.5 w-48" 
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              {progress.current} / {progress.total} items
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Live Log Section */}
+      {(job.job_type === 'canonical_env_sync' || job.job_type === 'environment_sync') && (
+        <Card>
+          <Collapsible open={isLogOpen} onOpenChange={setIsLogOpen}>
+            <CardHeader className="pb-2">
+              <CollapsibleTrigger asChild>
+                <div className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="h-5 w-5" />
+                    <CardTitle>Live Log</CardTitle>
+                    {(job.status === 'running' || job.status === 'pending') && (
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                      </span>
+                    )}
+                    <Badge variant="outline" className="text-xs ml-2">
+                      {logMessages.length} entries
+                    </Badge>
+                  </div>
+                  {isLogOpen ? (
+                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                  )}
+                </div>
+              </CollapsibleTrigger>
+              <CardDescription>Real-time sync operation log</CardDescription>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent className="pt-2">
+                <div 
+                  ref={logContainerRef}
+                  className="bg-zinc-950 text-zinc-100 rounded-lg p-4 font-mono text-xs overflow-auto max-h-80 min-h-32"
+                >
+                  {logMessages.length === 0 ? (
+                    <div className="text-zinc-500 italic">
+                      {(job.status === 'running' || job.status === 'pending') 
+                        ? 'Waiting for log messages...' 
+                        : 'No log messages captured. Run a sync to see live logs.'}
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {logMessages.map((log, idx) => {
+                        const time = new Date(log.timestamp).toLocaleTimeString();
+                        const levelColor = {
+                          info: 'text-blue-400',
+                          warn: 'text-yellow-400',
+                          error: 'text-red-400',
+                          debug: 'text-zinc-500',
+                        }[log.level] || 'text-zinc-400';
+                        
+                        const phaseColor = {
+                          discovering_workflows: 'text-purple-400',
+                          updating_environment_state: 'text-cyan-400',
+                          reconciling_drift: 'text-orange-400',
+                          persisting_to_git: 'text-green-400',
+                          finalizing_sync: 'text-emerald-400',
+                        }[log.phase || ''] || 'text-zinc-500';
+                        
+                        return (
+                          <div key={idx} className="flex gap-2 leading-5">
+                            <span className="text-zinc-500 shrink-0">{time}</span>
+                            <span className={`shrink-0 uppercase ${levelColor}`}>
+                              [{log.level}]
+                            </span>
+                            {log.phase && (
+                              <span className={`shrink-0 ${phaseColor}`}>
+                                [{log.phase.replace(/_/g, ' ')}]
+                              </span>
+                            )}
+                            <span className="text-zinc-200 break-all">{log.message}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                {logMessages.length > 0 && (
+                  <div className="flex justify-end mt-2">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setLogMessages([])}
+                      className="text-xs text-muted-foreground"
+                    >
+                      Clear log
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </CollapsibleContent>
+          </Collapsible>
         </Card>
       )}
 

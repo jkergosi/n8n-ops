@@ -468,38 +468,46 @@ async def _run_env_sync_background(
         workflows_untracked = results.get("workflows_untracked", 0)
         workflows_missing = results.get("workflows_missing", 0)
         
-        # Phase 3: Reconciling drift
-        try:
-            from app.api.endpoints.sse import emit_sync_progress
-            await emit_sync_progress(
-                job_id=job_id,
-                environment_id=environment_id,
-                status="running",
-                current_step="reconciling_drift",
-                current=workflows_linked,
-                total=workflows_linked,
-                message=f"Comparing {workflows_linked} linked workflow(s) for drift...",
-                tenant_id=tenant_id
-            )
-        except Exception as sse_err:
-            logger.warning(f"Failed to emit reconciliation SSE event: {str(sse_err)}")
+        # Greenfield model: Drift detection only applies to non-DEV environments
+        # DEV: n8n is source of truth, no drift concept
+        # Non-DEV: Git is source of truth, detect drift between n8n and Git
+        env_class = environment.get("environment_class", "").lower()
+        is_dev = env_class == "dev"
         
-        # Trigger reconciliation for this environment
-        reconciliation_results = await CanonicalReconciliationService.reconcile_all_pairs_for_environment(
-            tenant_id=tenant_id,
-            changed_env_id=environment_id
-        )
-        
-        # Get drift count from workflow_diff_state (approximate)
         drift_count = 0
-        try:
-            # Query workflow_diff_state for this environment to count workflows with drift
-            drift_result = await db_service.client.table("workflow_diff_state").select(
-                "workflow_id"
-            ).eq("tenant_id", tenant_id).eq("source_environment_id", environment_id).eq("diff_status", "modified").execute()
-            drift_count = len(drift_result.data or [])
-        except Exception as drift_err:
-            logger.warning(f"Failed to get drift count: {str(drift_err)}")
+        if not is_dev:
+            # Phase 3: Reconciling drift (non-DEV only)
+            try:
+                from app.api.endpoints.sse import emit_sync_progress
+                await emit_sync_progress(
+                    job_id=job_id,
+                    environment_id=environment_id,
+                    status="running",
+                    current_step="reconciling_drift",
+                    current=workflows_linked,
+                    total=workflows_linked,
+                    message=f"Detecting drift in {workflows_linked} linked workflow(s)...",
+                    tenant_id=tenant_id
+                )
+            except Exception as sse_err:
+                logger.warning(f"Failed to emit reconciliation SSE event: {str(sse_err)}")
+            
+            # Trigger reconciliation for this environment
+            reconciliation_results = await CanonicalReconciliationService.reconcile_all_pairs_for_environment(
+                tenant_id=tenant_id,
+                changed_env_id=environment_id
+            )
+            
+            # Get drift count from workflow_diff_state
+            try:
+                drift_result = await db_service.client.table("workflow_diff_state").select(
+                    "workflow_id"
+                ).eq("tenant_id", tenant_id).eq("source_environment_id", environment_id).eq("diff_status", "modified").execute()
+                drift_count = len(drift_result.data or [])
+            except Exception as drift_err:
+                logger.warning(f"Failed to get drift count: {str(drift_err)}")
+        else:
+            logger.info(f"DEV environment {environment_id}: Skipping drift detection (n8n is source of truth)")
         
         # Phase 4: Finalizing sync
         try:
@@ -517,14 +525,25 @@ async def _run_env_sync_background(
         except Exception as sse_err:
             logger.warning(f"Failed to emit finalizing SSE event: {str(sse_err)}")
         
-        # Add completion summary to results
-        results["completion_summary"] = {
+        # Add completion summary to results (Greenfield-aware)
+        completion_summary = {
             "workflows_processed": workflows_synced,
             "workflows_linked": workflows_linked,
             "workflows_untracked": workflows_untracked,
             "workflows_missing": workflows_missing,
-            "drift_detected_count": drift_count  # Will be populated if available
+            "environment_class": env_class,
         }
+        
+        if is_dev:
+            # DEV: n8n is source of truth, show Git persist status
+            completion_summary["is_dev"] = True
+            # workflows_persisted will be added by Phase 2 (Git sync) if applicable
+        else:
+            # Non-DEV: Git is source of truth, show drift detection
+            completion_summary["is_dev"] = False
+            completion_summary["drift_detected_count"] = drift_count
+        
+        results["completion_summary"] = completion_summary
         
         await background_job_service.update_job_status(
             job_id=job_id,

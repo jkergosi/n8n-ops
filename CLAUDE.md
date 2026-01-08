@@ -100,6 +100,12 @@ Port configuration is in `.env.local` (root) and should not be modified without 
 - **Live Log Streaming**: SSE-based real-time log streaming for sync/backup/restore operations
 - **Health Monitoring**: Automated health checks with heartbeat tracking for environments
 - **Service Recovery**: Automatic detection and handling of backend connectivity issues
+- **Bulk Operations**: Batch sync, backup, and restore across multiple environments
+- **Untracked Workflows**: Detection and management of workflows not in canonical system
+- **Workflow Matrix**: Cross-environment workflow status overview
+- **Execution Analytics**: Advanced execution metrics and performance insights
+- **Credential Health**: Monitoring and tracking of credential status across environments
+- **Promotion Validation**: Pre-promotion validation with rollback state tracking
 
 ## Dev Mode Authentication
 
@@ -118,17 +124,17 @@ n8n-ops/
 │   ├── CLAUDE.md                # Backend-specific docs
 │   ├── app/
 │   │   ├── main.py              # App entry, router registration
-│   │   ├── api/endpoints/       # 47+ API routers
-│   │   ├── services/            # 41+ business logic services
-│   │   ├── schemas/             # 24+ Pydantic model files
+│   │   ├── api/endpoints/       # 50+ API routers
+│   │   ├── services/            # 44+ business logic services
+│   │   ├── schemas/             # 26+ Pydantic model files
 │   │   └── core/                # Config, feature gates
 │   ├── alembic/                 # Alembic migrations
 │   ├── migrations/              # SQL migrations
-│   └── tests/                   # 42+ pytest test files
+│   └── tests/                   # 49+ pytest test files
 ├── n8n-ops-ui/                  # React frontend
 │   ├── CLAUDE.md                # Frontend-specific docs
 │   └── src/
-│       ├── pages/               # 58+ pages (core + support + admin)
+│       ├── pages/               # 62+ pages (core + support + admin)
 │       ├── components/          # UI, workflow, pipeline components
 │       ├── hooks/               # Custom React hooks
 │       ├── lib/                 # API client, auth, features

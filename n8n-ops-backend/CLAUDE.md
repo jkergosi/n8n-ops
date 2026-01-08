@@ -139,10 +139,36 @@ All endpoints prefixed with `/api/v1`.
 |--------|----------|-------------|
 | GET | `/policy/{environment_id}` | Get action policy for environment |
 
+### Bulk Operations (`/bulk-operations`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/sync` | Bulk sync multiple environments |
+| POST | `/backup` | Bulk backup to Git |
+| POST | `/restore` | Bulk restore from snapshots |
+
+### Untracked Workflows (`/untracked-workflows`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List workflows not in canonical system |
+| POST | `/onboard` | Onboard untracked workflows |
+| DELETE | `/{id}` | Remove untracked workflow |
+
+### Workflow Matrix (`/workflow-matrix`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Cross-environment workflow status matrix |
+
+### Executions (`/executions`)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List executions with filters |
+| GET | `/analytics` | Execution analytics and metrics |
+| GET | `/{id}` | Get execution details |
+
 ### Other Endpoints
 | Router | Prefix | Description |
 |--------|--------|-------------|
-| `executions` | `/executions` | Execution history |
+| `executions` | `/executions` | Execution history and analytics |
 | `tags` | `/tags` | Workflow tags |
 | `credentials` | `/credentials` | Credential metadata |
 | `n8n_users` | `/n8n-users` | N8N instance users |
@@ -209,6 +235,9 @@ All endpoints prefixed with `/api/v1`.
 | `canonical_reconciliation_service.py` | Reconciliation between Git and environment state |
 | `canonical_sync_scheduler.py` | Scheduled canonical workflow sync operations |
 | `health_check_scheduler.py` | Periodic health checks for active environments |
+| `bulk_workflow_service.py` | Batch operations for sync, backup, restore |
+| `untracked_workflows_service.py` | Detection of workflows outside canonical system |
+| `promotion_validation_service.py` | Pre-promotion validation and rollback state |
 
 ## Schemas (Pydantic Models)
 
@@ -237,6 +266,8 @@ All endpoints prefixed with `/api/v1`.
 | `workflow_policy.py` | `WorkflowPolicyResponse`, `EnvironmentClass`, `ActionPermissions` |
 | `background_job.py` | `BackgroundJobResponse`, `BackgroundJobCreate` |
 | `canonical_workflow.py` | `CanonicalWorkflowGitState`, `WorkflowEnvMap` |
+| `bulk_operations.py` | `BulkSyncRequest`, `BulkOperationResponse` |
+| `untracked_workflow.py` | `UntrackedWorkflow`, `OnboardRequest` |
 
 ## Database Tables
 
@@ -265,6 +296,9 @@ All endpoints prefixed with `/api/v1`.
 | `background_jobs` | Background job execution tracking with progress and metadata |
 | `canonical_workflow_git_state` | Git repository state for canonical workflows |
 | `workflow_env_map` | Mapping between workflows and environments |
+| `features` | Feature flags and entitlements |
+| `plan_features` | Feature availability per subscription plan |
+| `plans` | Subscription plan definitions |
 
 ## Core Patterns
 

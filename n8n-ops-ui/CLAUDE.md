@@ -79,7 +79,10 @@ User starts the frontend with: `npm run dev`
 | `BillingPage` | `/billing` | Subscription management |
 | `ProfilePage` | `/profile` | User profile |
 | `N8NUsersPage` | `/n8n-users` | N8N instance users |
-| `ObservabilityPage` | `/observability` | Execution analytics |
+| `ObservabilityPage` | `/observability` | Health monitoring |
+| `ExecutionAnalyticsPage` | `/execution-analytics` | Execution analytics and metrics |
+| `WorkflowsOverviewPage` | `/workflows-overview` | Cross-environment workflow matrix |
+| `UntrackedWorkflowsPage` | `/untracked-workflows` | Workflows not in canonical system |
 | `AlertsPage` | `/alerts` | Alert configuration |
 | `LoginPage` | `/login` | User authentication |
 | `OnboardingPage` | `/onboarding` | New user setup |
@@ -174,6 +177,21 @@ await apiClient.scheduleDeployment(data);
 await apiClient.getBackgroundJobs({ resourceType, status });
 await apiClient.getBackgroundJob(jobId);
 
+// Bulk Operations
+await apiClient.bulkSync(environmentIds);
+await apiClient.bulkBackup(environmentIds);
+await apiClient.bulkRestore(snapshotIds);
+
+// Untracked Workflows
+await apiClient.getUntrackedWorkflows();
+await apiClient.onboardUntrackedWorkflows(workflowIds);
+
+// Workflow Matrix
+await apiClient.getWorkflowMatrix();
+
+// Execution Analytics
+await apiClient.getExecutionAnalytics(params);
+
 // Auth (dev mode)
 await apiClient.getDevUsers();
 await apiClient.devLoginAs(userId);
@@ -235,6 +253,7 @@ shadcn/ui components: `button`, `card`, `dialog`, `table`, `tabs`, `input`, `sel
 - `WorkflowActionsMenu.tsx` - Context menu for workflow actions
 - `DirectEditWarningDialog.tsx` - Warning for production direct edits
 - `HardDeleteConfirmDialog.tsx` - Confirmation for permanent deletion
+- `EnvironmentStatusBadge.tsx` - Environment status indicator with health info
 
 ### Pipeline Components (`src/components/pipeline/`)
 - `EnvironmentSequence.tsx` - Visual env promotion path
@@ -307,6 +326,10 @@ interface TenantProviderSubscription { id, tenantId, providerId, planId, status,
 interface BackgroundJob { id, jobType, status, progress, result, ... }
 interface CanonicalWorkflowGitState { id, tenantId, environmentId, workflowId, ... }
 interface WorkflowEnvMap { id, tenantId, workflowId, environmentId, ... }
+interface UntrackedWorkflow { id, name, environmentId, ... }
+interface WorkflowMatrixEntry { workflowId, name, environments, ... }
+interface ExecutionAnalytics { totalExecutions, successRate, avgDuration, ... }
+interface BulkOperationResult { success, failed, errors, ... }
 ```
 
 ## Environment Variables

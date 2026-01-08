@@ -7,6 +7,7 @@ import { ThemeProvider } from '@/components/ThemeProvider';
 import { Toaster } from 'sonner';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { RouteTracker } from '@/components/RouteTracker';
+import { FeatureHintProvider } from '@/components/smart-onboarding';
 import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
@@ -60,6 +61,7 @@ import {
   RequestFeaturePage,
   GetHelpPage,
 } from '@/pages/support';
+import { LoadingStatesDemo } from '@/pages/LoadingStatesDemo';
 import { useLocation } from 'react-router-dom';
 import { canAccessRoute, mapBackendRoleToFrontendRole, normalizePlan, isAtLeastPlan, type Plan } from '@/lib/permissions';
 import { setLastRoute } from '@/lib/lastRoute';
@@ -257,8 +259,12 @@ function App() {
               <BrowserRouter>
                 {/* Route Tracker - tracks lastRoute for navigation persistence */}
                 <RouteTracker />
+                {/* Feature Hint Provider - smart contextual onboarding */}
+                <FeatureHintProvider>
                 <Routes>
               <Route path="/login" element={<LoginPage />} />
+              {/* Public Dev/Demo Routes (no auth required) */}
+              <Route path="/dev/loading-states" element={<LoadingStatesDemo />} />
               <Route
                 path="/onboarding"
                 element={
@@ -396,6 +402,7 @@ function App() {
                 <Route path="/support/help/new" element={<RoleProtectedRoute><GetHelpPage /></RoleProtectedRoute>} />
               </Route>
               </Routes>
+              </FeatureHintProvider>
             </BrowserRouter>
             <Toaster
               position="top-right"

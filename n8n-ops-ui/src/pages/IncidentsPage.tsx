@@ -54,6 +54,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import type { DriftIncident, DriftIncidentStatus } from '@/types';
 import { SmartEmptyState } from '@/components/SmartEmptyState';
+import { IncidentsEmptyState } from '@/components/empty-states';
 
 const STATUS_CONFIG: Record<DriftIncidentStatus, {
   label: string;
@@ -393,13 +394,7 @@ export function IncidentsPage() {
           {isLoading ? (
             <div className="text-center py-8 text-muted-foreground">Loading incidents...</div>
           ) : !incidentsData?.length ? (
-            <div className="text-center py-8">
-              <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No Drift Incidents</h3>
-              <p className="text-muted-foreground">
-                All environments are in sync with their Git source of truth.
-              </p>
-            </div>
+            <IncidentsEmptyState size="lg" />
           ) : (
             <Table>
               <TableHeader>

@@ -156,9 +156,35 @@ export const TestData = {
       errors: [],
       warnings: [],
     },
+    preflightFailure: {
+      ready: false,
+      errors: ['GitHub repository not configured'],
+      warnings: ['Some environments are inactive'],
+    },
     inventoryStarted: {
       job_id: 'job-1',
       status: 'RUNNING',
+    },
+    inventoryComplete: {
+      job_id: 'job-1',
+      status: 'COMPLETED',
+      summary: {
+        canonical_workflows_created: 15,
+        environments_synced: 2,
+        auto_linked: 12,
+        untracked: 3,
+      },
+    },
+    inventoryProgress: {
+      job_id: 'job-1',
+      status: 'RUNNING',
+      current_phase: 'Syncing anchor environment',
+      progress: 45,
+      details: {
+        anchor_sync: 'COMPLETED',
+        dev_sync: 'IN_PROGRESS',
+        auto_linking: 'PENDING',
+      },
     },
     untrackedWorkflows: [
       {
@@ -171,20 +197,58 @@ export const TestData = {
     matrix: {
       workflows: [
         {
-          canonical_id: 'canonical-1',
-          name: 'Customer Onboarding',
-          environments: {
-            'env-dev': {
-              status: 'linked',
-              synced: true,
-            },
-            'env-prod': {
-              status: 'drift',
-              synced: false,
-            },
-          },
+          canonicalId: 'canonical-1',
+          displayName: 'Customer Onboarding',
+          createdAt: '2024-01-08T00:00:00.000Z',
+        },
+        {
+          canonicalId: 'canonical-2',
+          displayName: 'Email Notification',
+          createdAt: '2024-01-08T00:01:00.000Z',
         },
       ],
+      environments: [
+        {
+          id: 'env-dev',
+          name: 'Development',
+          environmentClass: 'development',
+        },
+        {
+          id: 'env-prod',
+          name: 'Production',
+          environmentClass: 'production',
+        },
+      ],
+      matrix: {
+        'canonical-1': {
+          'env-dev': {
+            status: 'linked',
+            canSync: false,
+            n8nWorkflowId: '123',
+            contentHash: 'sha256:abc123',
+          },
+          'env-prod': {
+            status: 'drift',
+            canSync: true,
+            n8nWorkflowId: '456',
+            contentHash: 'sha256:def456',
+          },
+        },
+        'canonical-2': {
+          'env-dev': {
+            status: 'linked',
+            canSync: false,
+            n8nWorkflowId: '789',
+            contentHash: 'sha256:ghi789',
+          },
+          'env-prod': {
+            status: 'linked',
+            canSync: false,
+            n8nWorkflowId: '012',
+            contentHash: 'sha256:jkl012',
+          },
+        },
+      },
     },
   },
 

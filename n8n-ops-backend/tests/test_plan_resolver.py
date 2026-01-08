@@ -16,8 +16,15 @@ from app.services.plan_resolver import (
     _normalize_plan_name,
     _get_plan_rank,
     _is_subscription_active,
-    PLAN_PRECEDENCE,
 )
+
+# Default plan precedence values (used for testing when database is not available)
+PLAN_PRECEDENCE = {
+    "free": 0,
+    "pro": 10,
+    "agency": 20,
+    "enterprise": 30,
+}
 
 
 class TestNormalizePlanName:
@@ -42,19 +49,38 @@ class TestNormalizePlanName:
 class TestGetPlanRank:
     """Test plan precedence ranking."""
 
-    def test_known_plans(self):
-        assert _get_plan_rank("free") == 0
-        assert _get_plan_rank("pro") == 10
-        assert _get_plan_rank("agency") == 20
-        assert _get_plan_rank("enterprise") == 30
+    def _mock_db_for_plan(self, plan_name: str, precedence: int):
+        """Create a mock db that returns the given precedence for the plan."""
+        mock_db = MagicMock()
+        mock_response = MagicMock()
+        mock_response.data = {"precedence": precedence}
+        mock_db.client.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = mock_response
+        return mock_db
 
-    def test_unknown_plan_returns_zero(self):
-        assert _get_plan_rank("unknown") == 0
-        assert _get_plan_rank("platinum") == 0
+    @pytest.mark.asyncio
+    async def test_known_plans(self):
+        # Test with mocked database responses
+        assert await _get_plan_rank("free", self._mock_db_for_plan("free", 0)) == 0
+        assert await _get_plan_rank("pro", self._mock_db_for_plan("pro", 10)) == 10
+        assert await _get_plan_rank("agency", self._mock_db_for_plan("agency", 20)) == 20
+        assert await _get_plan_rank("enterprise", self._mock_db_for_plan("enterprise", 30)) == 30
 
-    def test_case_insensitive(self):
-        assert _get_plan_rank("PRO") == 10
-        assert _get_plan_rank("Enterprise") == 30
+    @pytest.mark.asyncio
+    async def test_unknown_plan_returns_zero(self):
+        # Mock db that returns no data (unknown plan)
+        mock_db = MagicMock()
+        mock_response = MagicMock()
+        mock_response.data = None
+        mock_db.client.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = mock_response
+
+        assert await _get_plan_rank("unknown", mock_db) == 0
+        assert await _get_plan_rank("platinum", mock_db) == 0
+
+    @pytest.mark.asyncio
+    async def test_case_insensitive(self):
+        # The function normalizes to lowercase before querying
+        assert await _get_plan_rank("PRO", self._mock_db_for_plan("pro", 10)) == 10
+        assert await _get_plan_rank("Enterprise", self._mock_db_for_plan("enterprise", 30)) == 30
 
 
 class TestIsSubscriptionActive:

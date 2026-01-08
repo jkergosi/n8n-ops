@@ -204,13 +204,15 @@ if source_normalized == target_normalized:
 | POST | `/api/v1/promotions` | `promotions.py:create_promotion` | Initiate promotion |
 | POST | `/api/v1/promotions/validate` | `promotions.py:validate_promotion` | Pre-flight checks |
 | POST | `/api/v1/promotions/compare` | `promotions.py:compare_environments` | Diff computation |
-| POST | `/api/v1/promotions/{id}/execute` | `promotions.py:execute_promotion` | Execute promotion |
+| POST | `/api/v1/promotions/execute/{deployment_id}` | `promotions.py:execute_deployment` | Execute deployment (requires admin + workflow_ci_cd) |
 | POST | `/api/v1/promotions/{id}/approve` | `promotions.py:approve_promotion` | Approve pending |
 | POST | `/api/v1/promotions/{id}/reject` | `promotions.py:reject_promotion` | Reject pending |
 | GET | `/api/v1/promotions` | `promotions.py:list_promotions` | List history |
 | GET | `/api/v1/promotions/{id}` | `promotions.py:get_promotion` | Get details |
 | GET | `/api/v1/promotions/drift-check/{env_id}` | `promotions.py:check_drift_policy_blocking` | Check drift blocking |
-| POST | `/api/v1/pipelines` | `pipelines.py:create_pipeline` | Create pipeline |
+| POST | `/api/v1/pipelines` | `pipelines.py:create_pipeline` | Create pipeline (requires admin + workflow_ci_cd) |
+| PATCH | `/api/v1/pipelines/{id}` | `pipelines.py:update_pipeline` | Update pipeline (requires admin + workflow_ci_cd) |
+| DELETE | `/api/v1/pipelines/{id}` | `pipelines.py:delete_pipeline` | Delete pipeline (requires admin + workflow_ci_cd) |
 | GET | `/api/v1/pipelines` | `pipelines.py:list_pipelines` | List pipelines |
 | GET | `/api/v1/pipelines/{id}` | `pipelines.py:get_pipeline` | Get pipeline |
 | POST | `/api/v1/deployments` | `deployments.py:create_deployment` | Schedule deployment |

@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
+import { AlertRulesTab } from '@/components/alert-rules';
 import type {
   NotificationChannel,
   NotificationRule,
@@ -53,6 +54,7 @@ import type {
   SlackConfig,
   EmailConfig,
   WebhookConfig,
+  Environment,
 } from '@/types';
 
 // Default configs for each channel type
@@ -141,10 +143,16 @@ export function AlertsPage() {
     queryFn: () => apiClient.getEventCatalog(),
   });
 
+  const { data: environmentsData } = useQuery({
+    queryKey: ['environments'],
+    queryFn: () => apiClient.getEnvironments(),
+  });
+
   const channels = channelsData?.data ?? [];
   const rules = rulesData?.data ?? [];
   const events = eventsData?.data ?? [];
   const eventCatalog = catalogData?.data ?? [];
+  const environments: Environment[] = environmentsData?.data ?? [];
 
   // Mutations
   const createChannelMutation = useMutation({
@@ -490,12 +498,15 @@ export function AlertsPage() {
     refetchEvents();
   };
 
+  // State for main tabs
+  const [mainTab, setMainTab] = useState<string>('basic');
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">Alerts</h1>
-          <p className="text-muted-foreground">Configure notification channels and event rules</p>
+          <p className="text-muted-foreground">Configure notification channels, rules, and threshold-based alerts</p>
         </div>
         <Button variant="outline" onClick={handleRefreshAll}>
           <RefreshCw className="h-4 w-4 mr-2" />
@@ -503,6 +514,19 @@ export function AlertsPage() {
         </Button>
       </div>
 
+      <Tabs value={mainTab} onValueChange={setMainTab} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="basic">
+            <Bell className="h-4 w-4 mr-2" />
+            Channels & Rules
+          </TabsTrigger>
+          <TabsTrigger value="advanced">
+            <AlertTriangle className="h-4 w-4 mr-2" />
+            Alert Rules
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="basic" className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Notification Channels */}
         <Card>
@@ -1317,6 +1341,13 @@ export function AlertsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+        </TabsContent>
+
+        <TabsContent value="advanced">
+          <AlertRulesTab channels={channels} environments={environments} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -58,6 +58,15 @@ import type {
   NotificationRule,
   AlertEvent,
   EventCatalogItem,
+  // Alert Rule types
+  AlertRule,
+  AlertRuleCreate,
+  AlertRuleUpdate,
+  AlertRuleMuteRequest,
+  AlertRuleHistoryResponse,
+  AlertRuleEvaluationResult,
+  AlertRuleSummary,
+  AlertRuleTypeCatalogItem,
   Entitlements,
   AdminFeature,
   AdminPlan,
@@ -3323,6 +3332,187 @@ class ApiClient {
         description: e.description,
         category: e.category,
       })),
+    };
+  }
+
+  // ============================================
+  // Alert Rules endpoints
+  // ============================================
+
+  async getAlertRules(params?: {
+    includeDisabled?: boolean;
+  }): Promise<{ data: AlertRule[] }> {
+    const requestParams: any = {};
+    if (params?.includeDisabled) requestParams.include_disabled = params.includeDisabled;
+    const response = await this.client.get('/notifications/alert-rules', { params: requestParams });
+    return {
+      data: (response.data || []).map((r: any) => this._mapAlertRule(r)),
+    };
+  }
+
+  async getAlertRulesSummary(): Promise<{ data: AlertRuleSummary }> {
+    const response = await this.client.get('/notifications/alert-rules/summary');
+    return {
+      data: {
+        totalRules: response.data.total_rules,
+        enabledRules: response.data.enabled_rules,
+        firingRules: response.data.firing_rules,
+        mutedRules: response.data.muted_rules,
+        rulesByType: response.data.rules_by_type,
+      },
+    };
+  }
+
+  async getAlertRuleTypeCatalog(): Promise<{ data: AlertRuleTypeCatalogItem[] }> {
+    const response = await this.client.get('/notifications/alert-rules/catalog');
+    return {
+      data: (response.data || []).map((c: any) => ({
+        ruleType: c.rule_type,
+        displayName: c.display_name,
+        description: c.description,
+        configSchema: c.config_schema,
+      })),
+    };
+  }
+
+  async createAlertRule(data: AlertRuleCreate): Promise<{ data: AlertRule }> {
+    const response = await this.client.post('/notifications/alert-rules', {
+      name: data.name,
+      description: data.description,
+      rule_type: data.ruleType,
+      threshold_config: data.thresholdConfig,
+      environment_id: data.environmentId,
+      channel_ids: data.channelIds,
+      escalation_config: data.escalationConfig,
+      is_enabled: data.isEnabled ?? true,
+    });
+    return { data: this._mapAlertRule(response.data) };
+  }
+
+  async getAlertRule(ruleId: string): Promise<{ data: AlertRule }> {
+    const response = await this.client.get(`/notifications/alert-rules/${ruleId}`);
+    return { data: this._mapAlertRule(response.data) };
+  }
+
+  async updateAlertRule(ruleId: string, data: AlertRuleUpdate): Promise<{ data: AlertRule }> {
+    const payload: any = {};
+    if (data.name !== undefined) payload.name = data.name;
+    if (data.description !== undefined) payload.description = data.description;
+    if (data.thresholdConfig !== undefined) payload.threshold_config = data.thresholdConfig;
+    if (data.environmentId !== undefined) payload.environment_id = data.environmentId;
+    if (data.channelIds !== undefined) payload.channel_ids = data.channelIds;
+    if (data.escalationConfig !== undefined) payload.escalation_config = data.escalationConfig;
+    if (data.isEnabled !== undefined) payload.is_enabled = data.isEnabled;
+
+    const response = await this.client.put(`/notifications/alert-rules/${ruleId}`, payload);
+    return { data: this._mapAlertRule(response.data) };
+  }
+
+  async deleteAlertRule(ruleId: string): Promise<void> {
+    await this.client.delete(`/notifications/alert-rules/${ruleId}`);
+  }
+
+  async muteAlertRule(ruleId: string, data: AlertRuleMuteRequest): Promise<{ data: AlertRule }> {
+    const response = await this.client.post(`/notifications/alert-rules/${ruleId}/mute`, {
+      mute_duration_minutes: data.mute_duration_minutes,
+      reason: data.reason,
+    });
+    return { data: this._mapAlertRule(response.data) };
+  }
+
+  async unmuteAlertRule(ruleId: string): Promise<{ data: AlertRule }> {
+    const response = await this.client.post(`/notifications/alert-rules/${ruleId}/unmute`);
+    return { data: this._mapAlertRule(response.data) };
+  }
+
+  async getAlertRuleHistory(
+    ruleId: string,
+    params?: { limit?: number; offset?: number }
+  ): Promise<{ data: AlertRuleHistoryResponse }> {
+    const requestParams: any = {};
+    if (params?.limit !== undefined) requestParams.limit = params.limit;
+    if (params?.offset !== undefined) requestParams.offset = params.offset;
+
+    const response = await this.client.get(`/notifications/alert-rules/${ruleId}/history`, {
+      params: requestParams,
+    });
+
+    return {
+      data: {
+        items: (response.data.items || []).map((h: any) => ({
+          id: h.id,
+          tenantId: h.tenant_id,
+          alertRuleId: h.alert_rule_id,
+          eventType: h.event_type,
+          evaluationResult: h.evaluation_result,
+          escalationLevel: h.escalation_level,
+          channelsNotified: h.channels_notified,
+          notificationSuccess: h.notification_success,
+          createdAt: h.created_at,
+        })),
+        total: response.data.total,
+        hasMore: response.data.has_more,
+      },
+    };
+  }
+
+  async evaluateAlertRule(ruleId: string): Promise<{ data: AlertRuleEvaluationResult }> {
+    const response = await this.client.post(`/notifications/alert-rules/${ruleId}/evaluate`);
+    return {
+      data: {
+        ruleId: response.data.rule_id,
+        ruleName: response.data.rule_name,
+        isTriggered: response.data.is_triggered,
+        currentValue: response.data.current_value,
+        thresholdValue: response.data.threshold_value,
+        message: response.data.message,
+        details: response.data.details,
+        evaluatedAt: response.data.evaluated_at,
+      },
+    };
+  }
+
+  async evaluateAllAlertRules(): Promise<{ data: AlertRuleEvaluationResult[] }> {
+    const response = await this.client.post('/notifications/alert-rules/evaluate-all');
+    return {
+      data: (response.data || []).map((r: any) => ({
+        ruleId: r.rule_id,
+        ruleName: r.rule_name,
+        isTriggered: r.is_triggered,
+        currentValue: r.current_value,
+        thresholdValue: r.threshold_value,
+        message: r.message,
+        details: r.details,
+        evaluatedAt: r.evaluated_at,
+      })),
+    };
+  }
+
+  // Helper method to map alert rule from API response
+  private _mapAlertRule(r: any): AlertRule {
+    return {
+      id: r.id,
+      tenantId: r.tenant_id,
+      name: r.name,
+      description: r.description,
+      ruleType: r.rule_type,
+      thresholdConfig: r.threshold_config,
+      environmentId: r.environment_id,
+      channelIds: r.channel_ids || [],
+      escalationConfig: r.escalation_config,
+      isEnabled: r.is_enabled,
+      currentEscalationLevel: r.current_escalation_level || 0,
+      lastEscalationAt: r.last_escalation_at,
+      isFiring: r.is_firing || false,
+      consecutiveViolations: r.consecutive_violations || 0,
+      firstViolationAt: r.first_violation_at,
+      lastViolationAt: r.last_violation_at,
+      lastEvaluatedAt: r.last_evaluated_at,
+      lastNotificationAt: r.last_notification_at,
+      mutedUntil: r.muted_until,
+      muteReason: r.mute_reason,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
     };
   }
 

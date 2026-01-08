@@ -82,3 +82,35 @@ class GracePeriodSummary(BaseModel):
     expired_count: int = 0
     by_resource_type: dict = Field(default_factory=dict)
     expiring_soon: list = Field(default_factory=list)  # List of grace periods expiring within 7 days
+
+
+class GracePeriodListResponse(BaseModel):
+    """Response model for listing grace periods."""
+    grace_periods: list[DowngradeGracePeriodResponse] = Field(
+        default_factory=list,
+        description="List of grace period records"
+    )
+    total_count: int = Field(
+        default=0,
+        description="Total count of grace periods"
+    )
+    summary: GracePeriodSummary = Field(
+        ...,
+        description="Summary of grace periods by status and type"
+    )
+
+
+class GracePeriodDetailResponse(DowngradeGracePeriodResponse):
+    """Detailed response model for a single grace period with additional context."""
+    days_remaining: Optional[int] = Field(
+        None,
+        description="Number of days until expiry (negative if expired)"
+    )
+    resource_name: Optional[str] = Field(
+        None,
+        description="Human-readable name of the resource"
+    )
+    tenant_name: Optional[str] = Field(
+        None,
+        description="Name of the tenant that owns this grace period"
+    )

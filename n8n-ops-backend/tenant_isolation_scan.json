@@ -1,12 +1,15 @@
 {
   "summary": {
-    "total_endpoints": 330,
-    "authenticated_endpoints": 295,
+    "total_endpoints": 342,
+    "authenticated_endpoints": 307,
     "properly_isolated_endpoints": 167,
-    "endpoints_with_issues": 50,
-    "endpoints_with_warnings": 47,
-    "isolation_coverage": 56.61016949152542,
-    "has_issues": true
+    "endpoints_with_issues": 27,
+    "endpoints_with_warnings": 70,
+    "isolation_coverage": 54.39739413680782,
+    "has_issues": true,
+    "endpoints_with_tenant_id_path": 35,
+    "cross_tenant_operations": 35,
+    "unauthorized_tenant_id_access": 0
   },
   "endpoints": [
     {
@@ -34,6 +37,9 @@
         "page_size",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -50,6 +56,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -66,6 +75,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -87,6 +99,9 @@
         "provider",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -103,6 +118,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -119,6 +137,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -136,6 +157,9 @@
         "limit",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -153,6 +177,9 @@
         "limit",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -169,6 +196,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -188,9 +218,12 @@
         "tenant_id",
         "_"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -208,9 +241,12 @@
         "limit",
         "_"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -229,10 +265,13 @@
         "reason",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\admin_billing.py",
@@ -250,10 +289,13 @@
         "reason",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\admin_billing.py",
@@ -271,10 +313,13 @@
         "reason",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\admin_credentials.py",
@@ -289,6 +334,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -308,6 +356,9 @@
         "body",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -328,6 +379,9 @@
         "body",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -347,6 +401,9 @@
         "logical_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -367,6 +424,9 @@
         "provider",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -384,6 +444,9 @@
         "body",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -401,6 +464,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -421,6 +487,9 @@
         "body",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -438,6 +507,9 @@
         "mapping_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -455,6 +527,9 @@
         "mapping_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -474,6 +549,9 @@
         "body",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -494,6 +572,9 @@
         "provider",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -514,6 +595,9 @@
         "provider",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -535,6 +619,9 @@
         "provider",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -555,6 +642,9 @@
         "provider",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -573,6 +663,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -593,6 +686,9 @@
         "provider",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -613,6 +709,9 @@
         "type_filter",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -629,6 +728,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -646,6 +748,9 @@
         "feature_id",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -662,6 +767,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -679,6 +787,9 @@
         "plan_id",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -698,6 +809,9 @@
         "update",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -715,6 +829,9 @@
         "plan_id",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -731,6 +848,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -748,9 +868,12 @@
         "tenant_id",
         "_"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -766,6 +889,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -784,6 +910,9 @@
         "update",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -802,6 +931,9 @@
         "update",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -820,6 +952,9 @@
         "update",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -838,6 +973,9 @@
         "update",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -854,6 +992,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -874,6 +1015,9 @@
         "update",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -892,6 +1036,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -911,6 +1058,9 @@
         "update",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -930,6 +1080,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -948,6 +1101,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -967,6 +1123,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -985,6 +1144,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1003,6 +1165,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1019,6 +1184,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1035,6 +1203,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1051,6 +1222,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1067,6 +1241,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1084,9 +1261,12 @@
         "tenant_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -1103,10 +1283,13 @@
         "tenant_id",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\admin_retention.py",
@@ -1121,6 +1304,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -1139,6 +1325,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1156,6 +1345,9 @@
         "data",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1172,6 +1364,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1191,6 +1386,9 @@
         "limit",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1209,6 +1407,9 @@
         "expires_seconds",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1226,6 +1427,9 @@
         "provider",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1245,6 +1449,9 @@
         "provider",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1265,6 +1472,9 @@
         "limit",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -1285,6 +1495,9 @@
         "provider",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -1305,9 +1518,12 @@
         "provider",
         "user_info"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -1323,6 +1539,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1339,6 +1558,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1356,6 +1578,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1374,6 +1599,9 @@
       "parameters": [
         "request"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -1393,6 +1621,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1412,6 +1643,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1431,6 +1665,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1450,6 +1687,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1469,6 +1709,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1487,6 +1730,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1504,6 +1750,9 @@
         "user_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1520,6 +1769,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1537,6 +1789,9 @@
         "updates",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1551,6 +1806,9 @@
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": null,
       "parameters": [],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1575,6 +1833,9 @@
         "offset",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1592,6 +1853,9 @@
         "job_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1600,12 +1864,15 @@
       "function_name": "get_subscription_plans",
       "http_method": "GET",
       "route_path": "/plans",
-      "line_number": 114,
+      "line_number": 115,
       "has_authentication": false,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": null,
       "parameters": [],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -1616,12 +1883,15 @@
       "function_name": "get_all_plan_features_public",
       "http_method": "GET",
       "route_path": "/plan-features/all",
-      "line_number": 127,
+      "line_number": 128,
       "has_authentication": false,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": null,
       "parameters": [],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -1632,12 +1902,15 @@
       "function_name": "get_feature_display_names",
       "http_method": "GET",
       "route_path": "/feature-display-names",
-      "line_number": 182,
+      "line_number": 183,
       "has_authentication": false,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": null,
       "parameters": [],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -1648,12 +1921,15 @@
       "function_name": "get_plan_configurations",
       "http_method": "GET",
       "route_path": "/plan-configurations",
-      "line_number": 201,
+      "line_number": 202,
       "has_authentication": false,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": null,
       "parameters": [],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -1664,14 +1940,18 @@
       "function_name": "get_current_subscription",
       "http_method": "GET",
       "route_path": "/subscription",
-      "line_number": 271,
+      "line_number": 272,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": "tenant_id = user_info[\"tenant\"][\"id\"",
       "parameters": [
-        "user_info"
+        "user_info",
+        "_admin_guard"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1680,15 +1960,19 @@
       "function_name": "create_checkout_session",
       "http_method": "POST",
       "route_path": "/checkout",
-      "line_number": 359,
+      "line_number": 363,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": "tenant_id = user_info[\"tenant\"][\"id\"",
       "parameters": [
         "checkout",
-        "user_info"
+        "user_info",
+        "_admin_guard"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1697,15 +1981,19 @@
       "function_name": "create_portal_session",
       "http_method": "POST",
       "route_path": "/portal",
-      "line_number": 411,
+      "line_number": 419,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": "tenant_id = user_info[\"tenant\"][\"id\"",
       "parameters": [
         "return_url",
-        "user_info"
+        "user_info",
+        "_admin_guard"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1714,15 +2002,19 @@
       "function_name": "cancel_subscription",
       "http_method": "POST",
       "route_path": "/cancel",
-      "line_number": 444,
+      "line_number": 456,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": "tenant_id = user_info[\"tenant\"][\"id\"",
       "parameters": [
         "at_period_end",
-        "user_info"
+        "user_info",
+        "_admin_guard"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1731,14 +2023,18 @@
       "function_name": "reactivate_subscription",
       "http_method": "POST",
       "route_path": "/reactivate",
-      "line_number": 484,
+      "line_number": 500,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": "tenant_id = user_info[\"tenant\"][\"id\"",
       "parameters": [
-        "user_info"
+        "user_info",
+        "_admin_guard"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1747,15 +2043,19 @@
       "function_name": "get_invoices",
       "http_method": "GET",
       "route_path": "/invoices",
-      "line_number": 520,
+      "line_number": 539,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": "tenant_id = user_info[\"tenant\"][\"id\"",
       "parameters": [
         "limit",
-        "user_info"
+        "user_info",
+        "_admin_guard"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1764,14 +2064,18 @@
       "function_name": "get_upcoming_invoice",
       "http_method": "GET",
       "route_path": "/upcoming-invoice",
-      "line_number": 544,
+      "line_number": 567,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": "tenant_id = user_info[\"tenant\"][\"id\"",
       "parameters": [
-        "user_info"
+        "user_info",
+        "_admin_guard"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1780,15 +2084,19 @@
       "function_name": "get_payment_history",
       "http_method": "GET",
       "route_path": "/payment-history",
-      "line_number": 580,
+      "line_number": 606,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": "tenant_id = user_info[\"tenant\"][\"id\"",
       "parameters": [
         "limit",
-        "user_info"
+        "user_info",
+        "_admin_guard"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1797,14 +2105,18 @@
       "function_name": "get_billing_overview",
       "http_method": "GET",
       "route_path": "/overview",
-      "line_number": 598,
+      "line_number": 628,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": "user_info.get(\"tenant\")",
       "parameters": [
-        "user_info"
+        "user_info",
+        "_admin_guard"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1813,7 +2125,7 @@
       "function_name": "stripe_webhook",
       "http_method": "POST",
       "route_path": "/webhook",
-      "line_number": 794,
+      "line_number": 827,
       "has_authentication": false,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -1821,6 +2133,9 @@
       "parameters": [
         "request"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -1842,6 +2157,9 @@
         "workflow_ids",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1862,6 +2180,9 @@
         "workflow_ids",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1883,6 +2204,9 @@
         "notes",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1900,6 +2224,9 @@
         "job_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -1917,6 +2244,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1938,6 +2268,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1958,6 +2291,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1977,6 +2313,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -1997,6 +2336,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2015,6 +2357,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2035,6 +2380,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2054,6 +2402,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2073,6 +2424,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2094,6 +2448,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2114,6 +2471,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2133,6 +2493,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2152,6 +2515,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2170,6 +2536,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2187,6 +2556,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2204,6 +2576,9 @@
         "credential_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2221,6 +2596,9 @@
         "credential",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2239,6 +2617,9 @@
         "credential",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2257,6 +2638,9 @@
         "delete_from_n8n",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2274,6 +2658,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2291,6 +2678,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2315,6 +2705,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2333,6 +2726,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2352,6 +2748,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2370,6 +2769,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2390,6 +2792,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2411,6 +2816,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2428,6 +2836,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2446,6 +2857,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2464,6 +2878,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2483,6 +2900,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2501,6 +2921,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2518,6 +2941,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2536,6 +2962,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2554,6 +2983,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2571,6 +3003,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2588,6 +3023,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2606,6 +3044,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2626,6 +3067,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2647,6 +3091,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2661,6 +3108,9 @@
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": null,
       "parameters": [],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -2680,6 +3130,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2696,6 +3149,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2713,6 +3169,9 @@
         "connection",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -2732,6 +3191,9 @@
         "connection",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -2752,6 +3214,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2770,6 +3235,9 @@
         "user_info",
         "limit_check"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2789,6 +3257,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2807,6 +3278,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2824,6 +3298,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2842,6 +3319,9 @@
         "background_tasks",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2861,6 +3341,9 @@
         "limit",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2878,6 +3361,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2895,6 +3381,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2912,6 +3401,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2931,6 +3423,9 @@
         "refresh",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2950,6 +3445,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2967,6 +3465,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -2985,8 +3486,12 @@
       "parameters": [
         "environment_id",
         "workflow_id",
+        "limit",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -2995,7 +3500,7 @@
       "function_name": "get_executions_paginated",
       "http_method": "GET",
       "route_path": "/paginated",
-      "line_number": 64,
+      "line_number": 82,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3011,6 +3516,9 @@
         "sort_direction",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3019,7 +3527,7 @@
       "function_name": "get_execution",
       "http_method": "GET",
       "route_path": "/{execution_id}",
-      "line_number": 156,
+      "line_number": 174,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3028,6 +3536,9 @@
         "execution_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3036,7 +3547,7 @@
       "function_name": "get_execution_analytics",
       "http_method": "GET",
       "route_path": "/analytics",
-      "line_number": 199,
+      "line_number": 217,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3050,6 +3561,9 @@
         "search",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3067,6 +3581,9 @@
         "request",
         "background_tasks"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -3083,6 +3600,9 @@
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": null,
       "parameters": [],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -3099,6 +3619,9 @@
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": null,
       "parameters": [],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -3115,6 +3638,9 @@
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": null,
       "parameters": [],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -3138,6 +3664,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3156,6 +3685,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3173,6 +3705,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3191,6 +3726,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3210,6 +3748,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3229,6 +3770,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3248,6 +3792,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3267,6 +3814,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3286,6 +3836,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3303,6 +3856,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3320,6 +3876,9 @@
         "environment_type",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3337,6 +3896,9 @@
         "user_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3345,7 +3907,7 @@
       "function_name": "get_notification_channels",
       "http_method": "GET",
       "route_path": "/channels",
-      "line_number": 32,
+      "line_number": 42,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3354,6 +3916,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3362,7 +3927,7 @@
       "function_name": "create_notification_channel",
       "http_method": "POST",
       "route_path": "/channels",
-      "line_number": 48,
+      "line_number": 58,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3372,6 +3937,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3380,7 +3948,7 @@
       "function_name": "get_notification_channel",
       "http_method": "GET",
       "route_path": "/channels/{channel_id}",
-      "line_number": 65,
+      "line_number": 75,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3390,6 +3958,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3398,7 +3969,7 @@
       "function_name": "update_notification_channel",
       "http_method": "PUT",
       "route_path": "/channels/{channel_id}",
-      "line_number": 81,
+      "line_number": 91,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3409,6 +3980,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3417,7 +3991,7 @@
       "function_name": "delete_notification_channel",
       "http_method": "DELETE",
       "route_path": "/channels/{channel_id}",
-      "line_number": 98,
+      "line_number": 108,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3427,6 +4001,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3435,7 +4012,7 @@
       "function_name": "test_notification_channel",
       "http_method": "POST",
       "route_path": "/channels/{channel_id}/test",
-      "line_number": 109,
+      "line_number": 119,
       "has_authentication": false,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3445,6 +4022,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -3455,7 +4035,7 @@
       "function_name": "get_notification_rules",
       "http_method": "GET",
       "route_path": "/rules",
-      "line_number": 129,
+      "line_number": 139,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3464,6 +4044,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3472,7 +4055,7 @@
       "function_name": "create_notification_rule",
       "http_method": "POST",
       "route_path": "/rules",
-      "line_number": 145,
+      "line_number": 155,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3482,6 +4065,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3490,7 +4076,7 @@
       "function_name": "get_notification_rule_by_event",
       "http_method": "GET",
       "route_path": "/rules/{event_type}",
-      "line_number": 162,
+      "line_number": 172,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3500,6 +4086,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3508,7 +4097,7 @@
       "function_name": "update_notification_rule",
       "http_method": "PUT",
       "route_path": "/rules/{rule_id}",
-      "line_number": 178,
+      "line_number": 188,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3519,6 +4108,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3527,7 +4119,7 @@
       "function_name": "delete_notification_rule",
       "http_method": "DELETE",
       "route_path": "/rules/{rule_id}",
-      "line_number": 195,
+      "line_number": 205,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3537,6 +4129,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3545,7 +4140,7 @@
       "function_name": "get_alert_events",
       "http_method": "GET",
       "route_path": "/events",
-      "line_number": 207,
+      "line_number": 217,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3556,6 +4151,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3564,7 +4162,7 @@
       "function_name": "get_event_catalog",
       "http_method": "GET",
       "route_path": "/event-catalog",
-      "line_number": 240,
+      "line_number": 250,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3572,6 +4170,261 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "get_alert_rules",
+      "http_method": "GET",
+      "route_path": "/alert-rules",
+      "line_number": 265,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "include_disabled",
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "get_alert_rules_summary",
+      "http_method": "GET",
+      "route_path": "/alert-rules/summary",
+      "line_number": 289,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "get_alert_rule_type_catalog",
+      "http_method": "GET",
+      "route_path": "/alert-rules/catalog",
+      "line_number": 305,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "create_alert_rule",
+      "http_method": "POST",
+      "route_path": "/alert-rules",
+      "line_number": 316,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "data",
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "get_alert_rule",
+      "http_method": "GET",
+      "route_path": "/alert-rules/{rule_id}",
+      "line_number": 333,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "rule_id",
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "update_alert_rule",
+      "http_method": "PUT",
+      "route_path": "/alert-rules/{rule_id}",
+      "line_number": 349,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "rule_id",
+        "data",
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "delete_alert_rule",
+      "http_method": "DELETE",
+      "route_path": "/alert-rules/{rule_id}",
+      "line_number": 366,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "rule_id",
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "mute_alert_rule",
+      "http_method": "POST",
+      "route_path": "/alert-rules/{rule_id}/mute",
+      "line_number": 377,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "rule_id",
+        "data",
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "unmute_alert_rule",
+      "http_method": "POST",
+      "route_path": "/alert-rules/{rule_id}/unmute",
+      "line_number": 404,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "rule_id",
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "get_alert_rule_history",
+      "http_method": "GET",
+      "route_path": "/alert-rules/{rule_id}/history",
+      "line_number": 420,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "rule_id",
+        "limit",
+        "offset",
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "evaluate_alert_rule",
+      "http_method": "POST",
+      "route_path": "/alert-rules/{rule_id}/evaluate",
+      "line_number": 455,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "rule_id",
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
+      "issues": [],
+      "warnings": []
+    },
+    {
+      "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\notifications.py",
+      "function_name": "evaluate_all_alert_rules",
+      "http_method": "POST",
+      "route_path": "/alert-rules/evaluate-all",
+      "line_number": 480,
+      "has_authentication": true,
+      "extracts_tenant_from_user": false,
+      "unsafe_tenant_extraction": false,
+      "tenant_extraction_method": null,
+      "parameters": [
+        "user_info",
+        "_"
+      ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3591,6 +4444,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3609,6 +4465,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3629,6 +4488,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3646,6 +4508,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3664,6 +4529,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3682,6 +4550,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -3692,7 +4563,7 @@
       "function_name": "get_pipelines",
       "http_method": "GET",
       "route_path": "",
-      "line_number": 31,
+      "line_number": 32,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3702,6 +4573,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3710,7 +4584,7 @@
       "function_name": "get_pipeline",
       "http_method": "GET",
       "route_path": "/{pipeline_id}",
-      "line_number": 85,
+      "line_number": 86,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3720,6 +4594,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3728,7 +4605,7 @@
       "function_name": "create_pipeline",
       "http_method": "POST",
       "route_path": "",
-      "line_number": 125,
+      "line_number": 126,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3736,8 +4613,12 @@
       "parameters": [
         "pipeline",
         "user_info",
+        "_admin_guard",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3746,7 +4627,7 @@
       "function_name": "update_pipeline",
       "http_method": "PATCH",
       "route_path": "/{pipeline_id}",
-      "line_number": 223,
+      "line_number": 225,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3755,8 +4636,12 @@
         "pipeline_id",
         "pipeline",
         "user_info",
+        "_admin_guard",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3765,7 +4650,7 @@
       "function_name": "delete_pipeline",
       "http_method": "DELETE",
       "route_path": "/{pipeline_id}",
-      "line_number": 332,
+      "line_number": 335,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3773,8 +4658,12 @@
       "parameters": [
         "pipeline_id",
         "user_info",
+        "_admin_guard",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3791,6 +4680,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3808,6 +4700,9 @@
         "body",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3825,6 +4720,9 @@
         "user_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3845,6 +4743,9 @@
         "limit",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -3868,6 +4769,9 @@
         "limit",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3885,6 +4789,9 @@
         "body",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3893,7 +4800,7 @@
       "function_name": "stop_impersonation",
       "http_method": "POST",
       "route_path": "/impersonate/stop",
-      "line_number": 85,
+      "line_number": 96,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -3901,6 +4808,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3917,6 +4827,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3925,7 +4838,7 @@
       "function_name": "compare_environments",
       "http_method": "GET",
       "route_path": "/compare",
-      "line_number": 173,
+      "line_number": 174,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3936,6 +4849,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3944,7 +4860,7 @@
       "function_name": "generate_diff_summary",
       "http_method": "POST",
       "route_path": "/diff-summary",
-      "line_number": 667,
+      "line_number": 668,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3956,6 +4872,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3964,7 +4883,7 @@
       "function_name": "initiate_deployment",
       "http_method": "POST",
       "route_path": "/initiate",
-      "line_number": 825,
+      "line_number": 826,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3974,6 +4893,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -3982,7 +4904,7 @@
       "function_name": "execute_deployment",
       "http_method": "POST",
       "route_path": "/execute/{deployment_id}",
-      "line_number": 1545,
+      "line_number": 1526,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -3992,8 +4914,12 @@
         "request",
         "background_tasks",
         "user_info",
+        "_admin_guard",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4002,7 +4928,7 @@
       "function_name": "get_promotion_job",
       "http_method": "GET",
       "route_path": "/{promotion_id}/job",
-      "line_number": 1818,
+      "line_number": 1800,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -4012,6 +4938,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4020,7 +4949,7 @@
       "function_name": "approve_deployment",
       "http_method": "POST",
       "route_path": "/approvals/{promotion_id}/approve",
-      "line_number": 1865,
+      "line_number": 1847,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -4031,6 +4960,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4039,7 +4971,7 @@
       "function_name": "list_promotions",
       "http_method": "GET",
       "route_path": "/",
-      "line_number": 2129,
+      "line_number": 2111,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -4049,6 +4981,9 @@
         "limit",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -4059,7 +4994,7 @@
       "function_name": "get_workflow_diff",
       "http_method": "GET",
       "route_path": "/workflows/{workflow_id}/diff",
-      "line_number": 2145,
+      "line_number": 2127,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -4073,6 +5008,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4081,7 +5019,7 @@
       "function_name": "get_promotion",
       "http_method": "GET",
       "route_path": "/initiate/{promotion_id}",
-      "line_number": 2202,
+      "line_number": 2184,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -4091,6 +5029,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4099,7 +5040,7 @@
       "function_name": "create_snapshot",
       "http_method": "POST",
       "route_path": "/snapshots",
-      "line_number": 2258,
+      "line_number": 2240,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -4109,6 +5050,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4117,7 +5061,7 @@
       "function_name": "check_drift",
       "http_method": "POST",
       "route_path": "/check-drift",
-      "line_number": 2292,
+      "line_number": 2274,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -4128,6 +5072,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4136,7 +5083,7 @@
       "function_name": "compare_workflows",
       "http_method": "POST",
       "route_path": "/compare-workflows",
-      "line_number": 2321,
+      "line_number": 2303,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -4146,6 +5093,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4160,6 +5110,9 @@
       "unsafe_tenant_extraction": false,
       "tenant_extraction_method": null,
       "parameters": [],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -4178,6 +5131,9 @@
       "parameters": [
         "provider_id"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -4196,6 +5152,9 @@
       "parameters": [
         "provider_id"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -4214,6 +5173,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -4232,6 +5194,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4249,6 +5214,9 @@
         "provider_key",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4265,6 +5233,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4282,6 +5253,9 @@
         "checkout",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4299,6 +5273,9 @@
         "provider_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4317,6 +5294,9 @@
         "update",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4334,6 +5314,9 @@
         "provider_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4350,6 +5333,9 @@
       "parameters": [
         "request"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -4368,6 +5354,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4386,6 +5375,9 @@
         "update",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4403,6 +5395,9 @@
         "provider_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4420,6 +5415,9 @@
         "plan",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4438,6 +5436,9 @@
         "update",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4455,6 +5456,9 @@
         "plan_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4472,6 +5476,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4490,6 +5497,9 @@
         "options",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4507,6 +5517,9 @@
         "workflow_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4524,6 +5537,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4540,6 +5556,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4557,6 +5576,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4574,6 +5596,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4590,6 +5615,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4607,6 +5635,9 @@
         "force",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4623,6 +5654,9 @@
       "parameters": [
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4640,6 +5674,9 @@
         "payload",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4657,6 +5694,9 @@
         "key_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4680,6 +5720,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4698,6 +5741,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4715,6 +5761,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4734,6 +5783,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4754,6 +5806,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4771,6 +5826,9 @@
         "snapshot_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4779,7 +5837,7 @@
       "function_name": "sse_deployments_stream",
       "http_method": "GET",
       "route_path": "/deployments",
-      "line_number": 241,
+      "line_number": 245,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -4789,6 +5847,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4797,7 +5858,7 @@
       "function_name": "sse_deployment_detail_stream",
       "http_method": "GET",
       "route_path": "/deployments/{deployment_id}",
-      "line_number": 331,
+      "line_number": 338,
       "has_authentication": true,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -4808,6 +5869,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4816,7 +5880,7 @@
       "function_name": "sse_background_jobs_stream",
       "http_method": "GET",
       "route_path": "/stream",
-      "line_number": 675,
+      "line_number": 685,
       "has_authentication": false,
       "extracts_tenant_from_user": true,
       "unsafe_tenant_extraction": false,
@@ -4827,6 +5891,9 @@
         "job_id",
         "token"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [
         "No authentication dependency found (get_current_user)"
       ],
@@ -4846,6 +5913,9 @@
         "data",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4863,6 +5933,9 @@
         "data",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4881,6 +5954,9 @@
         "request",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4898,6 +5974,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4915,6 +5994,9 @@
         "tag_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4932,6 +6014,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4949,6 +6034,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4967,6 +6055,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -4985,6 +6076,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5004,6 +6098,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5022,6 +6119,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5040,6 +6140,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5067,6 +6170,9 @@
         "page_size",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -5085,6 +6191,9 @@
       "parameters": [
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -5104,9 +6213,12 @@
         "tenant_id",
         "_"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -5123,6 +6235,9 @@
         "tenant",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": false,
       "issues": [
         "Write operation on tenant-scoped resource without visible tenant_id extraction"
       ],
@@ -5143,10 +6258,13 @@
         "tenant",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5162,10 +6280,13 @@
         "tenant_id",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5181,9 +6302,12 @@
         "tenant_id",
         "_"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -5201,10 +6325,13 @@
         "override",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5222,10 +6349,13 @@
         "override",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5242,10 +6372,13 @@
         "override_id",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5265,9 +6398,12 @@
         "page_size",
         "_"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -5288,9 +6424,12 @@
         "page_size",
         "_"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -5308,10 +6447,13 @@
         "reason",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5328,10 +6470,13 @@
         "reason",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5349,10 +6494,13 @@
         "reason",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5368,10 +6516,13 @@
         "tenant_id",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5387,9 +6538,12 @@
         "tenant_id",
         "_"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -5407,10 +6561,13 @@
         "note",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5427,10 +6584,13 @@
         "note_id",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
@@ -5447,9 +6607,12 @@
         "provider",
         "_"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -5473,9 +6636,12 @@
         "page_size",
         "_"
       ],
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
       "issues": [],
       "warnings": [
-        "Tenant-scoped resource without visible tenant_id extraction from user context"
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
       ]
     },
     {
@@ -5493,17 +6659,20 @@
         "user_id",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
       "function_name": "suspend_tenant_user",
       "http_method": "POST",
       "route_path": "/{tenant_id}/users/{user_id}/suspend",
-      "line_number": 1641,
+      "line_number": 1653,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -5513,17 +6682,20 @@
         "user_id",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
       "function_name": "unsuspend_tenant_user",
       "http_method": "POST",
       "route_path": "/{tenant_id}/users/{user_id}/unsuspend",
-      "line_number": 1700,
+      "line_number": 1712,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -5533,17 +6705,20 @@
         "user_id",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
       "function_name": "change_tenant_user_role",
       "http_method": "PATCH",
       "route_path": "/{tenant_id}/users/{user_id}/role",
-      "line_number": 1763,
+      "line_number": 1775,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -5554,17 +6729,20 @@
         "role_update",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
       "function_name": "remove_tenant_user",
       "http_method": "DELETE",
       "route_path": "/{tenant_id}/users/{user_id}",
-      "line_number": 1827,
+      "line_number": 1839,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -5574,17 +6752,20 @@
         "user_id",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
       "function_name": "create_tenant_provider_subscription",
       "http_method": "POST",
       "route_path": "/{tenant_id}/provider-subscriptions",
-      "line_number": 1892,
+      "line_number": 1904,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -5594,17 +6775,20 @@
         "request",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
       "function_name": "update_tenant_provider_subscription",
       "http_method": "PATCH",
       "route_path": "/{tenant_id}/provider-subscriptions/{provider_id}",
-      "line_number": 1972,
+      "line_number": 1984,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -5615,17 +6799,20 @@
         "update",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\tenants.py",
       "function_name": "cancel_tenant_provider_subscription",
       "http_method": "DELETE",
       "route_path": "/{tenant_id}/provider-subscriptions/{provider_id}",
-      "line_number": 2068,
+      "line_number": 2080,
       "has_authentication": true,
       "extracts_tenant_from_user": false,
       "unsafe_tenant_extraction": false,
@@ -5636,10 +6823,13 @@
         "at_period_end",
         "user_info"
       ],
-      "issues": [
-        "Write operation on tenant-scoped resource without visible tenant_id extraction"
-      ],
-      "warnings": []
+      "has_tenant_id_path_param": true,
+      "has_platform_admin_auth": true,
+      "is_cross_tenant_operation": true,
+      "issues": [],
+      "warnings": [
+        "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+      ]
     },
     {
       "file_path": "F:\\web\\AllThings\\_projects\\n8n-ops-trees\\main\\n8n-ops-backend\\app\\api\\endpoints\\untracked_workflows.py",
@@ -5655,6 +6845,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5672,6 +6865,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5690,6 +6886,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Exempt endpoint (public/auth/platform admin)"
@@ -5714,6 +6913,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5733,6 +6935,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5758,6 +6963,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5775,6 +6983,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5794,6 +7005,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5814,6 +7028,9 @@
         "force",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5832,6 +7049,9 @@
         "environment",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5852,6 +7072,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5872,6 +7095,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5892,6 +7118,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5912,6 +7141,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5932,6 +7164,9 @@
         "environment",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5953,6 +7188,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5973,6 +7211,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -5992,6 +7233,9 @@
         "environment",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -6011,6 +7255,9 @@
         "environment",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -6031,6 +7278,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -6048,6 +7298,9 @@
         "user_info",
         "_"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": []
     },
@@ -6065,6 +7318,9 @@
         "environment_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"
@@ -6085,6 +7341,9 @@
         "workflow_id",
         "user_info"
       ],
+      "has_tenant_id_path_param": false,
+      "has_platform_admin_auth": false,
+      "is_cross_tenant_operation": false,
       "issues": [],
       "warnings": [
         "Tenant-scoped resource without visible tenant_id extraction from user context"

@@ -1,356 +1,270 @@
 # 00 - System Overview
 
+**Generated:** 2026-01-XX  
+**Evidence-Based:** Repository scan only
+
 ## Repository Structure
 
+### Top-Level Structure
+
 ```
-n8n-ops-trees/main/
-├── n8n-ops-backend/          # FastAPI backend (Python 3.11+)
-│   ├── app/
-│   │   ├── main.py           # Application entry point, router registration
-│   │   ├── api/endpoints/    # 51 endpoint modules (~327 routes)
-│   │   ├── core/             # Config, entitlements, tenancy, provider enums
-│   │   ├── schemas/          # Pydantic models (27 modules)
-│   │   ├── services/         # Business logic (65 services + adapters)
-│   │   └── seed/             # Database seed scripts
-│   ├── alembic/              # Database migrations
-│   │   └── versions/         # 61 migration files
-│   ├── tests/                # 63 test files
-│   └── scripts/              # Utility scripts
-├── n8n-ops-ui/               # React frontend (TypeScript)
-│   ├── src/
-│   │   ├── main.tsx          # Frontend entry point
-│   │   ├── App.tsx           # Root component with routing
-│   │   ├── pages/            # ~70 page components
-│   │   ├── components/       # Reusable UI components
-│   │   ├── hooks/            # Custom React hooks
-│   │   ├── lib/              # Utilities (API client, auth, features)
-│   │   └── types/            # TypeScript types
-│   └── tests/                # E2E tests (Playwright)
-├── jk_docs/                  # Business docs (pricing, branding, strategy)
-├── PRD.md                    # Original PRD
-├── PRD_cursor.md             # Extended PRD with implementation status
-└── scripts/                  # PowerShell port management scripts
+n8n-ops-trees/
+├── n8n-ops-backend/          # FastAPI backend application
+├── n8n-ops-ui/                # React frontend application
+├── mvp_readiness_pack/        # This documentation pack
+├── scripts/                   # Utility scripts (port management)
+└── docs/                      # Root-level documentation
 ```
 
----
+### Backend Structure (`n8n-ops-backend/`)
 
-## Technology Stack
+**Evidence:** `n8n-ops-backend/app/` directory structure
 
-### Backend
-- **Framework**: FastAPI 
-- **Language**: Python 3.11+
-- **Database**: Supabase (PostgreSQL with row-level security)
-- **ORM**: Direct Supabase client (no SQLAlchemy)
-- **Migrations**: Alembic
-- **Auth**: Supabase Auth + custom JWT validation
-- **Payments**: Stripe
-- **Git**: PyGithub for repository operations
-- **Real-time**: Server-Sent Events (SSE)
+```
+n8n-ops-backend/
+├── app/
+│   ├── main.py                # FastAPI app entrypoint, router registration, startup/shutdown
+│   ├── api/
+│   │   └── endpoints/         # 51 endpoint modules (50 .py files)
+│   ├── core/                  # Core utilities (rbac, platform_admin, tenant_isolation, etc.)
+│   ├── schemas/               # 27 Pydantic schema files
+│   ├── services/              # 64 service files (59 .py, 5 .md)
+│   └── seed/                  # Database seeding scripts
+├── alembic/                   # Database migrations (63 version files)
+├── tests/                     # 103 test files (85 .py, 16 .json, 2 .md)
+├── docs/                      # Backend documentation
+│   └── security/             # RLS policy documentation (7 files)
+└── scripts/                   # Utility scripts (19 files)
+```
 
-### Frontend
-- **Framework**: React 18 with TypeScript
-- **Build Tool**: Vite
-- **State Management**: 
-  - TanStack Query (server state)
-  - Zustand (client state, see `src/store/use-app-store.ts`)
-- **UI**: shadcn/ui + Tailwind CSS
-- **Routing**: React Router
-- **HTTP**: Axios with retry logic (`lib/api-client.ts`)
-- **Visualization**: React Flow (workflow graphs)
+### Frontend Structure (`n8n-ops-ui/`)
 
-### External Integrations
-- **Supabase**: Auth, PostgreSQL, RLS
-- **Stripe**: Subscriptions, webhooks (`billing.router` at `/api/v1/billing`)
-- **GitHub**: Workflow backups, webhooks (`github_webhooks.router`)
-- **n8n API**: Workflow sync via `N8NProviderAdapter`
-- **SMTP**: Email notifications (configured in `config.py`)
+**Evidence:** `n8n-ops-ui/src/` directory structure
 
----
+```
+n8n-ops-ui/
+├── src/
+│   ├── App.tsx                # Root component
+│   ├── main.tsx               # Entry point
+│   ├── components/            # React components
+│   ├── pages/                 # Page components (39 admin pages, platform pages, etc.)
+│   ├── lib/                   # Utilities (SSE hooks, API client, auth)
+│   ├── hooks/                 # Custom React hooks
+│   ├── store/                 # Zustand state management
+│   └── types/                  # TypeScript type definitions
+└── package.json               # Dependencies and scripts
+```
 
-## Backend Entry Points
+## Backend Entrypoints
 
 ### Main Application
-**File**: `n8n-ops-backend/app/main.py`
 
-- **App Initialization**: Lines 16-20 (FastAPI app with OpenAPI)
-- **Middleware**: 
-  - CORS (lines 84-91)
-  - Impersonation audit middleware (lines 22-82) - logs all write actions during impersonation
-- **Router Registration**: Lines 94-386 (43 router includes)
-- **Global Exception Handler**: Lines 521-574 (emits `system.error` events)
+**File:** `n8n-ops-backend/app/main.py`  
+**Evidence:** Lines 16-20, 586-588
 
-### Startup Jobs (line 403-486)
-Executed on `@app.on_event("startup")`:
-1. Cleanup stale background jobs (max 24hr runtime)
-2. Start deployment scheduler (`deployment_scheduler.start_scheduler()`)
-3. Start drift detection scheduler (`drift_scheduler.start_all_drift_schedulers()`)
-4. Start canonical sync schedulers (`canonical_sync_scheduler.start_canonical_sync_schedulers()`)
-5. Start health check scheduler (`health_check_scheduler.start_health_check_scheduler()`)
-6. Start rollup scheduler (`rollup_scheduler.start_rollup_scheduler()`)
-7. Start retention scheduler (`retention_job.start_retention_scheduler()`)
-8. Cleanup stale deployments (>1hr running, mark as failed)
+- **Entrypoint:** `app.main:app` (FastAPI instance)
+- **Default Port:** 4000 (via uvicorn.run, line 588)
+- **Router Prefix:** `/api/v1` (from `settings.API_V1_PREFIX`, line 18)
 
-### Shutdown Jobs (line 488-518)
-Gracefully stops all schedulers.
+### Background Job Runners
 
-### SSE Endpoints
-**File**: `n8n-ops-backend/app/api/endpoints/sse.py`
+**Evidence:** `n8n-ops-backend/app/main.py:startup_event()` (lines 403-451)
 
-- `/api/v1/sse/stream/{job_id}` - Background job progress
-- `/api/v1/sse/deployments/{deployment_id}` - Deployment status
-- `/api/v1/sse/counts/{tenant_id}` - Real-time count updates
+All schedulers start on application startup:
 
----
+1. **Deployment Scheduler**
+   - **File:** `app/services/deployment_scheduler.py:start_scheduler()`
+   - **Purpose:** Execute scheduled deployments
+   - **Started:** Line 419-420
 
-## Frontend Entry Points
+2. **Drift Detection Scheduler**
+   - **File:** `app/services/drift_scheduler.py:start_all_drift_schedulers()`
+   - **Purpose:** Periodic drift checks
+   - **Started:** Line 424-425
 
-### Main Entry
-**File**: `n8n-ops-ui/src/main.tsx`
-- React 18 StrictMode wrapper
-- Renders `<App />` component
+3. **Canonical Workflow Sync Scheduler**
+   - **File:** `app/services/canonical_sync_scheduler.py:start_canonical_sync_schedulers()`
+   - **Purpose:** Sync canonical workflows with Git
+   - **Started:** Line 429-430
 
-### App Component
-**File**: `n8n-ops-ui/src/App.tsx`
-Primary routing and layout configuration:
-- React Router with 70+ routes
-- AuthProvider wrapping
-- ThemeProvider (light/dark mode)
-- RouteTracker (analytics)
-- FeatureGate components
-- Layout structure with AppLayout component
+4. **Health Check Scheduler**
+   - **File:** `app/services/health_check_scheduler.py:start_health_check_scheduler()`
+   - **Purpose:** Monitor environment health
+   - **Started:** Line 434-435
 
-### Key Routes
-- `/` - Dashboard
-- `/environments` - Environment management
-- `/workflows` - Workflow catalog
-- `/canonical` - Canonical workflow system
-- `/promotions` - Promotion pipeline
-- `/deployments` - Deployment history
-- `/drift` - Drift dashboard
-- `/incidents` - Incident management
-- `/observability` - Observability dashboard
-- `/executions` - Execution analytics
-- `/billing` - Subscription management
-- `/platform/*` - Platform admin console
-- `/admin/*` - Admin tools
+5. **Rollup Scheduler**
+   - **File:** `app/services/rollup_scheduler.py:start_rollup_scheduler()`
+   - **Purpose:** Pre-compute observability rollups
+   - **Started:** Line 439-440
 
----
+6. **Retention Enforcement Scheduler**
+   - **File:** `app/services/background_jobs/retention_job.py:start_retention_scheduler()`
+   - **Purpose:** Enforce data retention policies
+   - **Started:** Line 444-445
 
-## Core Subsystems
+7. **Downgrade Enforcement Scheduler**
+   - **File:** `app/services/background_jobs/downgrade_enforcement_job.py:start_downgrade_enforcement_scheduler()`
+   - **Purpose:** Enforce grace period expiry and detect over-limit resources
+   - **Started:** Line 449-450
 
-### 1. Multi-Provider Architecture
-**Status**: n8n only (Make.com NOT implemented)
+**Shutdown:** All schedulers stopped in `shutdown_event()` (lines 493-528)
 
-**Files**:
-- `app/core/provider.py` - `Provider` enum (N8N, MAKE)
-- `app/services/provider_registry.py` - `ProviderRegistry` class
-- `app/services/adapters/n8n_adapter.py` - `N8NProviderAdapter` (only adapter)
+### SSE Entrypoints
 
-**Design**:
-- Provider enum defines `DEFAULT_PROVIDER = Provider.N8N`
-- Registry pattern for dynamic adapter loading
-- All workflow/credential operations go through adapter interface
-- Make.com adapter stub exists but not implemented
+**Evidence:** `n8n-ops-backend/app/api/endpoints/sse.py`
 
-### 2. Multi-Tenancy
-**Files**:
-- `app/core/tenant_isolation.py` - Isolation verification scanner
-- `app/services/auth_service.py` - `get_current_user()` extracts tenant_id
-- `app/services/database.py` - All queries filtered by tenant_id
+1. **Deployments SSE Stream**
+   - **Path:** `/api/v1/sse/deployments` or `/api/v1/sse/deployments/{deployment_id}`
+   - **Handler:** `sse.py:sse_deployments_stream()` (line 245)
+   - **Auth:** `require_entitlement("workflow_ci_cd")`
 
-**Pattern**: 
-- User context contains `{"user": {...}, "tenant": {...}}`
-- Tenant ID extracted from authenticated user (never from request params)
-- RLS enforced at DB level + application level
+2. **Background Jobs SSE Stream**
+   - **Path:** `/api/v1/sse/background-jobs`
+   - **Handler:** `sse.py:sse_background_jobs_stream()` (line 685)
+   - **Auth:** Optional token parameter
 
-### 3. Entitlements System
-**Files**:
-- `app/core/entitlements_gate.py` - Decorators (`require_entitlement()`)
-- `app/core/feature_gate.py` - Feature flag logic
-- `app/services/entitlements_service.py` - Resolution service
+## Frontend Entrypoints
 
-**Types**:
-- **Flags**: Boolean features (e.g., `snapshots_enabled`)
-- **Limits**: Numeric constraints (e.g., `environment_limits`)
+### Main Application
 
-### 4. Impersonation System
-**Files**:
-- `app/core/platform_admin.py` - Platform admin guards
-- `app/api/endpoints/platform_impersonation.py` - Session management
-- `app/services/auth_service.py` - Token prefix detection
+**File:** `n8n-ops-ui/src/main.tsx`  
+**Evidence:** Standard React entrypoint
 
-**Mechanism**:
-- Platform admins can impersonate users
-- Impersonation token has special prefix
-- Dual user context: `actor_user` (admin) + `user` (target)
-- All write actions logged with dual attribution
+- **Framework:** React 19.2.0 (from `package.json`)
+- **Router:** React Router DOM 7.9.6
+- **Build Tool:** Vite 7.2.4
 
-### 5. Canonical Workflow System
-**Files**:
-- `app/services/canonical_workflow_service.py`
-- `app/services/canonical_onboarding_service.py`
-- `app/services/canonical_env_sync_service.py`
-- `app/services/canonical_repo_sync_service.py`
+### Key Routes (High-Level)
 
-**Tables**:
-- `canonical_workflows` - Git-backed source of truth
-- `workflow_env_map` - Junction table (workflow ↔ environment)
-- `workflow_git_state` - Git sync state
+**Evidence:** `n8n-ops-ui/src/pages/` directory structure
 
-### 6. Promotions & Deployments
-**Files**:
-- `app/services/promotion_service.py` - Core promotion logic
-- `app/services/promotion_validation_service.py` - Pre-flight checks
-- `app/services/diff_service.py` - Diff computation
-- `app/services/deployment_scheduler.py` - Scheduled deployments
+**Core Pages:**
+- `/environments` - `EnvironmentsPage.tsx`
+- `/workflows` - `WorkflowsPage.tsx`
+- `/deployments` - `DeploymentsPage.tsx`
+- `/promotions` - `PromotionPage.tsx`
+- `/pipelines` - `PipelinesPage.tsx`
+- `/incidents` - `IncidentsPage.tsx`
+- `/canonical-workflows` - `CanonicalWorkflowsPage.tsx`
+- `/billing` - `BillingPage.tsx`
+- `/observability` - `ObservabilityPage.tsx`
+- `/executions` - `ExecutionsPage.tsx`
 
-**State Machine**: PENDING → RUNNING → COMPLETED/FAILED
+**Admin Pages:** `n8n-ops-ui/src/pages/admin/` (39 files)
 
-### 7. Drift Detection
-**Files**:
-- `app/services/drift_detection_service.py` - Detection logic
-- `app/services/drift_incident_service.py` - Incident lifecycle
-- `app/services/drift_scheduler.py` - Scheduled checks
+**Platform Pages:** `n8n-ops-ui/src/pages/platform/` (4 files)
 
-**Lifecycle**: detected → acknowledged → stabilized → reconciled → closed
+### SSE Hooks
 
-### 8. Observability
-**Files**:
-- `app/services/observability_service.py` - KPIs, sparklines, error intelligence
-- `app/services/rollup_scheduler.py` - Materialized view refresh
-- `app/services/health_check_scheduler.py` - Environment health polling
+**Evidence:** `n8n-ops-ui/src/lib/`
 
-### 9. Background Jobs
-**Files**:
-- `app/services/background_job_service.py` - Job management
-- `app/services/background_jobs/retention_job.py` - Data retention enforcement
+1. **Deployments SSE**
+   - **File:** `use-deployments-sse.ts`
+   - **Hook:** `useDeploymentsSSE()`
+   - **Reconnect:** Exponential backoff (1s → 30s, max 10 attempts, line 66-68)
 
-**Types**: sync, promotion, deployment, onboarding, retention
+2. **Background Jobs SSE**
+   - **File:** `use-background-jobs-sse.ts`
+   - **Hook:** `useBackgroundJobsSSE()`
+   - **Reconnect:** Exponential backoff (similar pattern)
 
-### 10. Billing & Subscriptions
-**Files**:
-- `app/api/endpoints/billing.py` - Stripe integration
-- `app/services/stripe_service.py` - Stripe SDK wrapper
-- `app/services/downgrade_service.py` - Downgrade handling
-
-**Plans**: Free, Pro, Agency, Enterprise (per provider)
-
----
-
-## External Integration Points
+## External Integrations
 
 ### Supabase
-- **Auth**: JWT validation, user management
-- **Database**: PostgreSQL with RLS
-- **Client**: `db_service.client` (global singleton in `database.py`)
+
+**Evidence:** `n8n-ops-backend/app/core/config.py` (lines 11-13)
+
+- **URL:** `SUPABASE_URL` (from env)
+- **Keys:** `SUPABASE_KEY` (anon), `SUPABASE_SERVICE_KEY` (service role)
+- **Usage:** 
+  - Backend uses `SUPABASE_SERVICE_KEY` (bypasses RLS)
+  - Frontend uses `SUPABASE_KEY` (enforces RLS when enabled)
+- **Database:** PostgreSQL via Supabase
+- **Auth:** JWT-based authentication via Supabase Auth
+
+**RLS Status:** 12 of 76 tables have RLS enabled (15.8%)  
+**Evidence:** `n8n-ops-backend/docs/security/RLS_POLICIES.md` (line 5)
 
 ### Stripe
-- **Webhooks**: `/api/v1/billing/stripe-webhook`
-- **Checkout**: Create sessions via `stripe_service`
-- **Customer Portal**: Redirect to Stripe portal
-- **Events**: `customer.subscription.updated`, `customer.subscription.deleted`
+
+**Evidence:** `n8n-ops-backend/app/core/config.py` (lines 46-51)
+
+- **Secret Key:** `STRIPE_SECRET_KEY`
+- **Publishable Key:** `STRIPE_PUBLISHABLE_KEY`
+- **Webhook Secret:** `STRIPE_WEBHOOK_SECRET`
+- **Price IDs:** `STRIPE_PRO_PRICE_ID_MONTHLY`, `STRIPE_PRO_PRICE_ID_YEARLY`
+- **Service:** `app/services/stripe_service.py`
+- **Webhook Handler:** `app/api/endpoints/billing.py:stripe_webhook()`
 
 ### GitHub
-- **Operations**: Workflow backup/restore via PyGithub
-- **Webhooks**: `/api/v1/webhooks/github` (signature validation)
-- **Storage**: Workflows stored as JSON files in Git
 
-### n8n API
-- **Adapter**: `N8NProviderAdapter` in `services/adapters/n8n_adapter.py`
-- **Operations**: 
-  - Workflow CRUD
-  - Credential metadata (secrets not exposed)
-  - Execution retrieval
-  - Tag management
-  - User listing
+**Evidence:** `n8n-ops-backend/app/core/config.py` (lines 18-22)
 
-### SMTP
-- **Service**: `email_service.py`
-- **Usage**: Team invitations, notifications
-- **Config**: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` in `config.py`
+- **Token:** `GITHUB_TOKEN`
+- **Repo:** `GITHUB_REPO_OWNER` / `GITHUB_REPO_NAME`
+- **Branch:** `GITHUB_BRANCH` (default: "main")
+- **Service:** `app/services/github_service.py`
+- **Webhook Handler:** `app/api/endpoints/github_webhooks.py`
 
----
+### N8N Provider APIs
 
-## Configuration
+**Evidence:** `n8n-ops-backend/app/services/n8n_client.py`
 
-**Backend Config**: `n8n-ops-backend/app/core/config.py`
-- Supabase credentials
-- Stripe keys
-- GitHub token
-- SMTP settings
-- Retention policies
-- Feature flags
+- **Adapter Pattern:** `app/services/adapters/n8n_adapter.py`
+- **Provider Registry:** `app/services/provider_registry.py`
+- **Multi-Provider Support:** Architecture supports multiple workflow providers
 
-**Frontend Config**: `n8n-ops-ui/src/lib/supabase.ts`, `lib/api.ts`
-- API base URL (`VITE_API_BASE_URL`)
-- Supabase URL/key (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`)
+### Notifications
 
----
+**Evidence:** `n8n-ops-backend/app/services/notification_service.py`
 
-## Database Migration System
+- **Service:** `app/services/notification_service.py`
+- **Email:** SMTP via `app/services/email_service.py`
+- **Config:** `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` (lines 54-58 in config.py)
 
-**Tool**: Alembic
-**Location**: `n8n-ops-backend/alembic/versions/`
-**Count**: 61 migration files
-**Helper**: `scripts/create_migration.py` - Creates new migrations with SQL
+## API Router Registration
 
-**Key Migrations**:
-- Canonical workflow tables
-- Drift incident lifecycle
-- Platform impersonation sessions
-- Provider architecture
-- Execution analytics
-- Performance indexes
+**Evidence:** `n8n-ops-backend/app/main.py` (lines 94-380)
 
----
+All routers registered with prefix `/api/v1`:
 
-## Testing Infrastructure
+- `/environments` → `environments.router`
+- `/workflows` → `workflows.router`
+- `/promotions` → `promotions.router`
+- `/pipelines` → `pipelines.router`
+- `/deployments` → `deployments.router`
+- `/incidents` → `incidents.router`
+- `/canonical/workflows` → `canonical_workflows.router`
+- `/billing` → `billing.router`
+- `/observability` → `observability.router`
+- `/executions` → `executions.router`
+- `/sse` → `sse.router`
+- `/platform` → `platform_impersonation.router`, `platform_console.router`, `platform_overview.router`
+- `/admin/*` → Various admin routers
+- `/health` → `health.router`
 
-### Backend Tests
-**Location**: `n8n-ops-backend/tests/`
-**Count**: 63 test files
-**Runner**: pytest
-**Coverage**: Promotions, drift, canonical, security, billing, observability
+**Total Endpoint Modules:** 51 files in `app/api/endpoints/`
 
-### Frontend Tests
-**Location**: `n8n-ops-ui/tests/`
-**Runner**: Playwright (E2E)
-**Coverage**: Component tests, page tests, E2E workflows
+## Middleware
 
-### Security Tests
-**Location**: `n8n-ops-backend/tests/security/`
-- `test_tenant_isolation.py` - Cross-tenant leakage tests
-- `test_impersonation_audit.py` - Audit trail verification
+**Evidence:** `n8n-ops-backend/app/main.py`
 
----
+1. **Impersonation Write Audit Middleware** (lines 22-82)
+   - Logs all write operations during impersonation
+   - Captures actor and impersonated user context
 
-## Known Limitations
+2. **CORS Middleware** (lines 85-91)
+   - Allows origins from `BACKEND_CORS_ORIGINS`
+   - Credentials enabled
 
-1. **Make.com Provider**: Enum exists, adapter NOT implemented
-2. **SSO/SCIM**: Feature flags exist, no actual integration
-3. **Secret Vault**: Feature flag exists, no vault service
-4. **Credential Remapping**: Admin matrix exists, no promotion-time remapping
-5. **Scheduled Backups**: Feature flag exists, no backup scheduler service
-6. **White-label**: Feature flags exist, no UI customization
+3. **Global Exception Handler** (lines 531-584)
+   - Catches unhandled exceptions
+   - Emits `system.error` events
+   - Returns 500 with error type
 
-See [PRD_cursor.md](../PRD_cursor.md) lines 16-28 for complete list.
+## Startup Cleanup
 
----
+**Evidence:** `n8n-ops-backend/app/main.py:startup_event()` (lines 410-487)
 
-## Performance Considerations
-
-1. **Sparkline Optimization**: Single-query aggregation instead of N queries (90%+ improvement)
-2. **Materialized Views**: Pre-computed rollups for execution analytics
-3. **Indexes**: Performance indexes on high-traffic tables
-4. **Batch Processing**: 25-30 workflow batches during sync
-5. **SSE**: Real-time updates reduce polling overhead
-
----
-
-## References
-
-- [PRD.md](../PRD.md) - Original product requirements
-- [PRD_cursor.md](../PRD_cursor.md) - Extended PRD with implementation status
-- [n8n-ops-backend/README.md](../n8n-ops-backend/README.md) - Backend setup
-- [n8n-ops-ui/README.md](../n8n-ops-ui/README.md) - Frontend setup
-
+- **Stale Job Cleanup:** `background_job_service.cleanup_stale_jobs(max_runtime_hours=24)` (line 412)
+- **Stale Deployment Cleanup:** Marks `RUNNING` deployments >1hr old as `FAILED` (lines 454-487)

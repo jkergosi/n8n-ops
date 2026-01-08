@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     RETENTION_JOB_BATCH_SIZE: int = 1000
     RETENTION_JOB_SCHEDULE_CRON: str = "0 2 * * *"  # Daily at 2 AM
 
+    # Downgrade Enforcement Configuration
+    DOWNGRADE_ENFORCEMENT_INTERVAL_SECONDS: int = 3600  # Default: 1 hour
+
     # Security
     SECRET_KEY: str
     ALGORITHM: str = "HS256"

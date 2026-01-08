@@ -1065,9 +1065,39 @@ async def handle_subscription_updated(subscription):
                 )
         elif new_precedence > old_precedence:
             logger.info(
-                f"Upgrade detected for tenant {tenant_id}: {old_plan_name} -> {next_plan}. "
-                f"No downgrade handling needed."
+                f"Upgrade detected for tenant {tenant_id}: {old_plan_name} "
+                f"(precedence {old_precedence}) -> {next_plan} (precedence {new_precedence})"
             )
+
+            try:
+                # Handle the upgrade - cancel grace periods for now-compliant resources
+                upgrade_summary = await downgrade_service.handle_plan_upgrade(
+                    tenant_id=tenant_id,
+                    old_plan=old_plan_name,
+                    new_plan=next_plan
+                )
+
+                logger.info(
+                    f"Upgrade handling completed for tenant {tenant_id}. "
+                    f"Summary: {upgrade_summary.get('actions_taken', [])} | "
+                    f"Grace periods cancelled: {upgrade_summary.get('grace_periods_cancelled', 0)} | "
+                    f"Errors: {upgrade_summary.get('errors', [])}"
+                )
+
+                if upgrade_summary.get("errors"):
+                    logger.error(
+                        f"Errors during upgrade handling for tenant {tenant_id}: "
+                        f"{upgrade_summary['errors']}"
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to handle upgrade for tenant {tenant_id} "
+                    f"from {old_plan_name} to {next_plan}: {e}",
+                    exc_info=True
+                )
+                # Don't raise HTTPException for upgrade failures - log and continue
+                # Upgrades should not block webhook processing
         else:
             logger.debug(f"No plan tier change for tenant {tenant_id}, plan remains: {next_plan}")
 

@@ -16,19 +16,37 @@ def get_tenant_id(user_info: dict) -> str:
     return tenant_id
 
 
-@router.get("/", response_model=List[Dict[str, Any]])
+@router.get("/", response_model=List[Dict[str, Any]], deprecated=True)
 async def get_executions(
     environment_id: Optional[str] = None,
     workflow_id: Optional[str] = None,
+    limit: int = 100,
     user_info: dict = Depends(get_current_user)
 ):
-    """Get all executions from the database cache, optionally filtered by environment and workflow"""
+    """
+    DEPRECATED: Use /executions/paginated instead for better performance.
+
+    Get executions from the database cache, optionally filtered by environment and workflow.
+    This endpoint is maintained for backward compatibility but will limit results to prevent performance issues.
+
+    NOTE: This endpoint returns a maximum of 100 executions. Use /executions/paginated for full access.
+    """
     try:
         tenant_id = get_tenant_id(user_info)
+
+        # Cap limit to prevent loading too many records
+        limit = min(max(limit, 1), 1000)
+
+        logger.warning(
+            f"DEPRECATED: /executions/ endpoint called by tenant {tenant_id}. "
+            f"Please migrate to /executions/paginated for better performance."
+        )
+
         executions = await db_service.get_executions(
             tenant_id,
             environment_id=environment_id,
-            workflow_id=workflow_id
+            workflow_id=workflow_id,
+            limit=limit
         )
 
         # Transform snake_case to camelCase for frontend

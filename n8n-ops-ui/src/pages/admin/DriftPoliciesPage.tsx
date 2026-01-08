@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
+import { LoadingState, LoadingSpinner } from '@/components/ui/loading-state';
+import { SkeletonCard } from '@/components/ui/skeleton';
 import { apiClient } from '@/lib/api-client';
 import {
   Shield,
@@ -15,7 +17,6 @@ import {
   AlertTriangle,
   Save,
   CheckCircle,
-  Loader2,
   FileText,
   ShieldAlert,
   Ban,
@@ -116,8 +117,18 @@ export function DriftPoliciesPage() {
 
   if (policyLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Drift Policies</h1>
+            <p className="text-muted-foreground">Configure TTL/SLA enforcement and deployment blocking rules</p>
+          </div>
+        </div>
+        <LoadingState
+          resource="drift policy configuration"
+          message="Loading your drift policy settings..."
+          size="md"
+        />
       </div>
     );
   }
@@ -172,11 +183,11 @@ export function DriftPoliciesPage() {
             disabled={!isDirty || updateMutation.isPending}
           >
             {updateMutation.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <LoadingSpinner size="sm" className="mr-2" />
             ) : (
               <Save className="mr-2 h-4 w-4" />
             )}
-            Save Changes
+            {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
           </Button>
         </div>
       </div>
@@ -536,11 +547,11 @@ export function DriftPoliciesPage() {
                         disabled={cleanupMutation.isPending}
                       >
                         {cleanupMutation.isPending ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <LoadingSpinner size="sm" className="mr-2" />
                         ) : (
                           <Ban className="mr-2 h-4 w-4" />
                         )}
-                        Run Cleanup Now
+                        {cleanupMutation.isPending ? 'Running cleanup...' : 'Run Cleanup Now'}
                       </Button>
                     </div>
                   </div>
@@ -564,8 +575,10 @@ export function DriftPoliciesPage() {
             </CardHeader>
             <CardContent>
               {templatesLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin" />
+                <div className="grid gap-4 md:grid-cols-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <SkeletonCard key={i} showHeader={true} contentLines={3} />
+                  ))}
                 </div>
               ) : templates.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">No templates available</p>
@@ -598,11 +611,11 @@ export function DriftPoliciesPage() {
                           disabled={applyTemplateMutation.isPending}
                         >
                           {applyTemplateMutation.isPending ? (
-                            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                            <LoadingSpinner size="xs" className="mr-2" />
                           ) : (
                             <CheckCircle className="mr-2 h-3 w-3" />
                           )}
-                          Apply Template
+                          {applyTemplateMutation.isPending ? 'Applying...' : 'Apply Template'}
                         </Button>
                       </CardContent>
                     </Card>

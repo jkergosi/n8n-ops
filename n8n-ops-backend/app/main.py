@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy, environment_capabilities, drift_reports, admin_retention, retention, security, platform_admins, platform_impersonation, platform_console, platform_overview, admin_overview, canonical_workflows, github_webhooks, workflow_matrix, untracked_workflows, bulk_operations
+from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy, environment_capabilities, drift_reports, admin_retention, retention, security, platform_admins, platform_impersonation, platform_console, platform_overview, admin_overview, canonical_workflows, github_webhooks, workflow_matrix, untracked_workflows, bulk_operations, downgrades
 from app.services.background_job_service import background_job_service
 from app.services.database import db_service
 from app.api.endpoints.admin_audit import create_audit_log
@@ -131,6 +131,12 @@ app.include_router(
     billing.router,
     prefix=f"{settings.API_V1_PREFIX}/billing",
     tags=["billing"]
+)
+
+app.include_router(
+    downgrades.router,
+    prefix=f"{settings.API_V1_PREFIX}/downgrades",
+    tags=["downgrades"]
 )
 
 app.include_router(

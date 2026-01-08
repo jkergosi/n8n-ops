@@ -116,11 +116,39 @@ export class MockApiClient {
 
     // Mock inventory phase
     await this.page.route('**/api/v1/canonical/onboard/inventory', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(TestData.canonical.inventoryStarted),
-      });
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(TestData.canonical.inventoryStarted),
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(TestData.canonical.inventoryComplete),
+        });
+      }
+    });
+
+    // Mock inventory progress polling
+    let pollCount = 0;
+    await this.page.route('**/api/v1/canonical/onboard/inventory/job-1/status', async (route) => {
+      pollCount++;
+      // Return in-progress for first 2 polls, then completed
+      if (pollCount <= 2) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(TestData.canonical.inventoryProgress),
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(TestData.canonical.inventoryComplete),
+        });
+      }
     });
 
     // Mock untracked workflows
@@ -130,6 +158,17 @@ export class MockApiClient {
         contentType: 'application/json',
         body: JSON.stringify(TestData.canonical.untrackedWorkflows),
       });
+    });
+
+    // Mock workflow linking
+    await this.page.route('**/api/v1/canonical/link', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, message: 'Workflow linked successfully' }),
+        });
+      }
     });
 
     // Mock matrix view

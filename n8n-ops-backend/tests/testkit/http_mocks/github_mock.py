@@ -135,10 +135,23 @@ class GitHubHttpMock:
     
     def __enter__(self):
         """Context manager entry."""
-        self.router.__enter__()
+        self._mock = respx.mock(using="httpx")
+        self._mock.__enter__()
+        self._mock.route(host=self.base_url.replace("https://", "").replace("http://", "")).pass_through()
         return self
-    
+
     def __exit__(self, *args):
         """Context manager exit."""
-        self.router.__exit__(*args)
+        self._mock.__exit__(*args)
+
+    def start(self):
+        """Start the mock (non-context-manager usage)."""
+        self._mock = respx.mock(using="httpx")
+        self._mock.start()
+        return self
+
+    def stop(self):
+        """Stop the mock (non-context-manager usage)."""
+        if hasattr(self, '_mock'):
+            self._mock.stop()
 

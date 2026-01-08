@@ -30,34 +30,55 @@ pytest tests/test_promotion_service.py::test_promotion_idempotency
 
 ### Frontend Tests
 
-**Location**: `n8n-ops-ui/tests/`
+**Evidence:** `n8n-ops-ui/package.json:12-14`
 
-**Runner**: Playwright (E2E)
+**Location**: `n8n-ops-ui/src/` (component tests), `n8n-ops-ui/src/lib/__tests__/` (utility tests)
+
+**Runner**: Vitest 4.0.15
 
 **Commands**:
 ```bash
-# Run E2E tests
+# Run all tests
 cd n8n-ops-ui
-npm run test:e2e
+npm run test
 
-# Run in headless mode
-npm run test:e2e:headless
+# Watch mode
+npm run test:watch
 
-# Run specific test file
-npx playwright test tests/promotion.spec.ts
+# Coverage
+npm run test:coverage
 ```
 
-**Configuration**: `n8n-ops-ui/playwright.config.ts`
+**Test Files Found:**
+- `n8n-ops-ui/src/lib/__tests__/sse-reconnect.test.ts` - SSE reconnect tests
+- `n8n-ops-ui/src/pages/**/*.test.tsx` - Page component tests (multiple files)
+
+**Configuration**: Vitest config in `package.json` scripts
 
 ---
 
+## CI/CD Status
+
+**Evidence:** Searched `**/.github/workflows/*.yml` and `**/.github/workflows/*.yaml` - **NO FILES FOUND**
+
+**Status:** ❌ **MISSING** - No GitHub Actions or equivalent CI workflow detected
+
+**Impact:** No automated testing in CI/CD pipeline
+
 ## Test Files Inventory
 
-### Backend Tests (63 files)
+### Backend Tests
 
-**Core Services**:
+**Evidence:** `n8n-ops-backend/tests/` directory contains 103 files (85 .py, 16 .json, 2 .md)
+
+**Core Services** (Evidence: `n8n-ops-backend/tests/` directory):
 - `test_promotion_service.py` - Promotion logic
 - `test_promotion_validation.py` - Pre-flight checks
+- `test_promotion_atomicity.py` - Atomic rollback (T003)
+- `test_promotion_idempotency.py` - Idempotency (T004)
+- `test_conflict_policy_flags.py` - Conflict policy enforcement (T005, T006)
+- `test_t016_rollback_404_graceful_failure.py` - 404 handling (T016)
+- `test_t018_environment_action_guards_rollback.py` - Guard bypass (T018)
 - `test_diff_service.py` - Diff computation
 - `test_drift_detection_service.py` - Drift detection
 - `test_drift_incident_service.py` - Incident lifecycle
@@ -74,10 +95,12 @@ npx playwright test tests/promotion.spec.ts
 - `test_feature_gate.py` - Feature gates
 - `test_plan_resolver.py` - Plan resolution
 - `test_tenant_plan_service.py` - Plan management
-- `test_downgrade_service.py` - Downgrade handling (assumed, not listed)
+- `test_downgrade_enforcement.py` - Downgrade handling
 - `test_untracked_workflows_service.py` - Untracked detection
+- `test_sse_pubsub_reconnect.py` - SSE reconnect (F)
+- `test_rbac_enforcement.py` - RBAC enforcement (B)
 
-**API Endpoints**:
+**API Endpoints** (Evidence: `n8n-ops-backend/tests/` directory):
 - `test_auth_api.py` - Authentication
 - `test_auth_service.py` - Auth service
 - `test_environments_api.py` - Environments
@@ -98,6 +121,17 @@ npx playwright test tests/promotion.spec.ts
 - `test_restore_api.py` - Restore
 - `test_retention_api.py` - Retention
 - `test_support_api.py` - Support tickets
+
+**Security Tests** (Evidence: `n8n-ops-backend/tests/security/`):
+- `test_tenant_isolation.py` - Tenant isolation verification
+- `test_impersonation_audit.py` - Impersonation security and audit (includes platform admin blocking test)
+
+**E2E Tests** (Evidence: `n8n-ops-backend/tests/e2e/`):
+- `test_promotion_e2e.py` - Full promotion flow
+- `test_drift_e2e.py` - Drift detection flow
+- `test_canonical_e2e.py` - Canonical workflow flow
+- `test_downgrade_e2e.py` - Downgrade enforcement flow
+- `test_impersonation_e2e.py` - Impersonation flow
 - `test_support_service.py` - Support service
 - `test_security_api_keys_api.py` - API keys
 - `test_n8n_users_api.py` - N8N users

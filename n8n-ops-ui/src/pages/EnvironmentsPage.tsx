@@ -48,6 +48,7 @@ import type { Environment, EnvironmentType, EnvironmentTypeConfig } from '@/type
 import { useFeatures } from '@/lib/features';
 import { useBackgroundJobsSSE } from '@/lib/use-background-jobs-sse';
 import { SmartEmptyState } from '@/components/SmartEmptyState';
+import { EnvironmentsEmptyState } from '@/components/empty-states';
 import { useEnvironmentTypes, getEnvironmentTypeLabel } from '@/hooks/useEnvironmentTypes';
 import { getStateBadgeInfo } from '@/lib/environment-utils';
 
@@ -557,6 +558,11 @@ export function EnvironmentsPage() {
           <CardContent className="p-0">
             {isLoading && !environments?.data ? (
               <div className="text-center py-8">Loading environments...</div>
+            ) : environments?.data?.length === 0 ? (
+              <EnvironmentsEmptyState
+                onAddEnvironment={handleAddClick}
+                size="lg"
+              />
             ) : (
               <Table>
               <TableHeader>

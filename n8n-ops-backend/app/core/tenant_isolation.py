@@ -9,18 +9,31 @@ Key Features:
 - Verifies tenant_id is extracted from authenticated user context
 - Detects unsafe patterns (tenant_id from request params/body)
 - Checks for proper authentication dependencies
-- Generates comprehensive security verification reports
+- Detects tenant_id in path parameters (critical security check)
+- Validates platform admin authorization for cross-tenant operations
+- Distinguishes between legitimate admin operations and security violations
+- Generates comprehensive security verification reports with detailed statistics
+
+Enhanced Detection (v2.0):
+- Identifies endpoints with tenant_id in path parameters (e.g., /tenants/{tenant_id})
+- Validates platform admin authorization (require_platform_admin)
+- Flags CRITICAL security issues: tenant_id in path without admin authorization
+- Reports legitimate cross-tenant operations separately from violations
 
 Usage:
     from app.core.tenant_isolation import TenantIsolationScanner, verify_all_endpoints
 
     # Scan all endpoints
     scanner = TenantIsolationScanner()
-    results = await scanner.scan_all_endpoints()
+    results = scanner.scan_all_endpoints()
 
     # Generate report
     report = scanner.generate_report(results)
     print(report)
+
+    # Check for critical tenant_id path parameter issues
+    if results.unauthorized_tenant_id_access > 0:
+        print(f"CRITICAL: {results.unauthorized_tenant_id_access} endpoints expose tenant_id!")
 
     # Quick verification
     issues = await verify_all_endpoints()
@@ -54,6 +67,10 @@ class EndpointInfo:
     parameters: List[str] = field(default_factory=list)
     issues: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    # New fields for enhanced tenant_id path parameter detection
+    has_tenant_id_path_param: bool = False
+    has_platform_admin_auth: bool = False
+    is_cross_tenant_operation: bool = False
 
 
 @dataclass
@@ -64,6 +81,9 @@ class ScanResult:
     properly_isolated_endpoints: int = 0
     endpoints_with_issues: int = 0
     endpoints_with_warnings: int = 0
+    endpoints_with_tenant_id_path: int = 0
+    cross_tenant_operations: int = 0
+    unauthorized_tenant_id_access: int = 0
     endpoints: List[EndpointInfo] = field(default_factory=list)
 
     @property
@@ -99,6 +119,19 @@ class TenantIsolationScanner:
         r'tenant_id\s*=\s*request\.',  # tenant_id from request object
         r'tenant_id\s*=\s*body\.',  # tenant_id from request body
         r'tenant_id\s*in\s*\[.*\]',  # tenant_id in parameter list (path/query)
+    ]
+
+    # Patterns to detect tenant_id in path parameters specifically
+    TENANT_ID_PATH_PARAM_PATTERNS = [
+        r'tenant_id\s*:\s*str',  # tenant_id: str (path/query parameter)
+        r'tenant_id\s*:\s*UUID',  # tenant_id: UUID
+        r'tenant_id\s*:\s*int',  # tenant_id: int
+    ]
+
+    # Patterns to detect platform admin authorization
+    PLATFORM_ADMIN_AUTH_PATTERNS = [
+        r'Depends\s*\(\s*require_platform_admin\s*\(',  # require_platform_admin dependency
+        r'require_platform_admin\s*\(\s*\)',  # Direct call to require_platform_admin
     ]
 
     # Authentication dependency patterns
@@ -195,6 +228,43 @@ class TenantIsolationScanner:
             for pattern in self.UNSAFE_TENANT_PATTERNS
         )
 
+    def _check_tenant_id_in_path(self, function_def: str, route_path: str) -> bool:
+        """
+        Check if tenant_id appears as a path parameter.
+
+        Args:
+            function_def: Function source code
+            route_path: Route path (e.g., "/tenants/{tenant_id}/invoices")
+
+        Returns:
+            True if tenant_id is in path parameters
+        """
+        # Check if route path contains {tenant_id}
+        has_path_placeholder = bool(re.search(r'\{tenant_id\}', route_path))
+
+        # Check if function signature has tenant_id parameter
+        has_param_signature = any(
+            re.search(pattern, function_def)
+            for pattern in self.TENANT_ID_PATH_PARAM_PATTERNS
+        )
+
+        return has_path_placeholder or has_param_signature
+
+    def _check_platform_admin_auth(self, function_def: str) -> bool:
+        """
+        Check if function has platform admin authorization.
+
+        Args:
+            function_def: Function source code
+
+        Returns:
+            True if function requires platform admin authorization
+        """
+        return any(
+            re.search(pattern, function_def)
+            for pattern in self.PLATFORM_ADMIN_AUTH_PATTERNS
+        )
+
     def _analyze_function(
         self,
         file_path: str,
@@ -284,30 +354,60 @@ class TenantIsolationScanner:
         endpoint.extracts_tenant_from_user = has_safe_extraction
         endpoint.tenant_extraction_method = method
 
+        # Check for tenant_id in path parameters (CRITICAL SECURITY CHECK)
+        endpoint.has_tenant_id_path_param = self._check_tenant_id_in_path(
+            function_source, route_path
+        )
+
+        # Check for platform admin authorization
+        endpoint.has_platform_admin_auth = self._check_platform_admin_auth(function_source)
+
+        # Determine if this is a legitimate cross-tenant operation
+        endpoint.is_cross_tenant_operation = (
+            endpoint.has_tenant_id_path_param and endpoint.has_platform_admin_auth
+        )
+
+        # Validate tenant_id path parameter usage
+        if endpoint.has_tenant_id_path_param:
+            if not endpoint.has_platform_admin_auth:
+                endpoint.issues.append(
+                    "CRITICAL: tenant_id in path parameter without platform admin authorization - "
+                    "this allows users to access other tenants' data"
+                )
+            else:
+                endpoint.warnings.append(
+                    "Legitimate cross-tenant access: tenant_id in path with platform admin auth"
+                )
+
         # Validate tenant isolation for authenticated endpoints
         if endpoint.has_authentication and not endpoint.extracts_tenant_from_user:
-            # Check if this is a write operation (POST, PUT, PATCH, DELETE)
-            is_write_operation = http_method in ['POST', 'PUT', 'PATCH', 'DELETE']
-            # Check if this endpoint likely deals with tenant-scoped data
-            tenant_scoped_patterns = [
-                r'workflow', r'environment', r'deployment', r'credential',
-                r'execution', r'team', r'snapshot', r'promotion',
-                r'pipeline', r'drift', r'canonical', r'tenant'
-            ]
-            likely_tenant_scoped = any(
-                re.search(pattern, route_path, re.IGNORECASE) or
-                re.search(pattern, function_node.name, re.IGNORECASE)
-                for pattern in tenant_scoped_patterns
-            )
+            # Skip this check if it's a legitimate cross-tenant operation
+            if endpoint.is_cross_tenant_operation:
+                # Platform admin endpoints don't need to extract tenant from user
+                pass
+            else:
+                # Check if this is a write operation (POST, PUT, PATCH, DELETE)
+                is_write_operation = http_method in ['POST', 'PUT', 'PATCH', 'DELETE']
+                # Check if this endpoint likely deals with tenant-scoped data
+                tenant_scoped_patterns = [
+                    r'workflow', r'environment', r'deployment', r'credential',
+                    r'execution', r'team', r'snapshot', r'promotion',
+                    r'pipeline', r'drift', r'canonical', r'tenant'
+                ]
+                likely_tenant_scoped = any(
+                    re.search(pattern, route_path, re.IGNORECASE) or
+                    re.search(pattern, function_node.name, re.IGNORECASE)
+                    for pattern in tenant_scoped_patterns
+                )
 
-            if is_write_operation and likely_tenant_scoped:
-                endpoint.issues.append(
-                    "Write operation on tenant-scoped resource without visible tenant_id extraction"
-                )
-            elif likely_tenant_scoped:
-                endpoint.warnings.append(
-                    "Tenant-scoped resource without visible tenant_id extraction from user context"
-                )
+                if is_write_operation and likely_tenant_scoped:
+                    endpoint.issues.append(
+                        "Write operation on tenant-scoped resource without visible tenant_id extraction"
+                    )
+                elif likely_tenant_scoped:
+                    endpoint.warnings.append(
+                        "Tenant-scoped resource without visible tenant_id extraction from user context"
+                    )
 
         return endpoint
 
@@ -379,6 +479,17 @@ class TenantIsolationScanner:
         result.endpoints_with_warnings = sum(
             1 for e in result.endpoints if e.warnings
         )
+        # New statistics for tenant_id path parameter detection
+        result.endpoints_with_tenant_id_path = sum(
+            1 for e in result.endpoints if e.has_tenant_id_path_param
+        )
+        result.cross_tenant_operations = sum(
+            1 for e in result.endpoints if e.is_cross_tenant_operation
+        )
+        result.unauthorized_tenant_id_access = sum(
+            1 for e in result.endpoints
+            if e.has_tenant_id_path_param and not e.has_platform_admin_auth
+        )
 
         return result
 
@@ -404,6 +515,11 @@ class TenantIsolationScanner:
             f"Endpoints with Issues: {result.endpoints_with_issues}",
             f"Endpoints with Warnings: {result.endpoints_with_warnings}",
             f"Isolation Coverage: {result.isolation_coverage:.1f}%",
+            "",
+            "TENANT_ID PATH PARAMETER ANALYSIS:",
+            f"  Endpoints with tenant_id in path: {result.endpoints_with_tenant_id_path}",
+            f"  Legitimate cross-tenant ops (platform admin): {result.cross_tenant_operations}",
+            f"  UNAUTHORIZED tenant_id access: {result.unauthorized_tenant_id_access}",
             "",
         ]
 
@@ -497,10 +613,19 @@ class TenantIsolationScanner:
         if endpoint.unsafe_tenant_extraction:
             status_parts.append("[-] Unsafe tenant extraction")
 
+        if endpoint.has_tenant_id_path_param:
+            if endpoint.has_platform_admin_auth:
+                status_parts.append("[+] tenant_id in path (platform admin)")
+            else:
+                status_parts.append("[!] tenant_id in path (NO admin auth)")
+
         lines.append(f"    Status: {', '.join(status_parts)}")
 
         if endpoint.tenant_extraction_method:
             lines.append(f"    Method: {endpoint.tenant_extraction_method}")
+
+        if endpoint.is_cross_tenant_operation:
+            lines.append(f"    Cross-Tenant: Legitimate platform admin operation")
 
         if endpoint.issues:
             for issue in endpoint.issues:
@@ -531,6 +656,9 @@ class TenantIsolationScanner:
                 "endpoints_with_warnings": result.endpoints_with_warnings,
                 "isolation_coverage": result.isolation_coverage,
                 "has_issues": result.has_issues,
+                "endpoints_with_tenant_id_path": result.endpoints_with_tenant_id_path,
+                "cross_tenant_operations": result.cross_tenant_operations,
+                "unauthorized_tenant_id_access": result.unauthorized_tenant_id_access,
             },
             "endpoints": [
                 {
@@ -544,6 +672,9 @@ class TenantIsolationScanner:
                     "unsafe_tenant_extraction": e.unsafe_tenant_extraction,
                     "tenant_extraction_method": e.tenant_extraction_method,
                     "parameters": e.parameters,
+                    "has_tenant_id_path_param": e.has_tenant_id_path_param,
+                    "has_platform_admin_auth": e.has_platform_admin_auth,
+                    "is_cross_tenant_operation": e.is_cross_tenant_operation,
                     "issues": e.issues,
                     "warnings": e.warnings,
                 }
@@ -601,6 +732,11 @@ def print_summary(result: ScanResult) -> None:
     print(f"Issues: {result.endpoints_with_issues}")
     print(f"Warnings: {result.endpoints_with_warnings}")
     print(f"Coverage: {result.isolation_coverage:.1f}%")
+    print("")
+    print("TENANT_ID PATH PARAMETER ANALYSIS:")
+    print(f"  tenant_id in path: {result.endpoints_with_tenant_id_path}")
+    print(f"  Legitimate (platform admin): {result.cross_tenant_operations}")
+    print(f"  UNAUTHORIZED: {result.unauthorized_tenant_id_access}")
 
     if result.has_issues:
         print("\n[!] SECURITY ISSUES FOUND - Run full report for details")

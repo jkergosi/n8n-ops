@@ -351,6 +351,120 @@ class DowngradeService:
             )
             return False
 
+    async def cancel_grace_periods_for_compliant_resources(
+        self,
+        tenant_id: str
+    ) -> Dict[str, Any]:
+        """
+        Cancel grace periods for resources that are now within plan limits.
+
+        This should be called when:
+        - A tenant upgrades their plan
+        - A tenant manually removes over-limit resources
+        - Periodic checks detect resources are now compliant
+
+        The method checks all active grace periods and cancels those where
+        the tenant is now within limits for that resource type.
+
+        Args:
+            tenant_id: The tenant ID to check
+
+        Returns:
+            Summary dict with counts of grace periods cancelled by resource type
+        """
+        logger.info(f"Checking for compliant resources with grace periods for tenant {tenant_id}")
+
+        summary = {
+            "tenant_id": tenant_id,
+            "checked_count": 0,
+            "cancelled_count": 0,
+            "cancelled_by_type": {
+                "environment": 0,
+                "team_member": 0,
+                "workflow": 0,
+            },
+            "errors": [],
+        }
+
+        try:
+            # Get all active grace periods for this tenant
+            active_grace_periods = await self.get_active_grace_periods(tenant_id)
+            summary["checked_count"] = len(active_grace_periods)
+
+            if not active_grace_periods:
+                logger.info(f"No active grace periods found for tenant {tenant_id}")
+                return summary
+
+            # Check each resource type for compliance
+            # 1. Check environments
+            env_over, env_current, env_limit, env_over_ids = await self.detect_environment_overlimit(tenant_id)
+            env_over_set = set(env_over_ids)
+
+            # 2. Check team members
+            team_over, team_current, team_limit, team_over_ids = await self.detect_team_member_overlimit(tenant_id)
+            team_over_set = set(team_over_ids)
+
+            # 3. Check workflows
+            wf_over, wf_current, wf_limit, wf_over_ids = await self.detect_workflow_overlimit(tenant_id)
+            wf_over_set = set(wf_over_ids)
+
+            # Build a map of resource types to their over-limit resource IDs
+            over_limit_map = {
+                ResourceType.ENVIRONMENT.value: env_over_set,
+                ResourceType.TEAM_MEMBER.value: team_over_set,
+                ResourceType.WORKFLOW.value: wf_over_set,
+            }
+
+            # Process each active grace period
+            for grace_period in active_grace_periods:
+                resource_type = grace_period.get("resource_type")
+                resource_id = grace_period.get("resource_id")
+
+                # Skip if resource type not in our check map
+                if resource_type not in over_limit_map:
+                    continue
+
+                # Check if this resource is still over limit
+                over_limit_ids = over_limit_map[resource_type]
+
+                # If the resource is NOT in the over-limit set, it's now compliant
+                if resource_id not in over_limit_ids:
+                    logger.info(
+                        f"Resource {resource_type} {resource_id} is now compliant. "
+                        f"Cancelling grace period."
+                    )
+
+                    # Cancel the grace period
+                    cancelled = await self.cancel_grace_period(
+                        tenant_id=tenant_id,
+                        resource_type=ResourceType(resource_type),
+                        resource_id=resource_id
+                    )
+
+                    if cancelled:
+                        summary["cancelled_count"] += 1
+                        summary["cancelled_by_type"][resource_type] += 1
+                        logger.info(
+                            f"Successfully cancelled grace period for {resource_type} "
+                            f"{resource_id} of tenant {tenant_id}"
+                        )
+                    else:
+                        error_msg = f"Failed to cancel grace period for {resource_type} {resource_id}"
+                        logger.warning(error_msg)
+                        summary["errors"].append(error_msg)
+
+            logger.info(
+                f"Completed compliance check for tenant {tenant_id}. "
+                f"Cancelled {summary['cancelled_count']} grace periods."
+            )
+
+        except Exception as e:
+            error_msg = f"Error during compliance check for tenant {tenant_id}: {str(e)}"
+            logger.error(error_msg)
+            summary["errors"].append(error_msg)
+
+        return summary
+
     async def get_active_grace_periods(
         self,
         tenant_id: str,
@@ -813,6 +927,105 @@ class DowngradeService:
 
         except Exception as e:
             error_msg = f"Error during downgrade handling: {str(e)}"
+            logger.error(error_msg)
+            summary["errors"].append(error_msg)
+
+        return summary
+
+    async def handle_plan_upgrade(
+        self,
+        tenant_id: str,
+        old_plan: str,
+        new_plan: str
+    ) -> Dict[str, Any]:
+        """
+        Handle all aspects of a plan upgrade.
+
+        This is the main entry point called by webhook handlers after
+        a subscription upgrade is confirmed. When a tenant upgrades,
+        we check if any active grace periods can be cancelled because
+        the tenant is now within the new plan's limits.
+
+        Args:
+            tenant_id: The tenant being upgraded
+            old_plan: Previous plan name
+            new_plan: New (higher) plan name
+
+        Returns:
+            Summary of actions taken including grace periods cancelled
+        """
+        logger.info(f"Handling plan upgrade for tenant {tenant_id}: {old_plan} -> {new_plan}")
+
+        summary = {
+            "tenant_id": tenant_id,
+            "old_plan": old_plan,
+            "new_plan": new_plan,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "actions_taken": [],
+            "grace_periods_cancelled": 0,
+            "grace_periods_by_type": {
+                "environment": 0,
+                "team_member": 0,
+                "workflow": 0,
+            },
+            "errors": [],
+        }
+
+        try:
+            # Get all active grace periods before checking compliance
+            active_grace_periods = await self.get_active_grace_periods(tenant_id)
+            initial_count = len(active_grace_periods)
+
+            if initial_count == 0:
+                logger.info(f"No active grace periods for tenant {tenant_id} - no cancellation needed")
+                summary["actions_taken"].append("No active grace periods to cancel")
+                return summary
+
+            logger.info(
+                f"Found {initial_count} active grace periods for tenant {tenant_id}. "
+                f"Checking if resources are now within limits after upgrade."
+            )
+
+            # Use the cancel_grace_periods_for_compliant_resources method
+            # which checks current limits and cancels grace periods for compliant resources
+            cancellation_result = await self.cancel_grace_periods_for_compliant_resources(tenant_id)
+
+            # Extract results from cancellation
+            summary["grace_periods_cancelled"] = cancellation_result.get("cancelled_count", 0)
+            summary["grace_periods_by_type"] = cancellation_result.get("cancelled_by_type", {})
+            summary["errors"] = cancellation_result.get("errors", [])
+
+            # Build action summary
+            if summary["grace_periods_cancelled"] > 0:
+                cancelled_details = []
+                for resource_type, count in summary["grace_periods_by_type"].items():
+                    if count > 0:
+                        cancelled_details.append(f"{count} {resource_type}")
+
+                if cancelled_details:
+                    summary["actions_taken"].append(
+                        f"Cancelled grace periods for: {', '.join(cancelled_details)}"
+                    )
+                else:
+                    summary["actions_taken"].append(
+                        f"Cancelled {summary['grace_periods_cancelled']} grace period(s)"
+                    )
+
+                logger.info(
+                    f"Successfully cancelled {summary['grace_periods_cancelled']} grace periods "
+                    f"for tenant {tenant_id} after upgrade to {new_plan}"
+                )
+            else:
+                logger.info(
+                    f"No grace periods cancelled for tenant {tenant_id}. "
+                    f"Resources may still be over the new plan limits."
+                )
+                summary["actions_taken"].append(
+                    "No grace periods cancelled - resources still over limit"
+                )
+
+        except Exception as e:
+            error_msg = f"Error during upgrade handling: {str(e)}"
             logger.error(error_msg)
             summary["errors"].append(error_msg)
 

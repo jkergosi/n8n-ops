@@ -19,6 +19,7 @@ import { apiClient } from '@/lib/api-client';
 import { useDeploymentsSSE } from '@/lib/use-deployments-sse';
 import { useFeatures } from '@/lib/features';
 import { SmartEmptyState } from '@/components/SmartEmptyState';
+import { DeploymentsEmptyState, PipelinesEmptyState } from '@/components/empty-states';
 import { Rocket, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Trash2, Radio, RotateCcw, GitBranch, Plus, Edit, Copy, PlayCircle, PauseCircle, Undo2 } from 'lucide-react';
 import type { Deployment, Pipeline } from '@/types';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -562,23 +563,17 @@ export function DeploymentsPage() {
           {isLoading ? (
             <div className="text-center py-8">Loading deployments...</div>
           ) : !hasActivePipelines && canSeePipelines ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <GitBranch className="h-16 w-16 mx-auto mb-4 opacity-20" />
-              <h3 className="text-lg font-semibold mb-2">No pipelines found</h3>
-              <p className="mb-6">Create a pipeline to start deploying workflows between environments.</p>
-              <Button onClick={() => navigate('/pipelines/new')}>
-                <Plus className="h-4 w-4 mr-2" />
-                Create Your First Pipeline
-              </Button>
-            </div>
+            <DeploymentsEmptyState
+              hasPipelines={false}
+              onCreatePipeline={() => navigate('/pipelines/new')}
+              size="lg"
+            />
           ) : deployments.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Rocket className="h-12 w-12 mx-auto mb-4 opacity-20" />
-              <p>No deployments yet</p>
-              <Button variant="link" onClick={handlePromoteWorkflows} className="mt-2">
-                Create your first deployment
-              </Button>
-            </div>
+            <DeploymentsEmptyState
+              hasPipelines={true}
+              onCreateDeployment={handlePromoteWorkflows}
+              size="md"
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -914,13 +909,10 @@ export function DeploymentsPage() {
               {pipelinesLoading ? (
                 <div className="text-center py-8">Loading pipelines...</div>
               ) : !pipelines?.data || pipelines.data.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p className="mb-4">No pipelines found</p>
-                  <Button onClick={() => navigate('/pipelines/new')}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Your First Pipeline
-                  </Button>
-                </div>
+                <PipelinesEmptyState
+                  onCreatePipeline={() => navigate('/pipelines/new')}
+                  size="lg"
+                />
               ) : (
                 <Table>
                   <TableHeader>

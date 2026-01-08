@@ -1,7 +1,7 @@
 """add_audit_log_impersonation_index
 
 Revision ID: 20260108_audit_imp_idx
-Revises: 380513d302f0
+Revises: 20260108_audit_imp_cols
 Create Date: 2026-01-08
 
 Adds optimized database indexes for audit log queries on impersonation sessions.
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260108_audit_imp_idx'
-down_revision = '380513d302f0'
+down_revision = '20260108_audit_imp_cols'
 branch_labels = None
 depends_on = None
 

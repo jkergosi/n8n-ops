@@ -308,7 +308,11 @@ class N8NClient:
             return False
 
     async def get_executions(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Fetch executions from N8N"""
+        """Fetch executions from N8N with pagination support.
+
+        N8N API may limit responses to 250 executions per page. This method
+        automatically fetches multiple pages if needed to reach the requested limit.
+        """
         async def _parse_executions(payload: Any) -> List[Dict[str, Any]]:
             if isinstance(payload, dict):
                 return payload.get("data", []) or []
@@ -319,48 +323,81 @@ class N8NClient:
         import logging
         logger = logging.getLogger(__name__)
 
+        all_executions = []
+        page_size = min(limit, 250)  # N8N max per-page limit
+        cursor = None
+        page_num = 0
+
         async with httpx.AsyncClient() as client:
             # N8N API returns executions sorted by most recent first.
-            params = {"limit": limit}
-            try:
-                response = await client.get(
-                    f"{self.base_url}/api/v1/executions",
-                    headers=self.headers,
-                    params=params,
-                    timeout=30.0
-                )
-                response.raise_for_status()
-                executions = await _parse_executions(response.json())
-                if executions:
-                    logger.info(f"Fetched {len(executions)} executions from N8N (limit={limit})")
-                else:
-                    logger.warning(f"No executions returned from N8N API (limit={limit}, status={response.status_code})")
-                return executions
-            except httpx.HTTPStatusError as e:
-                # Some n8n instances reject high limits (e.g., 1000) with 400.
-                # Fall back to a safer limit so sync can proceed.
-                status_code = getattr(e.response, "status_code", None)
-                if status_code == 400 and limit > 250:
-                    # Some n8n instances enforce limit <= 250 (and return a helpful message).
-                    safe_limit = 250
-                    try:
-                        safe_resp = await client.get(
-                            f"{self.base_url}/api/v1/executions",
-                            headers=self.headers,
-                            params={"limit": safe_limit},
-                            timeout=30.0
-                        )
-                        safe_resp.raise_for_status()
-                        executions = await _parse_executions(safe_resp.json())
-                        logger.warning(
-                            f"N8N executions endpoint rejected limit={limit} with 400; "
-                            f"retried with limit={safe_limit} and got {len(executions)} executions"
-                        )
-                        return executions
-                    except Exception:
-                        # Re-raise original error if fallback also fails
-                        raise e
-                raise
+            while len(all_executions) < limit:
+                page_num += 1
+                params = {"limit": page_size}
+
+                # Add cursor if N8N supports cursor-based pagination
+                if cursor:
+                    params["cursor"] = cursor
+
+                try:
+                    response = await client.get(
+                        f"{self.base_url}/api/v1/executions",
+                        headers=self.headers,
+                        params=params,
+                        timeout=30.0
+                    )
+                    response.raise_for_status()
+                    response_data = response.json()
+                    page_executions = await _parse_executions(response_data)
+
+                    if not page_executions:
+                        # No more executions available
+                        if page_num == 1:
+                            logger.warning(f"No executions returned from N8N API (limit={limit}, status={response.status_code})")
+                        break
+
+                    all_executions.extend(page_executions)
+                    logger.info(f"Fetched page {page_num}: {len(page_executions)} executions (total: {len(all_executions)})")
+
+                    # Check if N8N API provides pagination cursor
+                    if isinstance(response_data, dict):
+                        cursor = response_data.get("nextCursor") or response_data.get("next")
+
+                    # Stop if we got fewer executions than requested (last page)
+                    # or if no cursor is available for next page
+                    if len(page_executions) < page_size:
+                        logger.info(f"Reached last page (got {len(page_executions)} < {page_size})")
+                        break
+
+                    # Stop if no pagination support detected and we already fetched one page
+                    if page_num >= 1 and not cursor:
+                        logger.warning(f"N8N API may not support pagination (no cursor found). Fetched {len(all_executions)} executions.")
+                        break
+
+                except httpx.HTTPStatusError as e:
+                    # Some n8n instances reject high limits (e.g., 1000) with 400.
+                    # Fall back to a safer limit so sync can proceed.
+                    status_code = getattr(e.response, "status_code", None)
+                    if status_code == 400 and page_size > 250:
+                        # Some n8n instances enforce limit <= 250 (and return a helpful message).
+                        page_size = 250
+                        logger.warning(f"N8N rejected limit={params['limit']}, retrying with limit={page_size}")
+                        continue
+
+                    # If this is first page and we already have some executions, return what we have
+                    if all_executions:
+                        logger.warning(f"N8N API error on page {page_num}, returning {len(all_executions)} executions fetched so far")
+                        break
+                    raise
+
+                except Exception as e:
+                    # On error, return what we have so far (partial success)
+                    if all_executions:
+                        logger.error(f"Error fetching page {page_num}: {str(e)}. Returning {len(all_executions)} executions fetched so far.")
+                        break
+                    raise
+
+            logger.info(f"Total executions fetched: {len(all_executions)} across {page_num} page(s)")
+            return all_executions[:limit]  # Trim to requested limit
 
     async def get_credentials(self) -> List[Dict[str, Any]]:
         """Fetch all credentials from N8N via the credentials API.

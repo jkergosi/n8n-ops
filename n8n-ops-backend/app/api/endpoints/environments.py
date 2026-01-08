@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
 from typing import List
 from datetime import datetime
+from uuid import uuid4
 import logging
 
 from app.schemas.environment import (
@@ -1220,33 +1221,76 @@ async def sync_executions_only(
                 detail="Cannot connect to provider instance. Please check environment configuration."
             )
 
+        # Generate job ID for progress tracking
+        job_id = str(uuid4())
+
         # Sync executions only
         try:
+            # Emit start progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="executions",
+                current=0,
+                total=1,
+                message="Starting execution sync...",
+                tenant_id=tenant_id
+            )
+
             # N8N enforces a max limit (commonly 250). Use a safe upper bound.
+            # NOTE: With pagination support, this will now fetch multiple pages if needed.
             executions = await adapter.get_executions(limit=250)
-            
+
             if not executions:
                 logger.warning(f"No executions returned from N8N for environment {environment_id}")
-            
+
             synced_executions = await db_service.sync_executions_from_n8n(
                 tenant_id,
                 environment_id,
                 executions
             )
 
+            # Emit completion progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="completed",
+                current_step="executions",
+                current=1,
+                total=1,
+                message=f"Synced {len(synced_executions)} executions successfully",
+                tenant_id=tenant_id
+            )
+
             return {
                 "success": True,
                 "message": "Executions synced successfully",
-                "synced": len(synced_executions)
+                "synced": len(synced_executions),
+                "job_id": job_id  # Include job_id for progress tracking
             }
         except Exception as e:
             logger.error(f"Failed to sync executions for environment {environment_id}: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
+
+            # Emit failure progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="failed",
+                current_step="executions",
+                current=0,
+                total=1,
+                message=f"Sync failed: {str(e)}",
+                tenant_id=tenant_id
+            )
+
             return {
                 "success": False,
                 "message": f"Failed to sync executions: {str(e)}",
-                "synced": 0
+                "synced": 0,
+                "job_id": job_id
             }
 
     except HTTPException:

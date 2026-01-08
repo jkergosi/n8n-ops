@@ -318,14 +318,34 @@ class DatabaseService:
         response = self.client.table("executions").insert(execution_data).execute()
         return response.data[0]
 
-    async def get_executions(self, tenant_id: str, environment_id: str = None, workflow_id: str = None) -> List[Dict[str, Any]]:
-        """Get executions for a tenant, optionally filtered by environment and workflow"""
+    async def get_executions(self, tenant_id: str, environment_id: str = None, workflow_id: str = None, limit: int = None) -> List[Dict[str, Any]]:
+        """
+        Get executions for a tenant, optionally filtered by environment and workflow.
+
+        DEPRECATED: This method is deprecated. Use get_executions_paginated() instead for better performance.
+
+        Args:
+            tenant_id: Tenant UUID
+            environment_id: Optional environment filter
+            workflow_id: Optional workflow filter
+            limit: Maximum number of executions to return (default: None = all, max recommended: 1000)
+
+        Returns:
+            List of execution dictionaries
+        """
         query = self.client.table("executions").select("*").eq("tenant_id", tenant_id)
         if environment_id:
             query = query.eq("environment_id", environment_id)
         if workflow_id:
             query = query.eq("workflow_id", workflow_id)
-        response = query.order("started_at", desc=True).execute()
+
+        query = query.order("started_at", desc=True)
+
+        # Apply limit if specified
+        if limit is not None:
+            query = query.limit(limit)
+
+        response = query.execute()
 
         # Enrich executions with workflow names from canonical workflow system
         executions = response.data
@@ -3331,6 +3351,472 @@ class DatabaseService:
             raise Exception("Failed to create workflow mapping")
 
         return canonical_workflow
+
+    # Materialized View Queries
+    async def get_workflow_performance_summary(
+        self,
+        tenant_id: str,
+        environment_id: Optional[str] = None,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Query the workflow_performance_summary materialized view for fast dashboard queries.
+
+        This view is pre-computed and refreshed hourly, providing instant access to workflow metrics
+        without expensive aggregations. Use this for dashboard displays where real-time precision
+        is not critical.
+
+        Returns workflows ordered by error count (24h) descending (highest risk first).
+        """
+        try:
+            query = (
+                self.client.table("workflow_performance_summary")
+                .select("*")
+                .eq("tenant_id", tenant_id)
+            )
+
+            if environment_id:
+                query = query.eq("environment_id", environment_id)
+
+            # Order by risk: errors in last 24h descending
+            query = query.order("errors_24h", desc=True).limit(limit)
+
+            response = query.execute()
+            return response.data or []
+
+        except Exception as e:
+            logger.warning(f"Failed to query workflow_performance_summary: {e}")
+            return []
+
+    async def get_environment_health_summary(
+        self,
+        tenant_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Query the environment_health_summary materialized view for fast dashboard queries.
+
+        This view is pre-computed and refreshed hourly, providing instant access to environment
+        health metrics without expensive joins and subqueries.
+        """
+        try:
+            response = (
+                self.client.table("environment_health_summary")
+                .select("*")
+                .eq("tenant_id", tenant_id)
+                .execute()
+            )
+            return response.data or []
+
+        except Exception as e:
+            logger.warning(f"Failed to query environment_health_summary: {e}")
+            return []
+
+    async def refresh_materialized_views(self) -> Dict[str, Any]:
+        """
+        Manually trigger a refresh of all materialized views.
+
+        This is typically called by a background job but can be invoked manually
+        when immediate data freshness is required.
+
+        Returns a dict with refresh status for each view.
+        """
+        try:
+            # Call the PostgreSQL function that refreshes all views
+            result = self.client.rpc("refresh_all_materialized_views").execute()
+
+            logger.info(f"Materialized views refreshed successfully: {result.data}")
+            return {
+                "success": True,
+                "refreshed_views": result.data or []
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to refresh materialized views: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    # Execution Rollup Queries
+    async def get_execution_rollups(
+        self,
+        tenant_id: str,
+        start_date: str,
+        end_date: str,
+        environment_id: Optional[str] = None,
+        workflow_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Query pre-computed daily rollup data for fast historical analytics.
+
+        This uses the execution_rollups_daily table which is populated by background jobs.
+        Much faster than querying raw executions table for historical data.
+
+        Args:
+            tenant_id: Tenant UUID
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+            environment_id: Optional environment filter
+            workflow_id: Optional workflow filter
+
+        Returns:
+            List of daily rollup records with aggregated metrics
+        """
+        try:
+            params = {
+                "p_tenant_id": tenant_id,
+                "p_start_date": start_date,
+                "p_end_date": end_date,
+                "p_environment_id": environment_id,
+                "p_workflow_id": workflow_id
+            }
+
+            result = self.client.rpc("get_execution_rollups", params).execute()
+            return result.data or []
+
+        except Exception as e:
+            logger.warning(f"Failed to query execution rollups: {e}")
+            return []
+
+    async def compute_rollup_for_date(
+        self,
+        rollup_date: str,
+        tenant_id: Optional[str] = None
+    ) -> int:
+        """
+        Compute rollup data for a specific date.
+
+        This is typically called by a background job but can be invoked manually
+        to backfill or refresh data.
+
+        Args:
+            rollup_date: Date to compute rollup for (YYYY-MM-DD)
+            tenant_id: Optional tenant filter (None = all tenants)
+
+        Returns:
+            Number of rollup rows inserted/updated
+        """
+        try:
+            params = {
+                "p_rollup_date": rollup_date,
+                "p_tenant_id": tenant_id
+            }
+
+            result = self.client.rpc("compute_execution_rollup_for_date", params).execute()
+            rows_affected = result.data if isinstance(result.data, int) else 0
+
+            logger.info(f"Computed rollup for {rollup_date}: {rows_affected} rows affected")
+            return rows_affected
+
+        except Exception as e:
+            logger.error(f"Failed to compute rollup for {rollup_date}: {e}")
+            return 0
+
+    # ============================================
+    # Alert Rules Operations
+    # ============================================
+
+    async def create_alert_rule(self, rule_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create an alert rule"""
+        response = self.client.table("alert_rules").insert(rule_data).execute()
+        return response.data[0] if response.data else None
+
+    async def get_alert_rules(
+        self,
+        tenant_id: str,
+        include_disabled: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Get all alert rules for a tenant"""
+        query = self.client.table("alert_rules").select("*").eq("tenant_id", tenant_id)
+        if not include_disabled:
+            query = query.eq("is_enabled", True)
+        response = query.order("created_at", desc=True).execute()
+        return response.data
+
+    async def get_alert_rule(
+        self,
+        rule_id: str,
+        tenant_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a specific alert rule"""
+        response = self.client.table("alert_rules").select("*").eq(
+            "id", rule_id
+        ).eq("tenant_id", tenant_id).single().execute()
+        return response.data
+
+    async def update_alert_rule(
+        self,
+        rule_id: str,
+        tenant_id: str,
+        rule_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Update an alert rule"""
+        from datetime import datetime
+        rule_data["updated_at"] = datetime.utcnow().isoformat()
+        response = self.client.table("alert_rules").update(rule_data).eq(
+            "id", rule_id
+        ).eq("tenant_id", tenant_id).execute()
+        return response.data[0] if response.data else None
+
+    async def delete_alert_rule(self, rule_id: str, tenant_id: str) -> bool:
+        """Delete an alert rule"""
+        self.client.table("alert_rules").delete().eq(
+            "id", rule_id
+        ).eq("tenant_id", tenant_id).execute()
+        return True
+
+    # Alert rule history operations
+    async def create_alert_rule_history(self, history_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create an alert rule history entry"""
+        response = self.client.table("alert_rule_history").insert(history_data).execute()
+        return response.data[0] if response.data else None
+
+    async def get_alert_rule_history(
+        self,
+        rule_id: str,
+        tenant_id: str,
+        limit: int = 50,
+        offset: int = 0
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """Get history for an alert rule with total count"""
+        # Get count
+        count_response = self.client.table("alert_rule_history").select(
+            "id", count="exact"
+        ).eq("alert_rule_id", rule_id).eq("tenant_id", tenant_id).execute()
+        total = count_response.count or 0
+
+        # Get items
+        response = self.client.table("alert_rule_history").select("*").eq(
+            "alert_rule_id", rule_id
+        ).eq("tenant_id", tenant_id).order(
+            "created_at", desc=True
+        ).range(offset, offset + limit - 1).execute()
+
+        return response.data, total
+
+    # Alert rule evaluation helper methods
+    async def evaluate_error_rate(
+        self,
+        tenant_id: str,
+        environment_id: Optional[str] = None,
+        time_window_minutes: int = 60
+    ) -> Dict[str, Any]:
+        """Get error rate statistics for alert evaluation"""
+        try:
+            # Call the PostgreSQL function we created in the migration
+            params = {
+                "p_tenant_id": tenant_id,
+                "p_environment_id": environment_id,
+                "p_time_window_minutes": time_window_minutes
+            }
+            response = self.client.rpc("evaluate_error_rate", params).execute()
+            if response.data and len(response.data) > 0:
+                row = response.data[0]
+                return {
+                    "total_executions": row.get("total_executions", 0),
+                    "error_count": row.get("error_count", 0),
+                    "error_rate": float(row.get("error_rate", 0))
+                }
+        except Exception as e:
+            logger.warning(f"Failed to use RPC evaluate_error_rate: {e}")
+
+        # Fallback to manual query
+        from datetime import datetime, timedelta
+        since = (datetime.utcnow() - timedelta(minutes=time_window_minutes)).isoformat()
+
+        query = self.client.table("executions").select("status").eq(
+            "tenant_id", tenant_id
+        ).gte("started_at", since)
+
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+
+        response = query.execute()
+        executions = response.data or []
+
+        total = len(executions)
+        errors = sum(1 for e in executions if e.get("status") == "error")
+        error_rate = (errors / total * 100) if total > 0 else 0
+
+        return {
+            "total_executions": total,
+            "error_count": errors,
+            "error_rate": error_rate
+        }
+
+    async def get_error_intelligence_for_alert(
+        self,
+        tenant_id: str,
+        environment_id: Optional[str] = None,
+        time_window_minutes: int = 60
+    ) -> List[Dict[str, Any]]:
+        """Get error intelligence for alert evaluation"""
+        from datetime import datetime, timedelta
+        since = (datetime.utcnow() - timedelta(minutes=time_window_minutes)).isoformat()
+
+        try:
+            # Try using the get_error_intelligence RPC
+            params = {
+                "p_tenant_id": tenant_id,
+                "p_environment_id": environment_id,
+                "p_since": since,
+                "p_until": datetime.utcnow().isoformat()
+            }
+            response = self.client.rpc("get_error_intelligence", params).execute()
+            if response.data:
+                return [
+                    {
+                        "error_type": row.get("error_type"),
+                        "count": row.get("error_count", 0),
+                        "first_seen": row.get("first_seen"),
+                        "last_seen": row.get("last_seen"),
+                        "sample_message": row.get("sample_message")
+                    }
+                    for row in response.data
+                ]
+        except Exception as e:
+            logger.warning(f"Failed to use RPC get_error_intelligence: {e}")
+
+        return []
+
+    async def get_recent_workflow_failures(
+        self,
+        tenant_id: str,
+        environment_id: Optional[str] = None,
+        workflow_ids: Optional[List[str]] = None,
+        canonical_ids: Optional[List[str]] = None,
+        any_workflow: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Get recent workflow failures for alert evaluation"""
+        from datetime import datetime, timedelta
+        since = (datetime.utcnow() - timedelta(minutes=60)).isoformat()
+
+        query = self.client.table("executions").select(
+            "id, workflow_id, workflow_name, started_at, data"
+        ).eq("tenant_id", tenant_id).eq("status", "error").gte("started_at", since)
+
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+
+        if workflow_ids and not any_workflow:
+            query = query.in_("workflow_id", workflow_ids)
+
+        response = query.order("started_at", desc=True).limit(100).execute()
+        return response.data or []
+
+    async def count_consecutive_failures(
+        self,
+        tenant_id: str,
+        workflow_id: str,
+        environment_id: Optional[str] = None
+    ) -> int:
+        """Count consecutive failures for a workflow"""
+        try:
+            # Try using the PostgreSQL function
+            params = {
+                "p_tenant_id": tenant_id,
+                "p_workflow_id": workflow_id,
+                "p_environment_id": environment_id
+            }
+            response = self.client.rpc("count_consecutive_failures", params).execute()
+            if response.data is not None:
+                return int(response.data)
+        except Exception as e:
+            logger.warning(f"Failed to use RPC count_consecutive_failures: {e}")
+
+        # Fallback to manual query
+        query = self.client.table("executions").select("status").eq(
+            "tenant_id", tenant_id
+        ).eq("workflow_id", workflow_id)
+
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+
+        response = query.order("started_at", desc=True).limit(100).execute()
+
+        consecutive = 0
+        for exec_data in response.data or []:
+            if exec_data.get("status") == "error":
+                consecutive += 1
+            else:
+                break
+
+        return consecutive
+
+    async def get_max_consecutive_failures(
+        self,
+        tenant_id: str,
+        environment_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get the workflow with the most consecutive failures"""
+        # Get unique workflow IDs with recent failures
+        from datetime import datetime, timedelta
+        since = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+
+        query = self.client.table("executions").select("workflow_id").eq(
+            "tenant_id", tenant_id
+        ).eq("status", "error").gte("started_at", since)
+
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+
+        response = query.execute()
+        workflow_ids = list(set(e.get("workflow_id") for e in response.data or []))
+
+        max_consecutive = 0
+        failing_workflow = None
+
+        for wf_id in workflow_ids[:50]:  # Limit to 50 workflows
+            count = await self.count_consecutive_failures(tenant_id, wf_id, environment_id)
+            if count > max_consecutive:
+                max_consecutive = count
+                failing_workflow = wf_id
+
+        return {
+            "max_consecutive": max_consecutive,
+            "workflow_id": failing_workflow
+        }
+
+    async def get_long_running_executions(
+        self,
+        tenant_id: str,
+        environment_id: Optional[str] = None,
+        max_duration_ms: int = 60000,
+        workflow_ids: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Get executions that exceeded the duration threshold"""
+        from datetime import datetime, timedelta
+        since = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+
+        query = self.client.table("executions").select(
+            "id, workflow_id, workflow_name, started_at, finished_at, execution_time"
+        ).eq("tenant_id", tenant_id).gte("started_at", since).neq("status", "running")
+
+        if environment_id:
+            query = query.eq("environment_id", environment_id)
+
+        if workflow_ids:
+            query = query.in_("workflow_id", workflow_ids)
+
+        response = query.execute()
+
+        # Filter by duration
+        long_running = []
+        for exec_data in response.data or []:
+            duration_ms = exec_data.get("execution_time")
+            if duration_ms is None and exec_data.get("finished_at") and exec_data.get("started_at"):
+                try:
+                    started = datetime.fromisoformat(exec_data["started_at"].replace("Z", "+00:00"))
+                    finished = datetime.fromisoformat(exec_data["finished_at"].replace("Z", "+00:00"))
+                    duration_ms = int((finished - started).total_seconds() * 1000)
+                except Exception:
+                    continue
+
+            if duration_ms and duration_ms > max_duration_ms:
+                exec_data["duration_ms"] = duration_ms
+                long_running.append(exec_data)
+
+        return long_running
 
 
 # Global instance

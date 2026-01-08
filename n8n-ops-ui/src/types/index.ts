@@ -1238,6 +1238,25 @@ export interface CleanupPreview {
 export type ChannelType = 'slack' | 'email' | 'webhook';
 export type NotificationStatusType = 'pending' | 'sent' | 'failed' | 'skipped';
 
+// Alert Rule types
+export type AlertRuleType =
+  | 'error_rate'
+  | 'error_type'
+  | 'workflow_failure'
+  | 'consecutive_failures'
+  | 'execution_duration';
+
+export type AlertSeverity = 'info' | 'warning' | 'critical' | 'page';
+
+export type AlertRuleHistoryEventType =
+  | 'evaluation'
+  | 'triggered'
+  | 'resolved'
+  | 'escalated'
+  | 'notified'
+  | 'muted'
+  | 'unmuted';
+
 export interface SlackConfig {
   webhook_url: string;
   channel?: string;
@@ -1302,6 +1321,160 @@ export interface EventCatalogItem {
   displayName: string;
   description: string;
   category: string;
+}
+
+// ============================================
+// Alert Rule Types
+// ============================================
+
+// Threshold configuration types
+export interface ErrorRateThreshold {
+  threshold_percent: number;
+  time_window_minutes?: number;
+  min_executions?: number;
+}
+
+export interface ErrorTypeThreshold {
+  error_types: string[];
+  time_window_minutes?: number;
+  min_occurrences?: number;
+}
+
+export interface WorkflowFailureThreshold {
+  workflow_ids?: string[];
+  canonical_ids?: string[];
+  any_workflow?: boolean;
+}
+
+export interface ConsecutiveFailuresThreshold {
+  failure_count: number;
+  workflow_ids?: string[];
+}
+
+export interface ExecutionDurationThreshold {
+  max_duration_ms: number;
+  workflow_ids?: string[];
+}
+
+export type AlertThresholdConfig =
+  | ErrorRateThreshold
+  | ErrorTypeThreshold
+  | WorkflowFailureThreshold
+  | ConsecutiveFailuresThreshold
+  | ExecutionDurationThreshold;
+
+// Escalation policy types
+export interface EscalationLevel {
+  delay_minutes: number;
+  channel_ids: string[];
+  severity: AlertSeverity;
+  message_template?: string;
+}
+
+export interface EscalationPolicy {
+  levels: EscalationLevel[];
+  auto_resolve_after_minutes?: number;
+  repeat_interval_minutes?: number;
+  notify_on_resolve?: boolean;
+}
+
+// Alert Rule main types
+export interface AlertRule {
+  id: string;
+  tenantId: string;
+  name: string;
+  description?: string;
+  ruleType: AlertRuleType;
+  thresholdConfig: Record<string, unknown>;
+  environmentId?: string;
+  channelIds: string[];
+  escalationConfig?: EscalationPolicy;
+  isEnabled: boolean;
+  currentEscalationLevel: number;
+  lastEscalationAt?: string;
+  isFiring: boolean;
+  consecutiveViolations: number;
+  firstViolationAt?: string;
+  lastViolationAt?: string;
+  lastEvaluatedAt?: string;
+  lastNotificationAt?: string;
+  mutedUntil?: string;
+  muteReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AlertRuleCreate {
+  name: string;
+  description?: string;
+  ruleType: AlertRuleType;
+  thresholdConfig: Record<string, unknown>;
+  environmentId?: string;
+  channelIds: string[];
+  escalationConfig?: EscalationPolicy;
+  isEnabled?: boolean;
+}
+
+export interface AlertRuleUpdate {
+  name?: string;
+  description?: string;
+  thresholdConfig?: Record<string, unknown>;
+  environmentId?: string;
+  channelIds?: string[];
+  escalationConfig?: EscalationPolicy;
+  isEnabled?: boolean;
+}
+
+export interface AlertRuleMuteRequest {
+  mute_duration_minutes: number;
+  reason?: string;
+}
+
+// Alert Rule history types
+export interface AlertRuleHistoryEntry {
+  id: string;
+  tenantId: string;
+  alertRuleId: string;
+  eventType: AlertRuleHistoryEventType;
+  evaluationResult?: Record<string, unknown>;
+  escalationLevel?: number;
+  channelsNotified?: string[];
+  notificationSuccess?: boolean;
+  createdAt: string;
+}
+
+export interface AlertRuleHistoryResponse {
+  items: AlertRuleHistoryEntry[];
+  total: number;
+  hasMore: boolean;
+}
+
+// Alert Rule evaluation types
+export interface AlertRuleEvaluationResult {
+  ruleId: string;
+  ruleName: string;
+  isTriggered: boolean;
+  currentValue?: number;
+  thresholdValue?: number;
+  message: string;
+  details?: Record<string, unknown>;
+  evaluatedAt: string;
+}
+
+export interface AlertRuleSummary {
+  totalRules: number;
+  enabledRules: number;
+  firingRules: number;
+  mutedRules: number;
+  rulesByType: Record<string, number>;
+}
+
+// Alert Rule type catalog
+export interface AlertRuleTypeCatalogItem {
+  ruleType: string;
+  displayName: string;
+  description: string;
+  configSchema: Record<string, unknown>;
 }
 
 // Entitlements types (Phase 1)

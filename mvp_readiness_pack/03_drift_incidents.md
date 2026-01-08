@@ -46,7 +46,24 @@ DETECTED → ACKNOWLEDGED → STABILIZED → RECONCILED → CLOSED
 
 ### Transition Rules
 
-**File**: `services/drift_incident_service.py`
+**Evidence:** `n8n-ops-backend/app/services/drift_incident_service.py:VALID_TRANSITIONS` (lines 24-30)
+
+**Valid Transitions:**
+```python
+VALID_TRANSITIONS = {
+    DriftIncidentStatus.detected: [DriftIncidentStatus.acknowledged, DriftIncidentStatus.closed],
+    DriftIncidentStatus.acknowledged: [DriftIncidentStatus.stabilized, DriftIncidentStatus.reconciled, DriftIncidentStatus.closed],
+    DriftIncidentStatus.stabilized: [DriftIncidentStatus.reconciled, DriftIncidentStatus.closed],
+    DriftIncidentStatus.reconciled: [DriftIncidentStatus.closed],
+    DriftIncidentStatus.closed: [],  # Terminal state
+}
+```
+
+**Validation:** `_validate_transition()` method (lines 332-354)
+- Admin override allows any transition except FROM closed state
+- Closed is terminal even for admins
+
+**File**: `n8n-ops-backend/app/services/drift_incident_service.py`
 
 | From | To | Requirements | API Endpoint |
 |------|-----|--------------|--------------|

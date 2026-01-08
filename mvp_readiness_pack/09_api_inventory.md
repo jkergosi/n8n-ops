@@ -2,9 +2,11 @@
 
 ## Summary Statistics
 
-- **Total Endpoints**: ~327
+**Evidence:** `n8n-ops-backend/app/api/endpoints/` directory contains 51 files (50 .py, 1 .md)
+
+- **Total Endpoints**: ~327 (estimated from router registrations)
 - **Endpoint Modules**: 51 files in `n8n-ops-backend/app/api/endpoints/`
-- **API Prefix**: `/api/v1`
+- **API Prefix**: `/api/v1` (from `n8n-ops-backend/app/core/config.py:25`)
 
 ---
 
@@ -95,10 +97,10 @@
 | Method | Path | Auth | Tenant Scope | Entitlements | Audit Logged | Handler |
 |--------|------|------|--------------|--------------|--------------|---------|
 | GET | `/pipelines` | JWT | User tenant | `promotions_enabled` | No | `pipelines.py:list_pipelines` |
-| POST | `/pipelines` | JWT | User tenant | `promotions_enabled` + Admin | Yes | `pipelines.py:create_pipeline` |
+| POST | `/pipelines` | JWT | User tenant | `workflow_ci_cd` + Admin (`require_tenant_admin`) | Yes | `pipelines.py:create_pipeline` (line 124) |
 | GET | `/pipelines/{id}` | JWT | User tenant | `promotions_enabled` | No | `pipelines.py:get_pipeline` |
-| PUT | `/pipelines/{id}` | JWT | User tenant | `promotions_enabled` + Admin | Yes | `pipelines.py:update_pipeline` |
-| DELETE | `/pipelines/{id}` | JWT | User tenant | `promotions_enabled` + Admin | Yes | `pipelines.py:delete_pipeline` |
+| PATCH | `/pipelines/{id}` | JWT | User tenant | `workflow_ci_cd` + Admin (`require_tenant_admin`) | Yes | `pipelines.py:update_pipeline` (line 224) |
+| DELETE | `/pipelines/{id}` | JWT | User tenant | `workflow_ci_cd` + Admin (`require_tenant_admin`) | Yes | `pipelines.py:delete_pipeline` (line 334) |
 | POST | `/pipelines/{id}/activate` | JWT | User tenant | `promotions_enabled` | Yes | `pipelines.py:activate_pipeline` |
 | POST | `/pipelines/{id}/deactivate` | JWT | User tenant | `promotions_enabled` | Yes | `pipelines.py:deactivate_pipeline` |
 

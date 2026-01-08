@@ -62,6 +62,7 @@ import {
 import { cn } from '@/lib/utils';
 import { canSeePlatformNav, isAtLeastPlan, mapBackendRoleToFrontendRole, normalizePlan, type Plan, type Role } from '@/lib/permissions';
 import { useHealthCheck } from '@/lib/use-health-check';
+import { Breadcrumb } from '@/components/Breadcrumb';
 
 interface NavItem {
   id: string;
@@ -317,6 +318,7 @@ export function AppLayout() {
                                 !sidebarOpen && 'justify-center'
                               )}
                               title={!sidebarOpen ? item.name : undefined}
+                              data-hint={item.id}
                             >
                               <Icon className={cn('h-4 w-4 flex-shrink-0', isActive && 'text-primary-foreground')} />
                               {sidebarOpen && <span className="flex-1">{item.name}</span>}
@@ -358,6 +360,7 @@ export function AppLayout() {
                 className="hidden lg:flex h-8 w-8"
                 onClick={toggleSidebar}
                 title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+                data-hint="sidebar-toggle"
               >
                 {sidebarOpen ? (
                   <PanelLeftClose className="h-4 w-4" />
@@ -366,11 +369,15 @@ export function AppLayout() {
                 )}
               </Button>
               
+              {/* Breadcrumb Navigation */}
+              <Breadcrumb />
+              
               {/* Search */}
               <Button
                 variant="outline"
                 className="relative h-9 w-full max-w-sm justify-start text-sm text-muted-foreground sm:pr-12 hidden sm:flex"
                 onClick={() => setSearchOpen(true)}
+                data-hint="search"
               >
                 <Search className="mr-2 h-4 w-4" />
                 <span>Search...</span>
@@ -419,7 +426,7 @@ export function AppLayout() {
               </div>
 
               {/* Notifications */}
-              <Button variant="ghost" size="icon" className="h-8 w-8 relative">
+              <Button variant="ghost" size="icon" className="h-8 w-8 relative" data-hint="notifications">
                 <Bell className="h-4 w-4" />
                 <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-primary"></span>
               </Button>
@@ -427,7 +434,7 @@ export function AppLayout() {
               {/* User Menu */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0">
+                  <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0" data-hint="user-menu">
                     <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold shadow-sm">
                       {user?.name?.charAt(0).toUpperCase() || 'U'}
                     </div>

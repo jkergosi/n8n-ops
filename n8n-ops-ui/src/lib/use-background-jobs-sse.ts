@@ -43,13 +43,13 @@ interface UseBackgroundJobsSSEOptions {
   onLogMessage?: (message: LogMessage) => void; // Callback for log messages
 }
 
-export interface LogMessage {
+export type LogMessage = {
   timestamp: string;
   level: 'info' | 'warn' | 'error' | 'debug';
   message: string;
   phase?: string;
   details?: any;
-}
+};
 
 interface UseBackgroundJobsSSEReturn {
   isConnected: boolean;
@@ -177,6 +177,20 @@ export function useBackgroundJobsSSE(
       const envId = progress.environmentId || environmentId;
       const jId = progress.jobId || jobId;
 
+      // Emit log message for this progress event
+      const logLevel: LogMessage['level'] = progress.status === 'failed' ? 'error' :
+                                             progress.status === 'completed' ? 'info' : 'info';
+      const logMessage = progress.message ||
+        (progress.currentWorkflowName
+          ? `Backing up: ${progress.currentWorkflowName} (${progress.current}/${progress.total})`
+          : `Backup progress: ${progress.current}/${progress.total}`);
+      emitLog(logLevel, logMessage, 'backup', {
+        current: progress.current,
+        total: progress.total,
+        currentWorkflowName: progress.currentWorkflowName,
+        status: progress.status,
+      });
+
       // Update job status in cache
       if (jId) {
         queryClient.setQueryData(['background-job', jId], (old: any) => {
@@ -204,7 +218,7 @@ export function useBackgroundJobsSSE(
         });
       }
     },
-    [queryClient, environmentId, jobId]
+    [queryClient, environmentId, jobId, emitLog]
   );
 
   const handleRestoreProgress = useCallback(
@@ -213,6 +227,20 @@ export function useBackgroundJobsSSE(
       const envId = progress.environmentId || environmentId;
       const jId = progress.jobId || jobId;
 
+      // Emit log message for this progress event
+      const logLevel: LogMessage['level'] = progress.status === 'failed' ? 'error' :
+                                             progress.status === 'completed' ? 'info' : 'info';
+      const logMessage = progress.message ||
+        (progress.currentWorkflowName
+          ? `Restoring: ${progress.currentWorkflowName} (${progress.current}/${progress.total})`
+          : `Restore progress: ${progress.current}/${progress.total}`);
+      emitLog(logLevel, logMessage, 'restore', {
+        current: progress.current,
+        total: progress.total,
+        currentWorkflowName: progress.currentWorkflowName,
+        status: progress.status,
+      });
+
       // Update job status in cache
       if (jId) {
         queryClient.setQueryData(['background-job', jId], (old: any) => {
@@ -240,7 +268,7 @@ export function useBackgroundJobsSSE(
         });
       }
     },
-    [queryClient, environmentId, jobId]
+    [queryClient, environmentId, jobId, emitLog]
   );
 
   const connect = useCallback(() => {
@@ -272,6 +300,8 @@ export function useBackgroundJobsSSE(
       setIsConnected(true);
       setConnectionError(null);
       reconnectAttemptRef.current = 0;
+      // Emit log message on successful connection
+      emitLog('info', 'Connected to live updates stream', undefined, { connected: true });
     };
 
     eventSource.onerror = (error) => {
@@ -320,7 +350,7 @@ export function useBackgroundJobsSSE(
         console.error('Failed to parse restore.progress event:', error);
       }
     });
-  }, [enabled, environmentId, jobId, handleSyncProgress, handleBackupProgress, handleRestoreProgress, getReconnectDelay]);
+  }, [enabled, environmentId, jobId, handleSyncProgress, handleBackupProgress, handleRestoreProgress, getReconnectDelay, emitLog]);
 
   useEffect(() => {
     if (enabled) {

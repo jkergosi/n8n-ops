@@ -21,6 +21,13 @@ export interface CredentialMapping {
   status?: string;
   createdAt?: string;
   updatedAt?: string;
+  lastTestAt?: string;
+  lastTestStatus?: 'success' | 'failed' | 'unsupported';
+  lastTestError?: string;
+  expirationInfo?: {
+    expiresAt?: string;
+    daysUntilExpiry?: number;
+  };
 }
 
 export interface WorkflowCredentialDependency {

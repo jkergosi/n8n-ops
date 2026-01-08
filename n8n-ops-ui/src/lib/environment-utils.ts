@@ -71,4 +71,102 @@ export function getEnvironmentNameForSelection(
   return resolveEnvironment(environments, selected)?.name;
 }
 
+/**
+ * Badge variant type for consistent styling
+ */
+export type StateBadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
+
+/**
+ * State badge status values
+ */
+export type StateBadgeStatus = 'in_sync' | 'pending_sync' | 'drift_detected' | 'untracked' | 'unknown' | 'error';
+
+/**
+ * State badge info returned by getStateBadgeInfo
+ */
+export interface StateBadgeInfo {
+  status: StateBadgeStatus;
+  label: string;
+  variant: StateBadgeVariant;
+  tooltip: string;
+}
+
+/**
+ * Get environment state badge info based on drift status and environment class.
+ *
+ * DEV environments show "Pending Sync" instead of "Drift Detected" because
+ * n8n is the source of truth for DEV - changes haven't been persisted to Git yet.
+ *
+ * Non-DEV environments (staging/prod) show "Drift Detected" because
+ * Git is the source of truth - workflows in n8n differ from the canonical version.
+ *
+ * @param env - Environment object with driftStatus and environmentClass
+ * @returns StateBadgeInfo with status, label, variant, and tooltip
+ */
+export function getStateBadgeInfo(env: Pick<Environment, 'driftStatus' | 'environmentClass'>): StateBadgeInfo {
+  // Use case-insensitive comparison for drift_status
+  const driftStatus = (env.driftStatus || 'UNKNOWN').toUpperCase();
+  const isDev = env.environmentClass?.toLowerCase() === 'dev';
+
+  switch (driftStatus) {
+    case 'IN_SYNC':
+      return {
+        status: 'in_sync',
+        label: 'In Sync',
+        variant: 'default',
+        tooltip: 'This environment matches the canonical Git version.',
+      };
+    case 'DRIFT_DETECTED':
+    case 'DRIFT_INCIDENT_ACTIVE':
+      // DEV environments: n8n is source of truth, show "Pending Sync"
+      // Non-DEV environments: Git is source of truth, show "Drift Detected"
+      if (isDev) {
+        return {
+          status: 'pending_sync',
+          label: 'Pending Sync',
+          variant: 'secondary',
+          tooltip: 'DEV changes haven\'t been persisted to Git yet.',
+        };
+      } else {
+        return {
+          status: 'drift_detected',
+          label: 'Drift Detected',
+          variant: 'destructive',
+          tooltip: 'Workflows in n8n differ from Git.',
+        };
+      }
+    case 'UNTRACKED':
+      return {
+        status: 'untracked',
+        label: 'Untracked',
+        variant: 'outline',
+        tooltip: 'No workflows are linked/tracked for this environment.',
+      };
+    case 'ERROR':
+      return {
+        status: 'error',
+        label: 'Error',
+        variant: 'secondary',
+        tooltip: 'An error occurred while checking state.',
+      };
+    default:
+      // For DEV with unknown/missing Git state, show Pending Sync
+      // For non-DEV with unknown state, show Unknown
+      if (isDev) {
+        return {
+          status: 'pending_sync',
+          label: 'Pending Sync',
+          variant: 'secondary',
+          tooltip: 'DEV changes haven\'t been persisted to Git yet.',
+        };
+      } else {
+        return {
+          status: 'unknown',
+          label: 'Unknown',
+          variant: 'outline',
+          tooltip: 'State has not been checked yet.',
+        };
+      }
+  }
+}
 

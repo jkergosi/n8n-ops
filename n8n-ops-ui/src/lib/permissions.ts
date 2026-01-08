@@ -74,6 +74,7 @@ const ROUTE_RULES: Array<{ match: (path: string) => boolean; rule: RouteRule }> 
 
   // Observability
   { match: (p) => p === '/observability', rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'pro' } },
+  { match: (p) => p === '/analytics/executions', rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'pro' } },
 
   // Deployments (requires workflow_ci_cd feature = pro plan)
   { match: (p) => p === '/deployments' || p.startsWith('/deployments/'), rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'pro' } },

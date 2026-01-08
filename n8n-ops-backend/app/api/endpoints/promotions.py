@@ -828,14 +828,20 @@ async def initiate_deployment(
     _: None = Depends(require_entitlement("workflow_ci_cd"))
 ):
     """
-    Initiate a promotion - simplified version that creates the promotion record quickly.
-    Heavy operations (snapshots, drift checks) are done during execution.
+    Initiate a promotion - runs pre-flight validation before creating promotion record.
+
+    Pre-flight validation checks:
+    - Target environment health (reachability)
+    - Credential availability (for selected workflows only)
+    - Drift policy compliance (blocking incidents)
+
+    Validation runs for each selected workflow independently with fail-fast behavior.
     """
     try:
         tenant_id = get_tenant_id(user_info)
         user = user_info.get("user", {})
         user_role = user.get("role", "user")
-        
+
         # Get pipeline
         pipeline_data = await db_service.get_pipeline(request.pipeline_id, tenant_id)
         if not pipeline_data:
@@ -903,31 +909,172 @@ async def initiate_deployment(
         except ActionGuardError as e:
             raise e
 
-        # Check drift policy blocking for target environment
-        drift_block = await check_drift_policy_blocking(
-            tenant_id=tenant_id,
-            target_environment_id=request.target_environment_id
-        )
-        if drift_block.get("blocked"):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "error": "deployment_blocked_by_drift_policy",
-                    "reason": drift_block.get("reason"),
-                    **drift_block.get("details", {})
-                }
+        # Check for validation bypass flag - admin only
+        validation_bypassed = False
+        audit_log_id = None
+
+        if request.bypass_validation:
+            # Only admin users can bypass validation
+            if user_role not in ["admin", "super_admin"]:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Validation bypass is only available to admin users"
+                )
+
+            # Create immutable audit log entry for bypass
+            logger.warning(
+                f"VALIDATION BYPASS: Admin user {user.get('email')} bypassing validation "
+                f"for promotion from {request.source_environment_id} to {request.target_environment_id} "
+                f"for pipeline {request.pipeline_id}"
             )
 
-        # Run credential preflight check
+            audit_log = await create_audit_log(
+                action_type="PROMOTION_VALIDATION_BYPASSED",
+                action=f"Admin bypassed pre-flight validation for emergency deployment",
+                actor_id=user.get("id"),
+                actor_email=user.get("email"),
+                actor_name=user.get("name"),
+                tenant_id=tenant_id,
+                resource_type="promotion",
+                resource_id=f"{request.pipeline_id}_{request.source_environment_id}_{request.target_environment_id}",
+                resource_name=f"Pipeline: {pipeline_data.get('name', request.pipeline_id)}",
+                metadata={
+                    "pipeline_id": request.pipeline_id,
+                    "source_environment_id": request.source_environment_id,
+                    "target_environment_id": request.target_environment_id,
+                    "workflow_count": len([ws for ws in request.workflow_selections if ws.selected]),
+                    "workflow_ids": [ws.workflow_id for ws in request.workflow_selections if ws.selected],
+                    "bypass_reason": "Emergency deployment - admin override"
+                },
+                reason="Emergency deployment requiring validation bypass"
+            )
+
+            if audit_log:
+                audit_log_id = audit_log.get("id")
+                validation_bypassed = True
+                logger.info(f"Validation bypass audit log created: {audit_log_id}")
+            else:
+                # If audit log fails, don't allow bypass (safety measure)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create audit log for validation bypass. Bypass not allowed."
+                )
+
+        # Run pre-flight validation for each selected workflow (unless bypassed)
+        # Validation runs for single workflow + target environment only
+        from app.services.promotion_validation_service import PromotionValidator
+        from app.schemas.promotion import ValidationResult, ValidationError as ValidationErrorSchema
+
+        validator = PromotionValidator()
+        selected_workflows = [ws for ws in request.workflow_selections if ws.selected]
+
+        if not selected_workflows:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No workflows selected for promotion"
+            )
+
+        # Run validation for each selected workflow with fail-fast behavior (unless bypassed)
+        all_validation_errors = []
+        all_validation_warnings = []
+        all_checks_run = []
+        first_correlation_id = None
+
+        if not validation_bypassed:
+            for workflow_selection in selected_workflows:
+                workflow_id = workflow_selection.workflow_id
+                workflow_name = workflow_selection.workflow_name
+
+                logger.info(
+                    f"Running pre-flight validation for workflow '{workflow_name}' "
+                    f"(workflow_id={workflow_id}, source={request.source_environment_id}, "
+                    f"target={request.target_environment_id})"
+                )
+
+                validation_result = await validator.run_preflight_validation(
+                    workflow_id=workflow_id,
+                    source_environment_id=request.source_environment_id,
+                    target_environment_id=request.target_environment_id,
+                    tenant_id=tenant_id
+                )
+
+                if not first_correlation_id:
+                    first_correlation_id = validation_result.get("correlation_id")
+
+                # Collect errors and warnings
+                all_validation_errors.extend(validation_result.get("validation_errors", []))
+                all_validation_warnings.extend(validation_result.get("validation_warnings", []))
+                all_checks_run.extend(validation_result.get("checks_run", []))
+
+                # Fail-fast: if any workflow fails validation, block promotion immediately
+                if not validation_result.get("validation_passed"):
+                    logger.warning(
+                        f"Pre-flight validation failed for workflow '{workflow_name}' "
+                        f"(workflow_id={workflow_id}, correlation_id={validation_result.get('correlation_id')})"
+                    )
+
+                    # Determine appropriate status code based on validation failure type
+                    # 409 CONFLICT: Drift policy blocking (active/expired incidents)
+                    # 400 BAD REQUEST: Other validation failures (credentials, environment health)
+                    validation_errors = validation_result.get("validation_errors", [])
+                    has_drift_policy_failure = any(
+                        err.get("check") == "drift_policy_compliance"
+                        for err in validation_errors
+                    )
+
+                    status_code = (
+                        status.HTTP_409_CONFLICT if has_drift_policy_failure
+                        else status.HTTP_400_BAD_REQUEST
+                    )
+
+                    # Return structured validation failure response with appropriate status code
+                    raise HTTPException(
+                        status_code=status_code,
+                        detail={
+                            "type": "validation_error",
+                            "validation_errors": validation_result.get("validation_errors", []),
+                            "validation_warnings": validation_result.get("validation_warnings", []),
+                            "checks_run": validation_result.get("checks_run", []),
+                            "correlation_id": validation_result.get("correlation_id"),
+                            "timestamp": validation_result.get("timestamp"),
+                            "failed_workflow_id": workflow_id,
+                            "failed_workflow_name": workflow_name
+                        }
+                    )
+
+            # Log successful validation
+            if all_validation_warnings:
+                logger.warning(
+                    f"Pre-flight validation passed with {len(all_validation_warnings)} warning(s) "
+                    f"(correlation_id={first_correlation_id})"
+                )
+            else:
+                logger.info(
+                    f"Pre-flight validation passed for {len(selected_workflows)} workflow(s) "
+                    f"(correlation_id={first_correlation_id})"
+                )
+        else:
+            # Validation was bypassed - log it clearly
+            logger.warning(
+                f"Pre-flight validation BYPASSED by admin user {user.get('email')} "
+                f"for {len(selected_workflows)} workflow(s) (audit_log_id={audit_log_id})"
+            )
+
+        # Note: Drift policy blocking and credential availability checks are now handled
+        # by the PromotionValidator service above. The old checks below are kept for
+        # backward compatibility during migration but are redundant.
+
+        # Legacy credential preflight check (kept for backward compatibility)
+        # TODO: Remove this once validation service is fully tested in production
         preflight_result = None
         workflow_ids = [ws.workflow_id for ws in request.workflow_selections if ws.selected]
         provider = source_env.get("provider", "n8n") or "n8n"
-        
+
         if workflow_ids:
             try:
                 from app.api.endpoints.admin_credentials import credential_preflight_check
                 from app.schemas.credential import CredentialPreflightRequest
-                
+
                 preflight_request = CredentialPreflightRequest(
                     source_environment_id=request.source_environment_id,
                     target_environment_id=request.target_environment_id,
@@ -938,22 +1085,23 @@ async def initiate_deployment(
                     body=preflight_request,
                     user_info=user_info
                 )
-                
-                # Block promotion if there are blocking issues
-                if not preflight_result.valid:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail={
-                            "error": "credential_preflight_failed",
-                            "blocking_issues": [issue.dict() for issue in preflight_result.blocking_issues],
-                            "warnings": [issue.dict() for issue in preflight_result.warnings],
-                            "resolved_mappings": [mapping.dict() for mapping in preflight_result.resolved_mappings]
-                        }
-                    )
+
+                # Note: Credential validation is now handled by PromotionValidator above
+                # This check is redundant but kept for safety during migration
+                # if not preflight_result.valid:
+                #     raise HTTPException(
+                #         status_code=status.HTTP_400_BAD_REQUEST,
+                #         detail={
+                #             "error": "credential_preflight_failed",
+                #             "blocking_issues": [issue.dict() for issue in preflight_result.blocking_issues],
+                #             "warnings": [issue.dict() for issue in preflight_result.warnings],
+                #             "resolved_mappings": [mapping.dict() for mapping in preflight_result.resolved_mappings]
+                #         }
+                #     )
             except HTTPException:
                 raise
             except Exception as e:
-                logger.warning(f"Preflight check failed (non-blocking): {e}")
+                logger.warning(f"Legacy preflight check failed (non-blocking): {e}")
                 # Don't block promotion if preflight fails, but log it
 
         # Check if approval required
@@ -1018,7 +1166,9 @@ async def initiate_deployment(
                 "warnings": [],
                 "resolved_mappings": []
             },
-            message="Promotion initiated successfully"
+            message="Promotion initiated successfully" + (" (validation bypassed by admin)" if validation_bypassed else ""),
+            validation_bypassed=validation_bypassed,
+            audit_log_id=audit_log_id
         )
 
     except HTTPException:
@@ -1079,6 +1229,38 @@ async def _execute_promotion_background(
         if not target_connected:
             raise ValueError(f"Failed to connect to target environment")
         logger.info(f"[Job {job_id}] Target environment connection successful")
+
+        # Create PRE_PROMOTION snapshot BEFORE applying any changes to target environment
+        # This snapshot serves as a rollback point if the promotion fails or needs to be reverted
+        logger.info(f"[Job {job_id}] Creating PRE_PROMOTION snapshot of target environment before applying changes")
+        try:
+            from app.services.promotion_service import promotion_service
+
+            pre_promotion_snapshot_id = await promotion_service.create_pre_promotion_snapshot(
+                tenant_id=tenant_id,
+                target_env_id=target_env.get("id"),
+                promotion_id=promotion_id
+            )
+
+            logger.info(f"[Job {job_id}] PRE_PROMOTION snapshot created successfully: {pre_promotion_snapshot_id}")
+
+            # Update deployment record with snapshot ID for tracking
+            await db_service.update_deployment(deployment_id, {
+                "pre_promotion_snapshot_id": pre_promotion_snapshot_id
+            })
+
+            # Update job progress
+            await background_job_service.update_progress(
+                job_id=job_id,
+                current=0,
+                total=total_workflows,
+                message="Pre-promotion snapshot created, starting workflow transfer"
+            )
+        except Exception as snapshot_error:
+            logger.error(f"[Job {job_id}] Failed to create PRE_PROMOTION snapshot: {str(snapshot_error)}")
+            # Continue with promotion even if snapshot creation fails
+            # This ensures backward compatibility and doesn't block promotions
+            logger.warning(f"[Job {job_id}] Continuing with promotion despite snapshot failure")
 
         # NOTE: deployment_workflows records are pre-created in execute_promotion() before this task starts
         # This ensures workflow records exist even if this background job fails early

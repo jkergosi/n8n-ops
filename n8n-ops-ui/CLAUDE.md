@@ -83,6 +83,7 @@ User starts the frontend with: `npm run dev`
 | `AlertsPage` | `/alerts` | Alert configuration |
 | `LoginPage` | `/login` | User authentication |
 | `OnboardingPage` | `/onboarding` | New user setup |
+| `TechnicalDifficultiesPage` | `/technical-difficulties` | Backend connectivity issues fallback |
 
 ### Support Pages
 | Page | Route | Description |
@@ -239,13 +240,16 @@ shadcn/ui components: `button`, `card`, `dialog`, `table`, `tabs`, `input`, `sel
 - `EnvironmentSequence.tsx` - Visual env promotion path
 - `StageCard.tsx` - Stage config (gates, approvals, schedule)
 
-## Custom Hooks (`src/hooks/`)
+## Custom Hooks (`src/hooks/` and `src/lib/`)
 
 | Hook | Purpose |
 |------|---------|
 | `useWorkflowActionPolicy.ts` | Fetches workflow action permissions based on environment class |
 | `useEnvironmentCapabilities.ts` | Fetches environment capabilities and action guards |
 | `useBackgroundJobs.ts` | Manages background job queries and updates |
+| `useBackgroundJobsSSE.ts` | SSE-based real-time updates for sync/backup/restore jobs with live logs |
+| `useHealthCheck.ts` | Monitors backend service health status with auto-polling |
+| `useConnectionStatus()` | Simplified hook returning 'online' / 'offline' / 'degraded' status |
 
 ### Workflow Action Policy (`src/lib/workflow-action-policy.ts`)
 ```typescript
@@ -256,6 +260,32 @@ const policy = getActionPolicy(environmentClass, userRole);
 if (policy.canDirectEdit) {
   // Show edit button
 }
+```
+
+### Health Monitoring (`src/lib/health-service.ts`, `src/lib/use-health-check.ts`)
+```typescript
+import { useHealthCheck, useConnectionStatus } from '@/lib/use-health-check';
+
+// Full health check hook
+const { status, healthStatus, isChecking, checkHealth } = useHealthCheck();
+
+// Simplified connection status
+const connectionStatus = useConnectionStatus(); // 'online' | 'offline' | 'degraded'
+```
+
+### Background Jobs SSE (`src/lib/use-background-jobs-sse.ts`)
+```typescript
+import { useBackgroundJobsSSE, type LogMessage } from '@/lib/use-background-jobs-sse';
+
+// Subscribe to real-time job updates with live log streaming
+const { isConnected, connectionError } = useBackgroundJobsSSE({
+  enabled: true,
+  environmentId: envId,
+  jobId: jobId,
+  onLogMessage: (msg: LogMessage) => {
+    console.log(`[${msg.level}] ${msg.message}`);
+  },
+});
 ```
 
 ## Types (`src/types/index.ts`)

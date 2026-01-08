@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "WorkflowOps"
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000"]
 
+    # Bulk Operations Configuration
+    MAX_BULK_WORKFLOWS: int = 50
+
     # Security
     SECRET_KEY: str
     ALGORITHM: str = "HS256"

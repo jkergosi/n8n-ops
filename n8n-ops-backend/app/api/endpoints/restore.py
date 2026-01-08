@@ -460,6 +460,9 @@ async def rollback_workflow(request: RollbackRequest, user_info: dict = Depends(
     """
     try:
         tenant_id = get_tenant_id(user_info)
+        user = user_info.get("user", {})
+        user_role = user.get("role", "user")
+
         # Get the snapshot
         snapshots = await db_service.get_workflow_snapshots(tenant_id)
         snapshot = next(
@@ -489,6 +492,7 @@ async def rollback_workflow(request: RollbackRequest, user_info: dict = Depends(
 
         adapter = None
         env_id = None
+        env_config = None
 
         for env in environments:
             try:
@@ -498,15 +502,37 @@ async def rollback_workflow(request: RollbackRequest, user_info: dict = Depends(
                 if existing:
                     adapter = env_adapter
                     env_id = env.get("id")
+                    env_config = env
                     break
             except Exception:
                 continue
 
-        if not adapter:
+        if not adapter or not env_config:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Could not find workflow in any environment"
             )
+
+        # Check action guard for restore/rollback
+        env_class_str = env_config.get("environment_class", "dev")
+        try:
+            env_class = EnvironmentClass(env_class_str)
+        except ValueError:
+            env_class = EnvironmentClass.DEV
+
+        # Get org policy flags
+        org_policy_flags = env_config.get("policy_flags", {}) or {}
+
+        try:
+            environment_action_guard.assert_can_perform_action(
+                env_class=env_class,
+                action=EnvironmentAction.RESTORE_ROLLBACK,
+                user_role=user_role,
+                org_policy_flags=org_policy_flags,
+                environment_name=env_config.get("n8n_name", env_id)
+            )
+        except ActionGuardError as e:
+            raise e
 
         # Create a snapshot of current state before rollback
         try:

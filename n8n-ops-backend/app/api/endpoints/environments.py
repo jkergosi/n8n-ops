@@ -566,25 +566,27 @@ async def _sync_environment_background(
                             env_map_result = db_service.client.table("workflow_env_map").select(
                                 "canonical_id, env_content_hash, workflow_data"
                             ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).execute()
-                            
-                            logger.info(f"DEV sync: Found {len(env_map_result.data or [])} workflows in env_map")
+
+                            env_map_data = env_map_result.data if env_map_result else []
+                            logger.info(f"DEV sync: Found {len(env_map_data)} workflows in env_map")
 
                             git_state_result = db_service.client.table("canonical_workflow_git_state").select(
                                 "canonical_id, git_content_hash"
                             ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).execute()
-                            
-                            logger.info(f"DEV sync: Found {len(git_state_result.data or [])} workflows in git_state")
+
+                            git_state_data = git_state_result.data if git_state_result else []
+                            logger.info(f"DEV sync: Found {len(git_state_data)} workflows in git_state")
 
                             # Build lookup for Git hashes
-                            git_hashes = {row["canonical_id"]: row["git_content_hash"] for row in (git_state_result.data or [])}
+                            git_hashes = {row["canonical_id"]: row["git_content_hash"] for row in git_state_data}
 
                             # Find workflows with changes - debug each decision
                             workflows_to_commit = []
                             skipped_no_data = 0
                             skipped_no_hash = 0
                             skipped_unchanged = 0
-                            
-                            for mapping in (env_map_result.data or []):
+
+                            for mapping in env_map_data:
                                 canonical_id = mapping["canonical_id"]
                                 env_hash = mapping.get("env_content_hash")
                                 git_hash = git_hashes.get(canonical_id)

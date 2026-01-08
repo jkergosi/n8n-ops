@@ -1063,6 +1063,71 @@ class DatabaseService:
                 # If parsing fails, fall back to the original value if available
                 execution_time = execution_data.get("executionTime")
 
+        # Normalize status for analytics queries
+        # Maps incoming status to canonical values without destroying original status
+        raw_status = execution_data.get("status", "unknown")
+        status_mapping = {
+            "failed": "error",
+            "success": "success",
+            "running": "running",
+            "waiting": "waiting"
+        }
+        normalized_status = status_mapping.get(raw_status, raw_status)
+
+        # Extract error information from execution data
+        # Priority order (as documented in migration):
+        # 1. Top-level execution error (execution_data.error)
+        # 2. data.resultData.error
+        # 3. data.executionData.resultData.error
+        # error_node: data.resultData.lastNodeExecuted
+        error_message = None
+        error_node = None
+
+        if raw_status in ("failed", "error"):
+            data = execution_data.get("data", {})
+
+            # Priority 1: Try top-level execution error first
+            top_level_error = execution_data.get("error")
+            if top_level_error:
+                if isinstance(top_level_error, dict):
+                    error_message = top_level_error.get("message") or top_level_error.get("description")
+                elif isinstance(top_level_error, str):
+                    error_message = top_level_error
+
+            # Priority 2: Try data.resultData.error
+            if not error_message and isinstance(data, dict):
+                result_data = data.get("resultData", {})
+                if isinstance(result_data, dict):
+                    error_obj = result_data.get("error")
+                    if isinstance(error_obj, dict):
+                        error_message = error_obj.get("message") or error_obj.get("description")
+                    elif isinstance(error_obj, str):
+                        error_message = error_obj
+
+            # Priority 3: Try data.executionData.resultData.error
+            if not error_message and isinstance(data, dict):
+                exec_data = data.get("executionData", {})
+                if isinstance(exec_data, dict):
+                    result_data = exec_data.get("resultData", {})
+                    if isinstance(result_data, dict):
+                        error_obj = result_data.get("error")
+                        if isinstance(error_obj, dict):
+                            error_message = error_obj.get("message") or error_obj.get("description")
+                        elif isinstance(error_obj, str):
+                            error_message = error_obj
+
+            # Extract error node from lastNodeExecuted
+            if isinstance(data, dict):
+                result_data = data.get("resultData", {})
+                if isinstance(result_data, dict):
+                    last_node_executed = result_data.get("lastNodeExecuted")
+                    if last_node_executed:
+                        error_node = str(last_node_executed)[:100]
+
+            # Truncate error message to 500 chars to avoid oversized DB values
+            if error_message:
+                error_message = str(error_message)[:500]
+
         # Extract fields from N8N execution data
         execution_record = {
             "tenant_id": tenant_id,
@@ -1070,11 +1135,14 @@ class DatabaseService:
             "execution_id": execution_data.get("id"),
             "workflow_id": execution_data.get("workflowId"),
             "workflow_name": execution_data.get("workflowData", {}).get("name") if execution_data.get("workflowData") else None,
-            "status": execution_data.get("status", "unknown"),
+            "status": raw_status,  # Preserve original status
+            "normalized_status": normalized_status,  # Add normalized status for analytics
             "mode": execution_data.get("mode"),
             "started_at": started_at,
             "finished_at": finished_at,
             "execution_time": execution_time,
+            "error_message": error_message,
+            "error_node": error_node,
             "data": execution_data,  # Store complete execution JSON
             "last_synced_at": datetime.utcnow().isoformat()
         }
@@ -1673,6 +1741,161 @@ class DatabaseService:
 
         return result[:limit]
 
+    async def get_execution_analytics(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        from_dt: str,
+        to_dt: str,
+        limit: int = 100,
+        offset: int = 0,
+        search: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get execution analytics aggregated by workflow for analytics dashboard.
+        100% DB-driven with no live n8n queries.
+
+        Args:
+            tenant_id: Tenant identifier
+            environment_id: Environment identifier
+            from_dt: ISO8601 UTC start timestamp
+            to_dt: ISO8601 UTC end timestamp
+            limit: Max results to return (capped at 500)
+            offset: Pagination offset
+            search: Optional search filter (min 3 chars, searches workflow_name and workflow_id)
+
+        Returns:
+            List of workflow analytics dicts with aggregated metrics
+        """
+        import logging
+        from collections import defaultdict
+        import numpy as np
+
+        logger = logging.getLogger(__name__)
+
+        # Build query to fetch all relevant executions
+        # We fetch execution data and aggregate in Python since Supabase doesn't support CTEs
+        query = (
+            self.client.table("executions")
+            .select("workflow_id, workflow_name, normalized_status, started_at, execution_time, error_message, error_node")
+            .eq("tenant_id", tenant_id)
+            .eq("environment_id", environment_id)
+            .eq("provider", "n8n")
+            .gte("started_at", from_dt)
+            .lt("started_at", to_dt)
+            .in_("normalized_status", ["success", "error"])
+        )
+
+        # Apply search filter if provided and >= 3 chars
+        # Note: Supabase doesn't support COALESCE in filters, so we'll filter in Python
+        response = query.execute()
+        executions = response.data or []
+
+        # Filter by search in Python if needed
+        if search and len(search) >= 3:
+            search_lower = search.lower()
+            executions = [
+                e for e in executions
+                if search_lower in (e.get("workflow_name") or e.get("workflow_id") or "").lower()
+            ]
+
+        # Aggregate by workflow
+        workflow_stats = defaultdict(lambda: {
+            "workflow_id": None,
+            "workflow_name": None,
+            "total_runs": 0,
+            "success_runs": 0,
+            "failure_runs": 0,
+            "durations": [],
+            "last_failure": None
+        })
+
+        for execution in executions:
+            wf_id = execution.get("workflow_id")
+            if not wf_id:
+                continue
+
+            stats = workflow_stats[wf_id]
+
+            # Set workflow identifiers
+            if stats["workflow_id"] is None:
+                stats["workflow_id"] = wf_id
+                stats["workflow_name"] = execution.get("workflow_name") or wf_id
+
+            # Count runs by status
+            stats["total_runs"] += 1
+            if execution.get("normalized_status") == "success":
+                stats["success_runs"] += 1
+            elif execution.get("normalized_status") == "error":
+                stats["failure_runs"] += 1
+
+                # Track last failure
+                started_at = execution.get("started_at")
+                if started_at and (stats["last_failure"] is None or started_at > stats["last_failure"]["started_at"]):
+                    stats["last_failure"] = {
+                        "started_at": started_at,
+                        "error_message": execution.get("error_message"),
+                        "error_node": execution.get("error_node")
+                    }
+
+            # Collect execution times
+            exec_time = execution.get("execution_time")
+            if exec_time is not None:
+                stats["durations"].append(exec_time)
+
+        # Calculate final metrics and format results
+        results = []
+        for wf_id, stats in workflow_stats.items():
+            # Calculate percentiles using numpy
+            p50_duration_ms = None
+            p95_duration_ms = None
+            avg_duration_ms = None
+
+            if stats["durations"]:
+                avg_duration_ms = sum(stats["durations"]) / len(stats["durations"])
+                p50_duration_ms = float(np.percentile(stats["durations"], 50))
+                p95_duration_ms = float(np.percentile(stats["durations"], 95))
+
+            # Calculate success rate
+            success_rate = None
+            if stats["total_runs"] > 0:
+                success_rate = stats["success_runs"] / stats["total_runs"]
+
+            # Format last failure info
+            last_failure_at = None
+            last_failure_error = None
+            last_failure_node = None
+            if stats["last_failure"]:
+                last_failure_at = stats["last_failure"]["started_at"]
+                last_failure_error = stats["last_failure"]["error_message"]
+                if last_failure_error and len(last_failure_error) > 300:
+                    last_failure_error = last_failure_error[:300]
+                last_failure_node = stats["last_failure"]["error_node"]
+
+            results.append({
+                "workflow_id": stats["workflow_id"],
+                "workflow_name": stats["workflow_name"],
+                "total_runs": stats["total_runs"],
+                "success_runs": stats["success_runs"],
+                "failure_runs": stats["failure_runs"],
+                "success_rate": success_rate,
+                "avg_duration_ms": avg_duration_ms,
+                "p50_duration_ms": p50_duration_ms,
+                "p95_duration_ms": p95_duration_ms,
+                "last_failure_at": last_failure_at,
+                "last_failure_error": last_failure_error,
+                "last_failure_node": last_failure_node
+            })
+
+        # Sort by failure_runs DESC, then total_runs DESC
+        results.sort(key=lambda x: (-x["failure_runs"], -x["total_runs"]))
+
+        # Apply pagination
+        start_idx = offset
+        end_idx = offset + limit
+
+        return results[start_idx:end_idx]
+
     # Deployment stats for observability
     async def get_deployment_stats(
         self,
@@ -1857,6 +2080,26 @@ class DatabaseService:
     async def delete_credential_mapping(self, tenant_id: str, mapping_id: str) -> bool:
         self.client.table("credential_mappings").delete().eq("tenant_id", tenant_id).eq("id", mapping_id).execute()
         return True
+
+    async def update_mapping_health(
+        self,
+        tenant_id: str,
+        mapping_id: str,
+        status: str,
+        error: Optional[str] = None,
+        test_timestamp: Optional[datetime] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Update the health status of a credential mapping after testing"""
+        if test_timestamp is None:
+            test_timestamp = datetime.utcnow()
+
+        data = {
+            "last_test_at": test_timestamp.isoformat(),
+            "last_test_status": status,
+            "last_test_error": error,
+        }
+
+        return await self.update_credential_mapping(tenant_id, mapping_id, data)
 
     async def get_mapping_for_logical(
         self,
@@ -2492,8 +2735,97 @@ class DatabaseService:
             return False
         
         # Additional checks can be added here (e.g., untracked workflows)
-        
+
         return True
+
+    async def create_canonical_workflow_with_mapping(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        n8n_workflow_id: str,
+        display_name: Optional[str] = None,
+        created_by_user_id: Optional[str] = None,
+        workflow_data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Atomically create a canonical workflow and link it to an environment mapping.
+
+        This is used during onboarding of untracked workflows. Steps:
+        1. Generate a new canonical_id (UUID)
+        2. Create canonical workflow record in canonical_workflows
+        3. Update/upsert workflow_env_map with canonical_id and status='linked'
+
+        Both operations must succeed or fail together (within same transaction scope).
+
+        Args:
+            tenant_id: Tenant ID
+            environment_id: Environment ID
+            n8n_workflow_id: n8n workflow ID
+            display_name: Display name for the canonical workflow
+            created_by_user_id: User ID who triggered the onboarding
+            workflow_data: Full workflow data (optional, for env_content_hash)
+
+        Returns:
+            Created canonical workflow record
+        """
+        from app.schemas.canonical_workflow import WorkflowMappingStatus
+        from app.services.canonical_workflow_service import compute_workflow_hash
+
+        canonical_id = str(uuid4())
+        now = datetime.utcnow().isoformat()
+
+        # Step 1: Create canonical workflow
+        canonical_data = {
+            "tenant_id": tenant_id,
+            "canonical_id": canonical_id,
+            "display_name": display_name,
+            "created_by_user_id": created_by_user_id,
+            "created_at": now
+        }
+        canonical_response = self.client.table("canonical_workflows").insert(canonical_data).execute()
+        if not canonical_response.data:
+            raise Exception("Failed to create canonical workflow")
+
+        canonical_workflow = canonical_response.data[0]
+
+        # Step 2: Update workflow_env_map to link to canonical
+        # Compute env_content_hash if workflow_data provided
+        env_content_hash = compute_workflow_hash(workflow_data) if workflow_data else ""
+
+        mapping_data = {
+            "tenant_id": tenant_id,
+            "environment_id": environment_id,
+            "canonical_id": canonical_id,
+            "n8n_workflow_id": n8n_workflow_id,
+            "status": WorkflowMappingStatus.LINKED.value,
+            "linked_at": now,
+            "linked_by_user_id": created_by_user_id,
+            "last_env_sync_at": now,
+            "env_content_hash": env_content_hash
+        }
+
+        # Include workflow_data if provided
+        if workflow_data:
+            mapping_data["workflow_data"] = workflow_data
+            mapping_data["n8n_updated_at"] = workflow_data.get("updatedAt")
+
+        # Upsert the mapping
+        mapping_response = self.client.table("workflow_env_map").upsert(
+            mapping_data,
+            on_conflict="tenant_id,environment_id,n8n_workflow_id"
+        ).execute()
+
+        if not mapping_response.data:
+            # Rollback: delete the canonical workflow we just created
+            try:
+                self.client.table("canonical_workflows").delete().eq(
+                    "tenant_id", tenant_id
+                ).eq("canonical_id", canonical_id).execute()
+            except Exception:
+                pass
+            raise Exception("Failed to create workflow mapping")
+
+        return canonical_workflow
 
 
 # Global instance

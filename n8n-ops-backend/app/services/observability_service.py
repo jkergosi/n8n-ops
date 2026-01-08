@@ -4,6 +4,7 @@ from collections import defaultdict
 import asyncio
 import time
 import logging
+import math
 
 from app.services.database import db_service
 from app.services.provider_registry import ProviderRegistry
@@ -50,6 +51,45 @@ def get_time_range_bounds(time_range: TimeRange) -> tuple[str, str]:
         since = now - timedelta(hours=24)
 
     return since.isoformat(), now.isoformat()
+
+
+def calculate_time_window(since: datetime, until: datetime) -> dict:
+    """
+    Calculate time window metrics from datetime bounds.
+
+    Uses ceiling functions to avoid truncation issues. For example:
+    - 36 hours becomes 2 days (not 1 day via integer truncation)
+    - 90 minutes becomes 2 hours (not 1 hour)
+
+    Args:
+        since: Start of the time window
+        until: End of the time window
+
+    Returns:
+        Dictionary with:
+        - time_window_hours: Hours in the window (ceiling)
+        - time_window_days: Days in the window (ceiling)
+        - total_seconds: Total seconds in the window (precise)
+    """
+    if until <= since:
+        return {
+            "time_window_hours": 0,
+            "time_window_days": 0,
+            "total_seconds": 0
+        }
+
+    total_seconds = (until - since).total_seconds()
+
+    # Use ceiling to avoid truncation issues
+    # e.g., 36 hours should be 2 days, not 1 day
+    time_window_hours = math.ceil(total_seconds / 3600)
+    time_window_days = math.ceil(total_seconds / 86400)
+
+    return {
+        "time_window_hours": time_window_hours,
+        "time_window_days": time_window_days,
+        "total_seconds": total_seconds
+    }
 
 
 def get_previous_period_bounds(time_range: TimeRange) -> tuple[str, str]:

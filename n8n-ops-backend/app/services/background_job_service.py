@@ -33,6 +33,8 @@ class BackgroundJobType:
     CANONICAL_RECONCILIATION = "canonical_reconciliation"
     CANONICAL_ONBOARDING_INVENTORY = "canonical_onboarding_inventory"
     DEV_GIT_SYNC = "dev_git_sync"
+    # Bulk operations
+    BULK_WORKFLOW_OPERATION = "bulk_workflow_operation"
 
 
 class BackgroundJobService:

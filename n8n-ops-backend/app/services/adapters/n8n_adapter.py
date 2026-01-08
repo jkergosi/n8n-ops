@@ -103,6 +103,19 @@ class N8NProviderAdapter:
         """Get available credential types from n8n."""
         return await self._client.get_credential_types()
 
+    async def test_credential(self, credential_id: str) -> Dict[str, Any]:
+        """Test a credential by attempting to use it.
+
+        N8N does not provide a native credential testing API, so we return
+        an 'unsupported' status for now. In the future, we could implement
+        provider-specific testing logic.
+        """
+        return {
+            "success": False,
+            "error": "Provider does not support credential testing",
+            "status": "unsupported"
+        }
+
     # =========================================================================
     # User Operations
     # =========================================================================

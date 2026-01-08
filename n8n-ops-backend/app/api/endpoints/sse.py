@@ -4,6 +4,7 @@ SSE (Server-Sent Events) endpoints for real-time deployment updates.
 Provides streaming endpoints for:
 - Deployments list page (counters + deployment rows)
 - Deployment detail page (single deployment with progress)
+- Background jobs (sync, backup, restore, bulk operations)
 """
 
 from fastapi import APIRouter, Request, Depends, HTTPException
@@ -610,6 +611,61 @@ async def emit_restore_progress(
         type="restore.progress",
         tenant_id=tenant_id,
         env_id=environment_id,
+        payload=payload.model_dump()
+    )
+    await sse_pubsub.publish(event)
+
+
+async def emit_bulk_operation_progress(
+    job_id: str,
+    operation_type: str,
+    status: str,
+    current: int,
+    total: int,
+    succeeded: int,
+    failed: int,
+    current_workflow_id: Optional[str] = None,
+    message: Optional[str] = None,
+    percentage: Optional[int] = None,
+    tenant_id: str = ""
+):
+    """
+    Emit a bulk_operation.progress event.
+
+    Call this during bulk workflow operations (sync, promote, snapshot)
+    to provide real-time progress updates.
+
+    Args:
+        job_id: Background job ID
+        operation_type: Type of operation (sync, promote, snapshot)
+        status: Current status (running, completed, failed)
+        current: Number of workflows processed so far
+        total: Total number of workflows
+        succeeded: Number of successful operations
+        failed: Number of failed operations
+        current_workflow_id: ID of workflow currently being processed
+        message: Human-readable progress message
+        percentage: Progress percentage (0-100)
+        tenant_id: Tenant ID for event routing
+    """
+    if not tenant_id:
+        return
+    from app.schemas.sse import BulkOperationProgressPayload
+    payload = BulkOperationProgressPayload(
+        job_id=job_id,
+        operation_type=operation_type,
+        status=status,
+        current=current,
+        total=total,
+        succeeded=succeeded,
+        failed=failed,
+        current_workflow_id=current_workflow_id,
+        message=message,
+        percentage=percentage
+    )
+    event = SSEEvent(
+        type="bulk_operation.progress",
+        tenant_id=tenant_id,
         payload=payload.model_dump()
     )
     await sse_pubsub.publish(event)

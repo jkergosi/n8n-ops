@@ -50,6 +50,7 @@ import { useEffect } from 'react';
 import { useBackgroundJobsSSE } from '@/lib/use-background-jobs-sse';
 import { SmartEmptyState } from '@/components/SmartEmptyState';
 import { useEnvironmentTypes, getEnvironmentTypeLabel } from '@/hooks/useEnvironmentTypes';
+import { getStateBadgeInfo } from '@/lib/environment-utils';
 
 export function EnvironmentsPage() {
   const navigate = useNavigate();
@@ -555,54 +556,8 @@ export function EnvironmentsPage() {
     }
   };
 
-  // Helper function to get state badge info (STATE = drift/tracking status only)
-  const getStateBadgeInfo = (env: Environment): {
-    status: 'in_sync' | 'drift_detected' | 'untracked' | 'unknown' | 'error';
-    label: string;
-    variant: 'default' | 'secondary' | 'destructive' | 'outline';
-    tooltip: string;
-  } => {
-    // Use case-insensitive comparison for drift_status
-    const driftStatus = (env.driftStatus || 'UNKNOWN').toUpperCase();
-
-    switch (driftStatus) {
-      case 'IN_SYNC':
-        return {
-          status: 'in_sync',
-          label: 'In Sync',
-          variant: 'default',
-          tooltip: 'This environment matches the canonical Git version.',
-        };
-      case 'DRIFT_DETECTED':
-        return {
-          status: 'drift_detected',
-          label: 'Drift Detected',
-          variant: 'destructive',
-          tooltip: 'This environment differs from the canonical Git version.',
-        };
-      case 'UNTRACKED':
-        return {
-          status: 'untracked',
-          label: 'Untracked',
-          variant: 'outline',
-          tooltip: 'No workflows are linked/tracked for this environment.',
-        };
-      case 'ERROR':
-        return {
-          status: 'error',
-          label: 'Error',
-          variant: 'secondary',
-          tooltip: 'An error occurred while checking state.',
-        };
-      default:
-        return {
-          status: 'unknown',
-          label: 'Unknown',
-          variant: 'outline',
-          tooltip: 'State has not been checked yet.',
-        };
-    }
-  };
+  // State badge info is now provided by centralized getStateBadgeInfo from environment-utils.ts
+  // It accounts for environment class (DEV shows "Pending Sync" instead of "Drift Detected")
 
   // Use the new features system for limits
   const { features, planName } = useFeatures();

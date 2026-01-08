@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { apiClient } from './api-client';
+import { healthService } from './health-service';
 import type { Entitlements } from '@/types';
 
 interface User {
@@ -29,6 +30,7 @@ interface AuthContextType {
   isLoading: boolean;
   initComplete: boolean;
   needsOnboarding: boolean;
+  backendUnavailable: boolean;
   user: User | null;
   tenant: Tenant | null;
   entitlements: Entitlements | null;
@@ -45,6 +47,24 @@ interface AuthContextType {
   completeOnboarding: (organizationName?: string) => Promise<void>;
   refreshEntitlements: () => Promise<void>;
   refreshAuth: () => Promise<void>;
+  retryConnection: () => Promise<void>;
+}
+
+
+// Helper to check if error is a backend unavailability error
+function isBackendUnavailableError(error: unknown): boolean {
+  if (!error) return false;
+  const err = error as any;
+  // Check for service unavailable flag (set by api-client)
+  if (err.isServiceUnavailable) return true;
+  // Check for network errors
+  if (err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK') return true;
+  if (err.message === 'Network Error') return true;
+  // Check for 503 status
+  if (err.response?.status === 503) return true;
+  // Check for timeout
+  if (err.message?.includes('timeout')) return true;
+  return false;
 }
 
 // Keep a single context instance across Vite HMR updates.
@@ -67,27 +87,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [impersonating, setImpersonating] = useState(false);
   const [actorUser, setActorUser] = useState<ActorUser | null>(null);
   const [authStatus, setAuthStatus] = useState<'initializing' | 'authenticated' | 'unauthenticated'>('initializing');
+  const [backendUnavailable, setBackendUnavailable] = useState(false);
 
   const isLoading = authStatus === 'initializing';
   const initComplete = authStatus !== 'initializing';
 
   if (!isTest) {
-    console.log('[Auth] Current state:', { authStatus, isLoading, initComplete, hasUser: !!user, hasTenant: !!tenant, impersonating });
+    console.log('[Auth] Current state:', { authStatus, isLoading, initComplete, hasUser: !!user, hasTenant: !!tenant, impersonating, backendUnavailable });
   }
 
   // Fetch user data from backend after Supabase authentication
-  const fetchUserData = useCallback(async (accessToken: string) => {
+  const fetchUserData = useCallback(async (accessToken: string): Promise<{ success: boolean; backendDown?: boolean }> => {
     try {
       apiClient.setAuthToken(accessToken);
 
       const { data: statusData } = await apiClient.getAuthStatus();
+
+      // Backend is reachable, clear any previous unavailable state
+      setBackendUnavailable(false);
 
       if (statusData.onboarding_required) {
         setNeedsOnboarding(true);
         setUser(null);
         setTenant(null);
         setAuthStatus('authenticated');
-        return;
+        return { success: true };
       }
 
       if (statusData.user && statusData.tenant) {
@@ -113,12 +137,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         setAuthStatus('authenticated');
+        return { success: true };
       } else {
         setAuthStatus('unauthenticated');
+        return { success: false };
       }
     } catch (error) {
       if (!isTest) console.error('[Auth] Failed to fetch user data:', error);
+
+      // Check if this is a backend unavailability error vs a real auth error
+      if (isBackendUnavailableError(error)) {
+        if (!isTest) console.warn('[Auth] Backend appears to be unavailable');
+        setBackendUnavailable(true);
+        // Don't set unauthenticated - the user might still be valid, just backend is down
+        setAuthStatus('unauthenticated'); // Still need to complete init
+        return { success: false, backendDown: true };
+      }
+
+      // Real auth error (like 401) - user is truly unauthenticated
+      setBackendUnavailable(false);
       setAuthStatus('unauthenticated');
+      return { success: false, backendDown: false };
     }
   }, [isTest]);
 
@@ -136,10 +175,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (currentSession) {
           await fetchUserData(currentSession.access_token);
         } else {
+          // No Supabase session - check if backend is available before assuming unauthenticated
+          // This prevents redirect to login when backend is actually down
+          let backendDown = false;
+          try {
+            const healthStatus = await healthService.checkHealth();
+            if (!isTest) console.log('[Auth] Health check result:', healthStatus.status);
+            if (healthStatus.status === 'unhealthy' || healthStatus.status === 'degraded') {
+              if (!isTest) console.warn('[Auth] No session and backend is unavailable/degraded');
+              backendDown = true;
+            }
+          } catch (healthError) {
+            // Health check failed - backend is likely down
+            if (!isTest) console.warn('[Auth] Health check failed, backend may be unavailable:', healthError);
+            backendDown = true;
+          }
+          
+          // Set backendUnavailable state if detected
+          if (backendDown) {
+            setBackendUnavailable(true);
+          }
           setAuthStatus('unauthenticated');
         }
       } catch (error) {
         if (!isTest) console.error('[Auth] Failed to init auth:', error);
+        // Check if backend is down
+        if (isBackendUnavailableError(error)) {
+          setBackendUnavailable(true);
+        }
         setAuthStatus('unauthenticated');
       }
     };
@@ -158,6 +221,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setEntitlements(null);
           setImpersonating(false);
           setActorUser(null);
+          setBackendUnavailable(false);
           setAuthStatus('unauthenticated');
           return;
         }
@@ -283,6 +347,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [session, fetchUserData]);
 
+  
+  // Retry connection when backend was unavailable
+  const retryConnection = useCallback(async () => {
+    if (!isTest) console.log('[Auth] Retrying connection...');
+    setAuthStatus('initializing');
+
+    if (session) {
+      const result = await fetchUserData(session.access_token);
+      if (result.success) {
+        setBackendUnavailable(false);
+      }
+    } else {
+      // Try to get a fresh session
+      try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        if (currentSession) {
+          setSession(currentSession);
+          const result = await fetchUserData(currentSession.access_token);
+          if (result.success) {
+            setBackendUnavailable(false);
+          }
+        } else {
+          setAuthStatus('unauthenticated');
+        }
+      } catch (error) {
+        if (!isTest) console.error('[Auth] Failed to retry connection:', error);
+        setAuthStatus('unauthenticated');
+      }
+    }
+  }, [session, fetchUserData, isTest]);
+
   const isAuthenticated = authStatus === 'authenticated';
 
   return (
@@ -292,6 +387,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         initComplete,
         needsOnboarding,
+        backendUnavailable,
         user,
         tenant,
         entitlements,
@@ -308,6 +404,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         completeOnboarding,
         refreshEntitlements,
         refreshAuth,
+        retryConnection,
       }}
     >
       {children}

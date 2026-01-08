@@ -78,6 +78,7 @@ import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import type { Environment, Workflow as WorkflowType, Snapshot, Credential, EnvironmentTypeConfig } from '@/types';
 import { useEnvironmentTypes, getEnvironmentTypeLabel } from '@/hooks/useEnvironmentTypes';
+import { getStateBadgeInfo } from '@/lib/environment-utils';
 
 // Helper to determine connection status based on last connected time
 function getConnectionStatus(lastConnected?: string): 'connected' | 'degraded' | 'offline' {
@@ -727,12 +728,14 @@ export function EnvironmentDetailPage() {
   const canAdminEnvironment = userRole === 'admin' || userRole === 'superuser' || userRole === 'super_admin';
   const canDeleteEnvironment = canAdminEnvironment && (!isProduction || userRole === 'superuser' || userRole === 'super_admin');
 
+  // Use centralized state badge info that accounts for environment class
+  // DEV environments show "Pending Sync" instead of "Drift Detected"
   const envState =
     environment.activeDriftIncidentId ? 'DRIFT_INCIDENT_ACTIVE' : (environment.driftStatus || 'IN_SYNC');
+  const stateBadge = getStateBadgeInfo(environment);
   const envStateLabel =
     envState === 'DRIFT_INCIDENT_ACTIVE' ? (canUseDriftIncidents ? 'Drift Incident Active' : 'Changes Detected') :
-    envState === 'DRIFT_DETECTED' ? (canUseDriftIncidents ? 'Drift Detected' : 'Changes Detected') :
-    'In Sync';
+    stateBadge.label;
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -771,11 +774,11 @@ export function EnvironmentDetailPage() {
               {getEnvironmentTypeBadge(environment.type)}
               <Badge
                 variant={
-                  envState === 'IN_SYNC' ? 'default' :
-                  envState === 'DRIFT_DETECTED' ? 'secondary' :
-                  'destructive'
+                  envState === 'DRIFT_INCIDENT_ACTIVE' ? 'destructive' :
+                  stateBadge.variant
                 }
                 className="text-sm"
+                title={stateBadge.tooltip}
               >
                 {envStateLabel}
               </Badge>
@@ -793,7 +796,8 @@ export function EnvironmentDetailPage() {
               </Link>
             </Button>
           )}
-          {envState === 'DRIFT_DETECTED' && (
+          {/* Drift incident actions only for non-DEV environments with drift detected */}
+          {envState === 'DRIFT_DETECTED' && stateBadge.status === 'drift_detected' && (
             canUseDriftIncidents ? (
               <Button
                 variant="default"
@@ -1032,10 +1036,10 @@ export function EnvironmentDetailPage() {
                   <div className="flex items-center gap-2">
                     <Badge
                       variant={
-                        envState === 'IN_SYNC' ? 'default' :
-                        envState === 'DRIFT_DETECTED' ? 'secondary' :
-                        'destructive'
+                        envState === 'DRIFT_INCIDENT_ACTIVE' ? 'destructive' :
+                        stateBadge.variant
                       }
+                      title={stateBadge.tooltip}
                     >
                       {envStateLabel}
                     </Badge>
@@ -1059,7 +1063,8 @@ export function EnvironmentDetailPage() {
                       </Link>
                     </Button>
                   )}
-                  {envState === 'DRIFT_DETECTED' && (
+                  {/* Drift incident actions only for non-DEV environments with drift detected */}
+                  {envState === 'DRIFT_DETECTED' && stateBadge.status === 'drift_detected' && (
                     canUseDriftIncidents ? (
                       <Button
                         onClick={async () => {

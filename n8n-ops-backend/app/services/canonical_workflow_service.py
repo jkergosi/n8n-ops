@@ -63,7 +63,7 @@ class CanonicalWorkflowService:
         
         try:
             response = db_service.client.table("canonical_workflows").insert(workflow_data).execute()
-            if response.data:
+            if response and response.data:
                 logger.info(f"Created canonical workflow {canonical_id} for tenant {tenant_id}")
                 return response.data[0]
             raise Exception("Failed to create canonical workflow")
@@ -84,10 +84,10 @@ class CanonicalWorkflowService:
                 .eq("tenant_id", tenant_id)
                 .eq("canonical_id", canonical_id)
                 .is_("deleted_at", "null")
-                .single()
+                .maybe_single()
                 .execute()
             )
-            return response.data if response.data else None
+            return response.data if response and response.data else None
         except Exception as e:
             logger.error(f"Error fetching canonical workflow {canonical_id}: {str(e)}")
             return None
@@ -107,9 +107,9 @@ class CanonicalWorkflowService:
             
             if not include_deleted:
                 query = query.is_("deleted_at", "null")
-            
+
             response = query.order("created_at", desc=True).execute()
-            return response.data or []
+            return (response.data or []) if response else []
         except Exception as e:
             logger.error(f"Error listing canonical workflows: {str(e)}")
             return []
@@ -129,7 +129,7 @@ class CanonicalWorkflowService:
                 .eq("canonical_id", canonical_id)
                 .execute()
             )
-            return response.data[0] if response.data else None
+            return response.data[0] if response and response.data else None
         except Exception as e:
             logger.error(f"Error updating canonical workflow {canonical_id}: {str(e)}")
             return None
@@ -162,7 +162,11 @@ class CanonicalWorkflowService:
         environment_id: str,
         canonical_id: str
     ) -> Optional[Dict[str, Any]]:
-        """Get Git state for a canonical workflow in a specific environment"""
+        """Get Git state for a canonical workflow in a specific environment.
+
+        Returns None if no Git state exists for this workflow in the environment.
+        This is expected for workflows that haven't been synced to Git yet.
+        """
         try:
             response = (
                 db_service.client.table("canonical_workflow_git_state")
@@ -170,10 +174,10 @@ class CanonicalWorkflowService:
                 .eq("tenant_id", tenant_id)
                 .eq("environment_id", environment_id)
                 .eq("canonical_id", canonical_id)
-                .single()
+                .maybe_single()
                 .execute()
             )
-            return response.data if response.data else None
+            return response.data if response and response.data else None
         except Exception as e:
             logger.error(f"Error fetching Git state: {str(e)}")
             return None
@@ -204,7 +208,7 @@ class CanonicalWorkflowService:
                 .upsert(git_state_data, on_conflict="tenant_id,environment_id,canonical_id")
                 .execute()
             )
-            return response.data[0] if response.data else git_state_data
+            return response.data[0] if response and response.data else git_state_data
         except Exception as e:
             logger.error(f"Error upserting Git state: {str(e)}")
             raise

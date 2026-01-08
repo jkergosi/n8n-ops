@@ -32,7 +32,7 @@ import { apiClient } from '@/lib/api-client';
 import { getDefaultEnvironmentId, sortEnvironments } from '@/lib/environment-utils';
 import type { Environment } from '@/types';
 import type { LogicalCredential, CredentialMapping } from '@/types/credentials';
-import { Shield, Server, Globe, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Shield, Server, Globe, Plus, Pencil, Trash2, PlayCircle, AlertCircle, CheckCircle2, XCircle, HelpCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { CredentialPicker } from '@/components/credentials/CredentialPicker';
 import { Combobox } from '@/components/ui/combobox';
@@ -192,6 +192,24 @@ export function CredentialHealthPage() {
     },
     onError: (error: any) => {
       toast.error(`Failed to delete mapping: ${error.message}`);
+    },
+  });
+
+  const testMappingMutation = useMutation({
+    mutationFn: (id: string) => apiClient.testCredentialMapping(id),
+    onSuccess: (response: any) => {
+      queryClient.invalidateQueries({ queryKey: ['credential-mappings'], refetchType: 'all' });
+      const status = response.data?.lastTestStatus;
+      if (status === 'success') {
+        toast.success('Credential test passed');
+      } else if (status === 'unsupported') {
+        toast.info('Credential testing not supported by provider');
+      } else {
+        toast.error(`Credential test failed: ${response.data?.lastTestError || 'Unknown error'}`);
+      }
+    },
+    onError: (error: any) => {
+      toast.error(`Failed to test credential: ${error.message}`);
     },
   });
 
@@ -476,43 +494,103 @@ export function CredentialHealthPage() {
                     <TableHead>Credential Alias</TableHead>
                     <TableHead>Physical Credential</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="w-[80px]">Actions</TableHead>
+                    <TableHead>Health</TableHead>
+                    <TableHead className="w-[120px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {mappings.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
                         No mappings for this filter
                       </TableCell>
                     </TableRow>
                   )}
-                  {mappings.map((m: any) => (
-                    <TableRow key={m.id}>
-                      <TableCell className="font-medium">{getLogicalName(m.logical_credential_id)}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span>{m.physical_name || m.physical_credential_id}</span>
-                          <span className="text-xs text-muted-foreground">{m.physical_type || 'unknown'}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={m.status === 'valid' ? 'default' : 'outline'}>
-                          {m.status || 'unknown'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => openEditMapping(m)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => setDeleteMappingId(m.id)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {mappings.map((m: any) => {
+                    const isTestPending = testMappingMutation.isPending && testMappingMutation.variables === m.id;
+                    const testStatus = m.lastTestStatus;
+                    const testError = m.lastTestError;
+                    const testTime = m.lastTestAt ? new Date(m.lastTestAt).toLocaleString() : null;
+                    const expirationInfo = m.expirationInfo;
+
+                    // Get status icon and color
+                    let statusIcon = <HelpCircle className="h-4 w-4 text-muted-foreground" />;
+                    let statusColor = 'default';
+                    let statusText = 'Not tested';
+
+                    if (testStatus === 'success') {
+                      statusIcon = <CheckCircle2 className="h-4 w-4 text-green-600" />;
+                      statusColor = 'success';
+                      statusText = 'Passed';
+                    } else if (testStatus === 'failed') {
+                      statusIcon = <XCircle className="h-4 w-4 text-destructive" />;
+                      statusColor = 'destructive';
+                      statusText = 'Failed';
+                    } else if (testStatus === 'unsupported') {
+                      statusIcon = <AlertCircle className="h-4 w-4 text-muted-foreground" />;
+                      statusColor = 'secondary';
+                      statusText = 'Unsupported';
+                    }
+
+                    return (
+                      <TableRow key={m.id}>
+                        <TableCell className="font-medium">{getLogicalName(m.logical_credential_id)}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span>{m.physical_name || m.physical_credential_id}</span>
+                            <span className="text-xs text-muted-foreground">{m.physical_type || 'unknown'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={m.status === 'valid' ? 'default' : 'outline'}>
+                            {m.status || 'unknown'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                              {statusIcon}
+                              <span className="text-sm">{statusText}</span>
+                            </div>
+                            {testTime && (
+                              <span className="text-xs text-muted-foreground">
+                                {testTime}
+                              </span>
+                            )}
+                            {testError && testStatus === 'failed' && (
+                              <span className="text-xs text-destructive" title={testError}>
+                                {testError.substring(0, 50)}{testError.length > 50 ? '...' : ''}
+                              </span>
+                            )}
+                            {expirationInfo?.daysUntilExpiry !== undefined && expirationInfo.daysUntilExpiry < 30 && (
+                              <Badge variant="destructive" className="text-xs">
+                                Expires in {expirationInfo.daysUntilExpiry} days
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => testMappingMutation.mutate(m.id)}
+                              disabled={isTestPending}
+                              title="Test credential"
+                            >
+                              <PlayCircle className={`h-4 w-4 ${isTestPending ? 'animate-spin' : ''}`} />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => openEditMapping(m)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => setDeleteMappingId(m.id)}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}

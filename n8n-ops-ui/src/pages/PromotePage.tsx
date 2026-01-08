@@ -1,7 +1,7 @@
 // @ts-nocheck
 // TODO: Fix TypeScript errors in this file
 import { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -117,7 +117,11 @@ export function PromotePage() {
   }, []);
 
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+
+  // Read workflow pre-selection from URL query parameter
+  const preSelectedWorkflowId = searchParams.get('workflow');
 
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>('');
   const [selectedStageIndex, setSelectedStageIndex] = useState<number>(-1);
@@ -210,18 +214,29 @@ export function PromotePage() {
 
   // Initialize selections when compare result changes
   // Pre-select only 'added' and 'modified' workflows
+  // If a workflow was pre-selected via URL, ensure it's selected
   useEffect(() => {
     if (compareResult?.workflows) {
       const newSelections = new Map<string, boolean>();
       compareResult.workflows.forEach(w => {
         // Only pre-select added and modified
         // NOT pre-selected: unchanged, target_hotfix, deleted
-        const shouldSelect = w.diffStatus === 'added' || w.diffStatus === 'modified';
+        let shouldSelect = w.diffStatus === 'added' || w.diffStatus === 'modified';
+
+        // If this workflow matches the pre-selected workflow from URL, select it
+        // regardless of its diff status (as long as it's not deleted/target-only)
+        if (preSelectedWorkflowId && w.diffStatus !== 'deleted') {
+          // Match by workflowId (which could be n8n_workflow_id or canonical_id)
+          if (w.workflowId === preSelectedWorkflowId) {
+            shouldSelect = true;
+          }
+        }
+
         newSelections.set(w.workflowId, shouldSelect);
       });
       setWorkflowSelections(newSelections);
     }
-  }, [compareResult]);
+  }, [compareResult, preSelectedWorkflowId]);
 
   // Categorize workflows for display
   const categorizedWorkflows = useMemo(() => {

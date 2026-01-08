@@ -16,6 +16,7 @@ from app.services.environment_action_guard import (
     ActionGuardError
 )
 from app.schemas.environment import EnvironmentClass
+from app.api.endpoints.admin_audit import create_audit_log, AuditActionType
 
 logger = logging.getLogger(__name__)
 from app.schemas.deployment import (
@@ -505,6 +506,74 @@ async def compare_snapshots(
         )
 
 
+@router.get("/workflows/{workflow_id}/environments/{environment_id}/latest")
+async def get_latest_snapshot_for_workflow_environment(
+    workflow_id: str,
+    environment_id: str,
+    type: Optional[SnapshotType] = Query(None, description="Filter by snapshot type (e.g., PRE_PROMOTION)"),
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("snapshots_enabled"))
+):
+    """
+    Get the latest snapshot for a specific environment, optionally filtered by type.
+
+    This endpoint is typically used to fetch the latest PRE_PROMOTION snapshot
+    for rollback purposes. The workflow_id parameter provides context but the
+    snapshot returned is environment-scoped (contains all workflows in the environment).
+
+    Args:
+        workflow_id: Workflow ID for context/authorization
+        environment_id: Environment ID to fetch snapshot for
+        type: Optional snapshot type filter (e.g., PRE_PROMOTION)
+
+    Returns:
+        Snapshot details including: snapshot_id, created_at, promotion_id (in metadata)
+
+    Raises:
+        HTTPException 404: When no snapshot exists for the environment (with or without type filter).
+                          This is expected when attempting rollback before any promotions have occurred.
+        HTTPException 500: When an unexpected error occurs during snapshot retrieval.
+    """
+    try:
+        tenant_id = get_tenant_id(user_info)
+
+        # Build query for latest snapshot
+        query = (
+            db_service.client.table("snapshots")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .eq("environment_id", environment_id)
+        )
+
+        # Apply type filter if provided
+        if type:
+            query = query.eq("type", type.value)
+
+        # Order by created_at descending and limit to 1
+        query = query.order("created_at", desc=True).limit(1)
+
+        result = query.execute()
+
+        if not result.data or len(result.data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No snapshot available for rollback in environment {environment_id}" +
+                       (f" with type {type.value}" if type else ""),
+            )
+
+        snapshot_data = result.data[0]
+        return SnapshotResponse(**snapshot_data)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch latest snapshot: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch latest snapshot: {str(e)}",
+        )
+
+
 @router.post("/{snapshot_id}/restore")
 async def restore_snapshot(
     snapshot_id: str,
@@ -514,6 +583,15 @@ async def restore_snapshot(
     Restore an environment to a snapshot's state.
     Pulls workflows from GitHub at the snapshot's commit SHA and pushes to N8N.
     Requires snapshots_enabled entitlement.
+
+    Raises:
+        HTTPException 404: When snapshot_id does not exist or when no workflows are found
+                          in GitHub at the snapshot's commit SHA. These conditions prevent
+                          rollback and require investigation.
+        HTTPException 403: When user lacks permission to perform rollback (via ActionGuardError).
+        HTTPException 400: When environment is not properly configured (missing GitHub config,
+                          missing environment type, etc.).
+        HTTPException 500: When an unexpected error occurs during the restore process.
     """
     tenant_id = user_info["tenant"]["id"]
     user = user_info.get("user", {})
@@ -568,6 +646,31 @@ async def restore_snapshot(
             )
         except ActionGuardError as e:
             raise e
+
+        # Create audit log for rollback start
+        user_id = user.get("id")
+        user_email = user.get("email")
+        user_name = user.get("name") or user_email
+
+        await create_audit_log(
+            action_type=AuditActionType.GITHUB_RESTORE_STARTED.value,
+            action=f"Snapshot rollback started for environment {env_config.get('n8n_name', environment_id)}",
+            actor_id=user_id,
+            actor_email=user_email,
+            actor_name=user_name,
+            tenant_id=tenant_id,
+            resource_type="snapshot",
+            resource_id=snapshot_id,
+            resource_name=f"Snapshot {snapshot_id[:8]}",
+            metadata={
+                "snapshot_id": snapshot_id,
+                "environment_id": environment_id,
+                "environment_name": env_config.get("n8n_name", environment_id),
+                "commit_sha": commit_sha,
+                "snapshot_type": snapshot.get("type"),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
 
         # Check GitHub config
         if not env_config.get("git_repo_url") or not env_config.get("git_pat"):
@@ -624,7 +727,51 @@ async def restore_snapshot(
         # This would be a manual_backup type snapshot
 
         success = len(errors) == 0
-        
+
+        # Create audit log for rollback completion
+        if success:
+            await create_audit_log(
+                action_type=AuditActionType.GITHUB_RESTORE_COMPLETED.value,
+                action=f"Snapshot rollback completed successfully for environment {env_config.get('n8n_name', environment_id)}",
+                actor_id=user_id,
+                actor_email=user_email,
+                actor_name=user_name,
+                tenant_id=tenant_id,
+                resource_type="snapshot",
+                resource_id=snapshot_id,
+                resource_name=f"Snapshot {snapshot_id[:8]}",
+                metadata={
+                    "snapshot_id": snapshot_id,
+                    "environment_id": environment_id,
+                    "environment_name": env_config.get("n8n_name", environment_id),
+                    "commit_sha": commit_sha,
+                    "restored_count": restored_count,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            )
+        else:
+            await create_audit_log(
+                action_type=AuditActionType.GITHUB_RESTORE_FAILED.value,
+                action=f"Snapshot rollback failed for environment {env_config.get('n8n_name', environment_id)}",
+                actor_id=user_id,
+                actor_email=user_email,
+                actor_name=user_name,
+                tenant_id=tenant_id,
+                resource_type="snapshot",
+                resource_id=snapshot_id,
+                resource_name=f"Snapshot {snapshot_id[:8]}",
+                metadata={
+                    "snapshot_id": snapshot_id,
+                    "environment_id": environment_id,
+                    "environment_name": env_config.get("n8n_name", environment_id),
+                    "commit_sha": commit_sha,
+                    "restored_count": restored_count,
+                    "failed_count": len(errors),
+                    "errors": errors,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            )
+
         # Emit snapshot.restore_success or snapshot.restore_failure event
         try:
             event_type = "snapshot.restore_success" if success else "snapshot.restore_failure"
@@ -654,7 +801,7 @@ async def restore_snapshot(
     except HTTPException:
         raise
     except Exception as e:
-        # Emit snapshot.restore_failure event on exception
+        # Create audit log for rollback failure on exception
         try:
             snapshot_result = (
                 db_service.client.table("snapshots")
@@ -665,10 +812,43 @@ async def restore_snapshot(
                 .execute()
             )
             if snapshot_result.data:
+                snapshot_data = snapshot_result.data
+                env_id = snapshot_data.get("environment_id")
+
+                # Get user info from outer scope if available
+                try:
+                    actor_id = user.get("id") if 'user' in locals() else None
+                    actor_email = user.get("email") if 'user' in locals() else None
+                    actor_name = user.get("name") or actor_email if 'user' in locals() else None
+                except:
+                    actor_id = None
+                    actor_email = None
+                    actor_name = None
+
+                await create_audit_log(
+                    action_type=AuditActionType.GITHUB_RESTORE_FAILED.value,
+                    action=f"Snapshot rollback failed with exception",
+                    actor_id=actor_id,
+                    actor_email=actor_email,
+                    actor_name=actor_name,
+                    tenant_id=tenant_id,
+                    resource_type="snapshot",
+                    resource_id=snapshot_id,
+                    resource_name=f"Snapshot {snapshot_id[:8]}",
+                    metadata={
+                        "snapshot_id": snapshot_id,
+                        "environment_id": env_id,
+                        "error_message": str(e),
+                        "error_type": type(e).__name__,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                )
+
+                # Emit snapshot.restore_failure event
                 await notification_service.emit_event(
                     tenant_id=tenant_id,
                     event_type="snapshot.restore_failure",
-                    environment_id=snapshot_result.data.get("environment_id"),
+                    environment_id=env_id,
                     metadata={
                         "snapshot_id": snapshot_id,
                         "error_message": str(e),
@@ -676,7 +856,7 @@ async def restore_snapshot(
                     }
                 )
         except Exception as event_error:
-            logger.error(f"Failed to emit snapshot.restore_failure event: {str(event_error)}")
+            logger.error(f"Failed to create audit log or emit event on restore failure: {str(event_error)}")
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

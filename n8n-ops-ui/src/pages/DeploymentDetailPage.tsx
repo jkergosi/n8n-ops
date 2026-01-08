@@ -16,7 +16,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { useDeploymentsSSE } from '@/lib/use-deployments-sse';
 import { useAuth } from '@/lib/auth';
-import { ArrowLeft, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Rocket, Trash2, User, RotateCcw } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Rocket, Trash2, User, RotateCcw, Undo2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { DeploymentWorkflow } from '@/types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -54,6 +54,7 @@ export function DeploymentDetailPage() {
   const [rerunDialogOpen, setRerunDialogOpen] = useState(false);
   const [errorSheetOpen, setErrorSheetOpen] = useState(false);
   const [selectedWorkflow, setSelectedWorkflow] = useState<DeploymentWorkflow | null>(null);
+  const [rollbackDialogOpen, setRollbackDialogOpen] = useState(false);
 
   const { data: deploymentData, isLoading, error } = useQuery({
     queryKey: ['deployment', id],
@@ -180,6 +181,38 @@ export function DeploymentDetailPage() {
     return ['failed', 'canceled', 'success'].includes(deployment.status);
   };
 
+  const canRollback = () => {
+    if (!deployment) return false;
+    // Rollback is available if deployment has a pre-snapshot and is completed
+    return !!deployment.preSnapshotId && ['success', 'failed'].includes(deployment.status);
+  };
+
+  const rollbackMutation = useMutation({
+    mutationFn: async () => {
+      if (!deployment?.preSnapshotId) {
+        throw new Error('No snapshot available for rollback');
+      }
+      return apiClient.restoreSnapshot(deployment.preSnapshotId);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      queryClient.invalidateQueries({ queryKey: ['deployment', id] });
+      toast.success(data.data.message || 'Rollback completed successfully');
+      setRollbackDialogOpen(false);
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.detail || error?.message || 'Failed to rollback deployment');
+    },
+  });
+
+  const handleRollbackClick = () => {
+    setRollbackDialogOpen(true);
+  };
+
+  const handleConfirmRollback = () => {
+    rollbackMutation.mutate();
+  };
+
   const handleDeleteClick = () => {
     setDeleteDialogOpen(true);
   };
@@ -270,6 +303,16 @@ export function DeploymentDetailPage() {
           <Badge variant={getStatusVariant(deployment.status)} className="text-base px-3 py-1">
             {deployment.status}
           </Badge>
+          {canRollback() && (
+            <Button
+              variant="outline"
+              onClick={handleRollbackClick}
+              disabled={rollbackMutation.isPending}
+            >
+              <Undo2 className="h-4 w-4 mr-2" />
+              {rollbackMutation.isPending ? 'Rolling back...' : 'Rollback'}
+            </Button>
+          )}
           {canRerunDeployment() && (
             <Button
               variant="default"
@@ -662,6 +705,62 @@ export function DeploymentDetailPage() {
               disabled={rerunMutation.isPending}
             >
               {rerunMutation.isPending ? 'Starting...' : 'Rerun Deployment'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Rollback Confirmation Dialog */}
+      <AlertDialog open={rollbackDialogOpen} onOpenChange={setRollbackDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rollback Deployment</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will restore the target environment to its state before this deployment was executed.
+              All workflows in the target environment will be reverted to their pre-deployment state.
+              {deployment && (
+                <div className="mt-4 space-y-2">
+                  <div className="p-3 bg-muted rounded-md space-y-1">
+                    <p className="font-medium text-sm">Deployment Details:</p>
+                    <p className="text-sm">
+                      <span className="font-medium">Pipeline:</span> {getPipelineName(deployment.pipelineId)}
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">Target Environment:</span> {getEnvironmentName(deployment.targetEnvironmentId)}
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">Workflows Affected:</span> {deployment.summaryJson?.total || 0} workflow(s)
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">Snapshot:</span> {deployment.preSnapshotId?.substring(0, 8)}...
+                    </p>
+                  </div>
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-md">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100">⚠️ Warning:</p>
+                    <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
+                      This action will overwrite the current state of workflows in the target environment.
+                      Make sure you understand the impact before proceeding.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmRollback}
+              disabled={rollbackMutation.isPending}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {rollbackMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Rolling back...
+                </>
+              ) : (
+                'Confirm Rollback'
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

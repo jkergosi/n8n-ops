@@ -19,7 +19,7 @@ import { apiClient } from '@/lib/api-client';
 import { useDeploymentsSSE } from '@/lib/use-deployments-sse';
 import { useFeatures } from '@/lib/features';
 import { SmartEmptyState } from '@/components/SmartEmptyState';
-import { Rocket, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Trash2, Radio, RotateCcw, GitBranch, Plus, Edit, Copy, PlayCircle, PauseCircle } from 'lucide-react';
+import { Rocket, ArrowRight, Clock, CheckCircle, AlertCircle, XCircle, Loader2, Trash2, Radio, RotateCcw, GitBranch, Plus, Edit, Copy, PlayCircle, PauseCircle, Undo2 } from 'lucide-react';
 import type { Deployment, Pipeline } from '@/types';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -58,7 +58,9 @@ export function DeploymentsPage() {
   const [showInactivePipelines, setShowInactivePipelines] = useState(true);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [deploymentToCancel, setDeploymentToCancel] = useState<Deployment | null>(null);
-  
+  const [rollbackDialogOpen, setRollbackDialogOpen] = useState(false);
+  const [deploymentToRollback, setDeploymentToRollback] = useState<Deployment | null>(null);
+
   const activeTab = searchParams.get('tab') || 'deployments';
   
   // Get plan and features for access control
@@ -291,6 +293,24 @@ export function DeploymentsPage() {
     },
   });
 
+  const rollbackMutation = useMutation({
+    mutationFn: async (deployment: Deployment) => {
+      if (!deployment.preSnapshotId) {
+        throw new Error('No snapshot available for rollback');
+      }
+      return apiClient.restoreSnapshot(deployment.preSnapshotId);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      toast.success(data.data.message || 'Rollback completed successfully');
+      setRollbackDialogOpen(false);
+      setDeploymentToRollback(null);
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.detail || error?.message || 'Failed to rollback deployment');
+    },
+  });
+
   const handleDeleteClick = (e: React.MouseEvent, deployment: Deployment) => {
     e.stopPropagation();
     setDeploymentToDelete(deployment);
@@ -327,8 +347,25 @@ export function DeploymentsPage() {
     }
   };
 
+  const handleRollbackClick = (e: React.MouseEvent, deployment: Deployment) => {
+    e.stopPropagation();
+    setDeploymentToRollback(deployment);
+    setRollbackDialogOpen(true);
+  };
+
+  const handleConfirmRollback = () => {
+    if (deploymentToRollback) {
+      rollbackMutation.mutate(deploymentToRollback);
+    }
+  };
+
   const canRerunDeployment = (deployment: Deployment) => {
     return ['failed', 'canceled', 'success'].includes(deployment.status);
+  };
+
+  const canRollback = (deployment: Deployment) => {
+    // Rollback is available if deployment has a pre-snapshot and is completed
+    return !!deployment.preSnapshotId && ['success', 'failed'].includes(deployment.status);
   };
 
   const deletePipelineMutation = useMutation({
@@ -626,6 +663,19 @@ export function DeploymentsPage() {
                               <XCircle className="h-4 w-4" />
                             </Button>
                           )}
+                          {canRollback(deployment) && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => handleRollbackClick(e, deployment)}
+                              disabled={rollbackMutation.isPending}
+                              className="h-8 w-8"
+                              title="Rollback deployment"
+                            >
+                              <Undo2 className="h-4 w-4" />
+                            </Button>
+                          )}
                           {canRerunDeployment(deployment) && (
                             <Button
                               type="button"
@@ -771,6 +821,64 @@ export function DeploymentsPage() {
               disabled={rerunMutation.isPending}
             >
               {rerunMutation.isPending ? 'Starting...' : 'Rerun Deployment'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Rollback Confirmation Dialog */}
+      <AlertDialog open={rollbackDialogOpen} onOpenChange={setRollbackDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rollback Deployment</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will restore the target environment to its state before this deployment was executed.
+              All workflows in the target environment will be reverted to their pre-deployment state.
+              {deploymentToRollback && (
+                <div className="mt-4 space-y-2">
+                  <div className="p-3 bg-muted rounded-md space-y-1">
+                    <p className="font-medium text-sm">Deployment Details:</p>
+                    <p className="text-sm">
+                      <span className="font-medium">Pipeline:</span> {getPipelineName(deploymentToRollback.pipelineId)}
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">Target Environment:</span> {getEnvironmentName(deploymentToRollback.targetEnvironmentId)}
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">Workflows Affected:</span> {deploymentToRollback.summaryJson?.total || 0} workflow(s)
+                    </p>
+                    {deploymentToRollback.preSnapshotId && (
+                      <p className="text-sm">
+                        <span className="font-medium">Snapshot:</span> {deploymentToRollback.preSnapshotId.substring(0, 8)}...
+                      </p>
+                    )}
+                  </div>
+                  <div className="p-3 bg-amber-50 dark:bg-amber-950/30 rounded-md">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-100">⚠️ Warning:</p>
+                    <p className="text-sm text-amber-800 dark:text-amber-200 mt-1">
+                      This action will overwrite the current state of workflows in the target environment.
+                      Make sure you understand the impact before proceeding.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmRollback}
+              disabled={rollbackMutation.isPending}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {rollbackMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Rolling back...
+                </>
+              ) : (
+                'Confirm Rollback'
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

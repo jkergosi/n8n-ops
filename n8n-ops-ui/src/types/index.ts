@@ -1642,6 +1642,29 @@ export interface ExecutionMetricsSummary {
   period: string;
 }
 
+export interface WorkflowAnalytics {
+  workflowId: string;
+  workflowName: string;
+  totalRuns: number;
+  successRuns: number;
+  failureRuns: number;
+  successRate: number | null;
+  avgDurationMs: number | null;
+  p50DurationMs: number | null;
+  p95DurationMs: number | null;
+  lastFailureAt: string | null;
+  lastFailureError: string | null;
+  lastFailureNode: string | null;
+}
+
+export interface ExecutionAnalyticsEnvelope {
+  generated_at: string;
+  from: string;
+  to: string;
+  time_window_days: number;
+  items: WorkflowAnalytics[];
+}
+
 // Workflow Action Policy types - MUST match backend WorkflowActionPolicy exactly
 export interface WorkflowActionPolicy {
   can_view_details: boolean;
@@ -1662,4 +1685,135 @@ export interface WorkflowPolicyResponse {
   plan: string;
   role: string;
   policy: WorkflowActionPolicy;
+}
+
+// Workflow Environment Status types for Matrix-Lite Overview
+// Status is computed server-side and returned as part of matrix response
+
+/**
+ * Status of a canonical workflow in a specific environment.
+ * These statuses are computed by the backend - the UI must not infer or compute status logic.
+ */
+export type WorkflowEnvironmentStatus = 'linked' | 'untracked' | 'drift' | 'out_of_date';
+
+/**
+ * Represents a single cell in the workflow × environment matrix.
+ * Contains the status and any action availability flags.
+ */
+export interface WorkflowMatrixCell {
+  /** Backend-computed status for this workflow in this environment */
+  status: WorkflowEnvironmentStatus;
+  /** Whether the Sync action is available (only for drift or out_of_date) */
+  canSync: boolean;
+  /** The n8n workflow ID in this environment, if present */
+  n8nWorkflowId?: string;
+  /** Content hash of the workflow in this environment */
+  contentHash?: string;
+}
+
+/**
+ * Environment metadata for matrix columns
+ */
+export interface WorkflowMatrixEnvironment {
+  id: string;
+  name: string;
+  type?: string;
+  environmentClass: EnvironmentClass;
+}
+
+/**
+ * Canonical workflow metadata for matrix rows
+ */
+export interface WorkflowMatrixRow {
+  /** Canonical workflow ID */
+  canonicalId: string;
+  /** Display name for the workflow */
+  displayName: string;
+  /** Timestamp when the canonical workflow was created */
+  createdAt: string;
+}
+
+/**
+ * Complete matrix response from the backend.
+ * This is the single source of truth for the Workflows Overview page.
+ */
+export interface WorkflowMatrixResponse {
+  /** List of canonical workflows (rows) */
+  workflows: WorkflowMatrixRow[];
+  /** List of environments (columns) */
+  environments: WorkflowMatrixEnvironment[];
+  /**
+   * Matrix data: canonicalId -> environmentId -> cell data
+   * A missing entry means the workflow has no presence in that environment.
+   */
+  matrix: Record<string, Record<string, WorkflowMatrixCell | null>>;
+}
+
+// Untracked Workflows Types
+
+/** A single untracked workflow from an n8n environment */
+export interface UntrackedWorkflowItem {
+  n8n_workflow_id: string;
+  name: string;
+  active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** Untracked workflows grouped by environment */
+export interface EnvironmentUntrackedWorkflows {
+  environment_id: string;
+  environment_name: string;
+  environment_class: string;
+  untracked_workflows: UntrackedWorkflowItem[];
+}
+
+/** Response for GET /api/v1/canonical/untracked */
+export interface UntrackedWorkflowsResponse {
+  environments: EnvironmentUntrackedWorkflows[];
+  total_untracked: number;
+}
+
+/** A single workflow to onboard */
+export interface OnboardWorkflowItem {
+  environment_id: string;
+  n8n_workflow_id: string;
+}
+
+/** Request for POST /api/v1/canonical/untracked/onboard */
+export interface OnboardWorkflowsRequest {
+  workflows: OnboardWorkflowItem[];
+}
+
+/** Result for a single onboarded workflow */
+export interface OnboardResultItem {
+  environment_id: string;
+  n8n_workflow_id: string;
+  status: 'onboarded' | 'skipped' | 'failed';
+  canonical_workflow_id?: string;
+  reason?: string;
+}
+
+/** Response for POST /api/v1/canonical/untracked/onboard */
+export interface OnboardWorkflowsResponse {
+  results: OnboardResultItem[];
+  total_onboarded: number;
+  total_skipped: number;
+  total_failed: number;
+}
+
+/** Result for a single environment scan */
+export interface ScanEnvironmentResult {
+  environment_id: string;
+  environment_name: string;
+  status: 'success' | 'failed';
+  workflows_found?: number;
+  error?: string;
+}
+
+/** Response for POST /api/v1/canonical/untracked/scan */
+export interface ScanEnvironmentsResponse {
+  environments_scanned: number;
+  environments_failed: number;
+  results: ScanEnvironmentResult[];
 }

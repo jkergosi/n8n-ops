@@ -80,6 +80,7 @@ import {
 } from 'lucide-react';
 import type { EnvironmentType, Workflow, WorkflowNode, ExecutionMetricsSummary, Execution } from '@/types';
 import type { WorkflowCredentialDependencyResponse } from '@/types/credentials';
+import { getStateBadgeInfo } from '@/lib/environment-utils';
 
 // Score badge component
 function ScoreBadge({ score, level }: { score: number; level: string }) {
@@ -1306,15 +1307,22 @@ export function WorkflowDetailPage() {
                     </div>
                   </div>
                 )}
-                {driftData?.hasDrift && (
-                  <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800">
-                    <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
-                    <div>
-                      <p className="font-medium text-yellow-800 dark:text-yellow-200">Git Drift Detected</p>
-                      <p className="text-sm text-yellow-600 dark:text-yellow-400">Workflow differs from Git</p>
+                {driftData?.hasDrift && (() => {
+                  const isDev = currentEnvironment?.environmentClass?.toLowerCase() === 'dev';
+                  return (
+                    <div className={`flex items-start gap-2 p-3 rounded-lg ${isDev ? 'bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800' : 'bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800'}`}>
+                      <AlertCircle className={`h-5 w-5 mt-0.5 ${isDev ? 'text-blue-600' : 'text-yellow-600'}`} />
+                      <div>
+                        <p className={`font-medium ${isDev ? 'text-blue-800 dark:text-blue-200' : 'text-yellow-800 dark:text-yellow-200'}`}>
+                          {isDev ? 'Pending Sync' : 'Git Drift Detected'}
+                        </p>
+                        <p className={`text-sm ${isDev ? 'text-blue-600 dark:text-blue-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                          {isDev ? 'DEV changes haven\'t been persisted to Git yet.' : 'Workflow differs from Git'}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
                 {executionMetrics && executionMetrics.successRate < 80 && (
                   <div className="flex items-start gap-2 p-3 rounded-lg bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800">
                     <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5" />
@@ -2315,12 +2323,14 @@ export function WorkflowDetailPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         {driftData?.hasDrift ? (
-                          <AlertCircle className="h-5 w-5 text-yellow-500" />
+                          <AlertCircle className={`h-5 w-5 ${currentEnvironment?.environmentClass?.toLowerCase() === 'dev' ? 'text-blue-500' : 'text-yellow-500'}`} />
                         ) : (
                           <CheckCircle2 className="h-5 w-5 text-green-500" />
                         )}
                         <span className="font-medium">
-                          {driftData?.hasDrift ? 'Drift Detected' : 'In Sync with Git'}
+                          {driftData?.hasDrift
+                            ? (currentEnvironment?.environmentClass?.toLowerCase() === 'dev' ? 'Pending Sync' : 'Drift Detected')
+                            : 'In Sync with Git'}
                         </span>
                       </div>
                       {driftData?.lastCommitSha && (

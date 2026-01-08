@@ -153,6 +153,7 @@ class PromotionInitiateRequest(BaseModel):
     source_environment_id: str
     target_environment_id: str
     workflow_selections: List[WorkflowSelection]
+    bypass_validation: bool = False  # Admin-only emergency bypass
 
 
 class DependencyWarning(BaseModel):
@@ -171,6 +172,8 @@ class PromotionInitiateResponse(BaseModel):
     dependency_warnings: Dict[str, List[DependencyWarning]] = {}  # workflow_id -> list of missing deps
     preflight: Optional[Dict[str, Any]] = None
     message: str
+    validation_bypassed: bool = False  # True if admin bypass was used
+    audit_log_id: Optional[str] = None  # Set when bypass is used
 
 
 class PromotionApprovalRequest(BaseModel):
@@ -254,6 +257,49 @@ class PromotionDriftCheck(BaseModel):
     drift_details: List[Dict[str, Any]] = []
     can_proceed: bool = False
     requires_sync: bool = False
+
+
+# =============================================================================
+# NEW: Promotion Pre-Flight Validation Schemas
+# =============================================================================
+
+class ValidationCheckStatus(str, Enum):
+    """Status of an individual validation check."""
+    PASSED = "passed"
+    FAILED = "failed"
+    WARNING = "warning"
+    SKIPPED = "skipped"
+
+
+class ValidationError(BaseModel):
+    """
+    Individual validation error/warning with actionable remediation steps.
+
+    Used in pre-flight validation to communicate specific check failures
+    with clear guidance on how to resolve them.
+    """
+    check: str  # e.g., "credential_availability", "target_environment_health"
+    status: ValidationCheckStatus
+    message: str  # Human-readable error message
+    remediation: Optional[str] = None  # Actionable steps to resolve the issue
+    details: Dict[str, Any] = {}  # Additional context (missing credentials, incident IDs, etc.)
+
+
+class ValidationResult(BaseModel):
+    """
+    Complete pre-flight validation result for a promotion.
+
+    Contains all validation checks run, with fail-closed enforcement for
+    credential/environment/drift checks and fail-open warnings for internal errors.
+    """
+    validation_passed: bool  # Overall pass/fail - promotion can proceed only if True
+    validation_errors: List[ValidationError] = []  # Failed checks (blocks promotion)
+    validation_warnings: List[ValidationError] = []  # Warnings (doesn't block, but logged)
+    checks_run: List[str] = []  # List of check names executed
+    correlation_id: Optional[str] = None  # For tracking fail-open events
+    timestamp: datetime
+    validation_bypassed: bool = False  # True if admin bypass was used
+    audit_log_id: Optional[str] = None  # Set when bypass is used
 
 
 # =============================================================================

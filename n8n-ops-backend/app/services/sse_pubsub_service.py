@@ -137,12 +137,12 @@ class SSEPubSubService:
                     should_send = event.type.startswith("deployment.") or event.type == "counts.update"
             elif sub.scope == "background_jobs_list":
                 # List scope receives all background job events
-                should_send = event.type in ["sync.progress", "backup.progress", "restore.progress"]
+                should_send = event.type in ["sync.progress", "backup.progress", "restore.progress", "bulk_operation.progress"]
             elif sub.scope.startswith("background_jobs_env:"):
                 # Environment scope receives events for that specific environment
                 sub_env_id = sub.environment_id
                 if event.env_id and sub_env_id:
-                    should_send = (event.env_id == sub_env_id) and event.type in ["sync.progress", "backup.progress", "restore.progress"]
+                    should_send = (event.env_id == sub_env_id) and event.type in ["sync.progress", "backup.progress", "restore.progress", "bulk_operation.progress"]
                 else:
                     should_send = False
             elif sub.scope.startswith("background_jobs_job:"):
@@ -151,7 +151,7 @@ class SSEPubSubService:
                 # Extract job_id from payload if available
                 event_job_id = event.payload.get("job_id") if isinstance(event.payload, dict) else None
                 if event_job_id and sub_job_id:
-                    should_send = (event_job_id == sub_job_id) and event.type in ["sync.progress", "backup.progress", "restore.progress"]
+                    should_send = (event_job_id == sub_job_id) and event.type in ["sync.progress", "backup.progress", "restore.progress", "bulk_operation.progress"]
                 else:
                     should_send = False
             else:

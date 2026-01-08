@@ -97,6 +97,9 @@ Port configuration is in `.env.local` (root) and should not be modified without 
 - **Real-time Updates**: SSE-based live notifications
 - **Canonical Workflows**: Repository-based workflow management with environment synchronization
 - **Background Jobs**: Async task execution with progress tracking
+- **Live Log Streaming**: SSE-based real-time log streaming for sync/backup/restore operations
+- **Health Monitoring**: Automated health checks with heartbeat tracking for environments
+- **Service Recovery**: Automatic detection and handling of backend connectivity issues
 
 ## Dev Mode Authentication
 
@@ -115,17 +118,17 @@ n8n-ops/
 │   ├── CLAUDE.md                # Backend-specific docs
 │   ├── app/
 │   │   ├── main.py              # App entry, router registration
-│   │   ├── api/endpoints/       # 40+ API routers
-│   │   ├── services/            # 30+ business logic services
-│   │   ├── schemas/             # 25+ Pydantic model files
+│   │   ├── api/endpoints/       # 47+ API routers
+│   │   ├── services/            # 41+ business logic services
+│   │   ├── schemas/             # 24+ Pydantic model files
 │   │   └── core/                # Config, feature gates
 │   ├── alembic/                 # Alembic migrations
 │   ├── migrations/              # SQL migrations
-│   └── tests/                   # 35+ pytest test files
+│   └── tests/                   # 42+ pytest test files
 ├── n8n-ops-ui/                  # React frontend
 │   ├── CLAUDE.md                # Frontend-specific docs
 │   └── src/
-│       ├── pages/               # 30+ pages + 4 support + 16 admin pages
+│       ├── pages/               # 58+ pages (core + support + admin)
 │       ├── components/          # UI, workflow, pipeline components
 │       ├── hooks/               # Custom React hooks
 │       ├── lib/                 # API client, auth, features

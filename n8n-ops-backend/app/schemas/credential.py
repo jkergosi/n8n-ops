@@ -117,6 +117,10 @@ class CredentialMappingResponse(CredentialMappingBase):
     tenant_id: str
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    last_test_at: Optional[datetime] = None
+    last_test_status: Optional[str] = None  # 'success', 'failed', 'unsupported'
+    last_test_error: Optional[str] = None
+    expiration_info: Optional[Dict[str, Any]] = None  # Computed at test-time, not persisted
 
     class Config:
         from_attributes = True
@@ -235,3 +239,12 @@ class MappingValidationReport(BaseModel):
     invalid: int
     stale: int
     issues: List[MappingIssue] = []
+
+
+class CredentialTestResult(BaseModel):
+    """Result of testing a credential"""
+    success: bool
+    status: str  # 'success', 'failed', 'unsupported'
+    error: Optional[str] = None
+    expiration_info: Optional[Dict[str, Any]] = None
+    tested_at: datetime

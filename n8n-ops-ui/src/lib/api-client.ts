@@ -72,6 +72,13 @@ import type {
   DriftPolicyUpdate,
   DriftPolicyTemplate,
   DriftApproval,
+  UntrackedWorkflowsResponse,
+  ScanEnvironmentsResponse,
+  OnboardWorkflowItem,
+  OnboardWorkflowsResponse,
+  WorkflowMatrixResponse,
+  WorkflowAnalytics,
+  ExecutionAnalyticsEnvelope,
 } from '@/types';
 
 // Helper function to determine if a string is a UUID
@@ -131,6 +138,8 @@ class ApiClient {
             return this.client(config);
           }
           console.error('[ApiClient] Max retries exceeded for network error');
+          // Mark as service unavailable so auth can detect backend is down
+          (error as any).isServiceUnavailable = true;
         }
 
         // 503 Service Unavailable - don't retry, trigger health check
@@ -152,14 +161,30 @@ class ApiClient {
         // 401 Unauthorized
         if (error.response?.status === 401) {
           const url = error.config?.url || '';
-          // Don't redirect if it's a health check failure
-          if (url.includes('/health')) {
+          // Don't redirect for:
+          // 1. Health check endpoints
+          // 2. Auth status check (during initial load)
+          // 3. Feature/entitlement loading endpoints
+          // Let the auth context handle these cases
+          const skipRedirectUrls = ['/health', '/auth/status', '/plans/', '/feature-requirements', '/feature-display-names'];
+          const shouldSkipRedirect = skipRedirectUrls.some(pattern => url.includes(pattern));
+          
+          if (shouldSkipRedirect) {
             return Promise.reject(error);
           }
-          // Handle unauthorized - redirect to login
+          
+          // For other 401s, only redirect if we're not already handling auth
+          // Check if we had a token before (meaning we were authenticated)
+          const hadToken = !!localStorage.getItem('auth_token');
+          
+          // Handle unauthorized - clear token
           localStorage.removeItem('auth_token');
-          // Only redirect if not already on login page to prevent loops
-          if (window.location.pathname !== '/login') {
+          
+          // Only redirect if:
+          // 1. Not already on login page (prevent loops)
+          // 2. We had a valid token before (user was logged in)
+          // This prevents redirect during initial page load when auth is checking
+          if (window.location.pathname !== '/login' && hadToken) {
             window.location.href = '/login';
           }
         }
@@ -391,6 +416,7 @@ class ApiClient {
       gitPat: env.git_pat,
       createdAt: env.created_at,
       updatedAt: env.updated_at,
+      environmentClass: env.environment_class,
     }));
     return { data };
   }
@@ -426,6 +452,7 @@ class ApiClient {
       gitPat: env.git_pat,
       createdAt: env.created_at,
       updatedAt: env.updated_at,
+      environmentClass: env.environment_class,
     };
     return { data };
   }
@@ -1141,6 +1168,27 @@ class ApiClient {
     return { data: response.data };
   }
 
+  async getExecutionAnalytics(params: {
+    environmentId: string;
+    fromTime: string;
+    toTime: string;
+    limit?: number;
+    offset?: number;
+    search?: string;
+  }): Promise<{ data: ExecutionAnalyticsEnvelope }> {
+    const queryParams: any = {
+      environment_id: params.environmentId,
+      from_time: params.fromTime,
+      to_time: params.toTime,
+    };
+    if (params.limit) queryParams.limit = params.limit;
+    if (params.offset) queryParams.offset = params.offset;
+    if (params.search) queryParams.search = params.search;
+
+    const response = await this.client.get<ExecutionAnalyticsEnvelope>('/executions/analytics', { params: queryParams });
+    return { data: response.data };
+  }
+
   // Pipeline endpoints
   private transformPipelineResponse(p: any): Pipeline {
     return {
@@ -1727,6 +1775,21 @@ class ApiClient {
     return { data: response.data };
   }
 
+  async getLatestSnapshot(
+    workflowId: string,
+    environmentId: string,
+    type?: 'auto_backup' | 'pre_promotion' | 'post_promotion' | 'manual_backup'
+  ): Promise<{ data: Snapshot }> {
+    const params = new URLSearchParams();
+    if (type) {
+      params.append('type', type);
+    }
+    const queryString = params.toString();
+    const url = `/workflows/${workflowId}/environments/${environmentId}/latest${queryString ? `?${queryString}` : ''}`;
+    const response = await this.client.get(url);
+    return { data: this._transformSnapshot(response.data) };
+  }
+
   // Helper method to transform snapshot data
   private _transformSnapshot(s: any): Snapshot {
     return {
@@ -2103,6 +2166,32 @@ class ApiClient {
 
   async deleteCredentialMapping(id: string): Promise<void> {
     await this.client.delete(`/admin/credentials/mappings/${id}`);
+  }
+
+  async testCredentialMapping(id: string): Promise<{ data: any }> {
+    const response = await this.client.post(`/admin/credentials/mappings/${id}/test`);
+
+    // Transform snake_case to camelCase
+    const mapping = response.data;
+    return {
+      data: {
+        id: mapping.id,
+        tenantId: mapping.tenant_id,
+        logicalCredentialId: mapping.logical_credential_id,
+        environmentId: mapping.environment_id,
+        provider: mapping.provider,
+        physicalCredentialId: mapping.physical_credential_id,
+        physicalName: mapping.physical_name,
+        physicalType: mapping.physical_type,
+        status: mapping.status,
+        createdAt: mapping.created_at,
+        updatedAt: mapping.updated_at,
+        lastTestAt: mapping.last_test_at,
+        lastTestStatus: mapping.last_test_status,
+        lastTestError: mapping.last_test_error,
+        expirationInfo: mapping.expiration_info,
+      }
+    };
   }
 
   async getCredentialHealth(environmentId: string, provider?: string): Promise<{
@@ -3940,6 +4029,56 @@ class ApiClient {
     const response = await this.client.post(`/canonical/link-suggestions/${suggestionId}/resolve`, {
       status
     });
+    return { data: response.data };
+  }
+
+  // Untracked Workflows Methods
+
+  /**
+   * Get all untracked workflows across environments.
+   * Returns cached data - call scanEnvironmentsForUntracked() first to refresh.
+   */
+  async getUntrackedWorkflows(): Promise<{ data: UntrackedWorkflowsResponse }> {
+    const response = await this.client.get('/canonical/untracked');
+    return { data: response.data };
+  }
+
+  /**
+   * Scan all active environments for untracked workflows.
+   * This performs a live scan and updates the database.
+   */
+  async scanEnvironmentsForUntracked(): Promise<{ data: ScanEnvironmentsResponse }> {
+    const response = await this.client.post('/canonical/untracked/scan');
+    return { data: response.data };
+  }
+
+  /**
+   * Onboard selected untracked workflows into the canonical system.
+   * Creates canonical workflow records and links them.
+   */
+  async onboardWorkflows(
+    workflows: OnboardWorkflowItem[]
+  ): Promise<{ data: OnboardWorkflowsResponse }> {
+    const response = await this.client.post('/canonical/untracked/onboard', {
+      workflows
+    });
+    return { data: response.data };
+  }
+
+  // Workflow Matrix Methods (Workflows Overview)
+
+  /**
+   * Get the workflow × environment matrix with status badges.
+   *
+   * Returns a complete matrix showing:
+   * - Rows: All canonical workflows for the tenant
+   * - Columns: All active environments for the tenant
+   * - Cells: Status badge (linked, untracked, drift, out_of_date) for each combination
+   *
+   * All status logic is computed server-side. The UI must not infer or compute status logic.
+   */
+  async getWorkflowMatrix(): Promise<{ data: WorkflowMatrixResponse }> {
+    const response = await this.client.get<WorkflowMatrixResponse>('/workflows/matrix');
     return { data: response.data };
   }
 }

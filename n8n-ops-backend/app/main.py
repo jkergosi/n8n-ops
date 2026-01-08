@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
-from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy, environment_capabilities, drift_reports, admin_retention, security, platform_admins, platform_impersonation, platform_console, platform_overview, admin_overview, canonical_workflows, github_webhooks
+from app.api.endpoints import environments, workflows, executions, tags, billing, teams, n8n_users, tenants, auth, restore, promotions, credentials, pipelines, deployments, snapshots, observability, notifications, admin_entitlements, admin_audit, admin_billing, admin_usage, admin_credentials, admin_providers, support, admin_support, admin_environment_types, sse, providers, background_jobs, health, incidents, drift_policies, drift_approvals, workflow_policy, environment_capabilities, drift_reports, admin_retention, security, platform_admins, platform_impersonation, platform_console, platform_overview, admin_overview, canonical_workflows, github_webhooks, workflow_matrix, untracked_workflows, bulk_operations
 from app.services.background_job_service import background_job_service
 from app.services.database import db_service
 from app.api.endpoints.admin_audit import create_audit_log
@@ -356,9 +356,27 @@ app.include_router(
 )
 
 app.include_router(
+    untracked_workflows.router,
+    prefix=f"{settings.API_V1_PREFIX}/canonical",
+    tags=["untracked-workflows"]
+)
+
+app.include_router(
+    workflow_matrix.router,
+    prefix=f"{settings.API_V1_PREFIX}/workflows",
+    tags=["workflow-matrix"]
+)
+
+app.include_router(
     github_webhooks.router,
     prefix=f"{settings.API_V1_PREFIX}",
     tags=["webhooks"]
+)
+
+app.include_router(
+    bulk_operations.router,
+    prefix=f"{settings.API_V1_PREFIX}/bulk",
+    tags=["bulk-operations"]
 )
 
 

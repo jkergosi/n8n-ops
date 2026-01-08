@@ -183,6 +183,33 @@ class ProviderAdapter(Protocol):
         """
         ...
 
+    async def test_credential(self, credential_id: str) -> Dict[str, Any]:
+        """Test a credential by making a lightweight API call.
+
+        This method verifies that the credential is valid and can successfully
+        authenticate/authorize with the provider. The test should be a lightweight
+        operation (e.g., GET /me, GET /profile) rather than a heavy operation.
+
+        Args:
+            credential_id: The provider's credential identifier
+
+        Returns:
+            Dictionary with test result:
+            {
+                "success": bool,
+                "error": Optional[str],
+                "expiration_info": Optional[Dict[str, Any]]  # e.g., {"expires_at": "...", "days_until_expiry": 30}
+            }
+
+        If the provider does not support credential testing, return:
+            {
+                "success": False,
+                "error": "Provider does not support credential testing",
+                "status": "unsupported"
+            }
+        """
+        ...
+
     # =========================================================================
     # User Operations
     # =========================================================================

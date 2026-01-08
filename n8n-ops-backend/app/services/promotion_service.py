@@ -159,6 +159,18 @@ class PromotionService:
         """
         Create a snapshot by exporting all workflows from N8N and committing to GitHub.
         Returns (snapshot_id, commit_sha)
+
+        Args:
+            tenant_id: Tenant identifier
+            environment_id: Environment identifier
+            reason: Human-readable reason for snapshot creation
+            metadata: Optional metadata dictionary. Supported fields:
+                - type: Snapshot type indicator (e.g., "pre_promotion", "post_promotion")
+                - promotion_id: Associated promotion ID
+                - deployment_id: Associated deployment ID
+                - manual: Boolean indicating manual backup
+                - git_sha: Optional git commit SHA for reference (not validated)
+                - Any other custom fields
         """
         # Get environment config
         env_config = await self.db.get_environment(environment_id, tenant_id)
@@ -193,12 +205,13 @@ class PromotionService:
         # For canonical workflows: use git_folder if available, otherwise fall back to environment_type
         git_folder = env_config.get("git_folder")
         env_type = env_config.get("n8n_type")
-        
+
         if not git_folder and not env_type:
             raise ValueError("Either git_folder or environment type is required for GitHub workflow operations")
-        
+
         commit_sha = None
         workflows_synced = 0
+        workflow_metadata = []  # Track workflow metadata for snapshot
 
         for workflow in workflows:
             try:
@@ -214,10 +227,10 @@ class PromotionService:
                         tenant_id=tenant_id,
                         environment_id=environment_id
                     )
-                    
+
                     # Find mapping for this n8n_workflow_id
                     mapping = next((m for m in mappings if m.get("n8n_workflow_id") == workflow_id), None)
-                    
+
                     if mapping:
                         # Use canonical workflow system
                         canonical_id = mapping.get("canonical_id")
@@ -245,6 +258,13 @@ class PromotionService:
                         commit_message=f"Auto backup before promotion: {reason}",
                         environment_type=env_type
                     )
+
+                # Collect workflow metadata for snapshot
+                workflow_metadata.append({
+                    "workflow_id": workflow_id,
+                    "workflow_name": full_workflow.get("name", "Unknown"),
+                    "active": full_workflow.get("active", False),
+                })
                 workflows_synced += 1
             except Exception as e:
                 logger.error(f"Failed to sync workflow {workflow.get('id')}: {str(e)}")
@@ -285,6 +305,7 @@ class PromotionService:
                 **(metadata or {}),
                 "reason": reason,
                 "workflows_count": workflows_synced,
+                "workflows": workflow_metadata,  # Include workflow metadata (id, name, active state)
             },
         }
 
@@ -1534,9 +1555,33 @@ class PromotionService:
                                     git_folder=target_git_folder,
                                     commit_message=f"Update sidecar after promotion: {workflow_data.get('name', 'Unknown')}"
                                 )
+                                
+                                # Update canonical_workflow_git_state for target environment
+                                git_path = git_state.get("git_path") or f"workflows/{target_git_folder}/{canonical_id}.json"
+                                db_service.client.table("canonical_workflow_git_state").upsert({
+                                    "tenant_id": tenant_id,
+                                    "environment_id": target_env_id,
+                                    "canonical_id": canonical_id,
+                                    "git_path": git_path,
+                                    "git_content_hash": content_hash,
+                                    "last_repo_sync_at": datetime.utcnow().isoformat()
+                                }, on_conflict="tenant_id,environment_id,canonical_id").execute()
+                                logger.info(f"Updated git_state for {canonical_id} in target env {target_env_id}")
+                            else:
+                                # No existing git_state - create new one
+                                git_path = f"workflows/{target_git_folder}/{canonical_id}.json"
+                                db_service.client.table("canonical_workflow_git_state").upsert({
+                                    "tenant_id": tenant_id,
+                                    "environment_id": target_env_id,
+                                    "canonical_id": canonical_id,
+                                    "git_path": git_path,
+                                    "git_content_hash": content_hash,
+                                    "last_repo_sync_at": datetime.utcnow().isoformat()
+                                }, on_conflict="tenant_id,environment_id,canonical_id").execute()
+                                logger.info(f"Created git_state for {canonical_id} in target env {target_env_id}")
                 except Exception as e:
-                    logger.warning(f"Failed to update sidecar for {selection.workflow_name}: {str(e)}")
-                    # Don't fail promotion if sidecar update fails
+                    logger.warning(f"Failed to update sidecar/git_state for {selection.workflow_name}: {str(e)}")
+                    # Don't fail promotion if sidecar/git_state update fails
             
             except Exception as e:
                 error_msg = f"Failed to promote {selection.workflow_name}: {str(e)}"

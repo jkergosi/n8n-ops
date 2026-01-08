@@ -208,6 +208,7 @@ All endpoints prefixed with `/api/v1`.
 | `canonical_env_sync_service.py` | Environment synchronization for canonical workflows |
 | `canonical_reconciliation_service.py` | Reconciliation between Git and environment state |
 | `canonical_sync_scheduler.py` | Scheduled canonical workflow sync operations |
+| `health_check_scheduler.py` | Periodic health checks for active environments |
 
 ## Schemas (Pydantic Models)
 

@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from typing import Optional, List, Dict, Any
 import logging
 from functools import wraps
+from datetime import datetime
 
 from app.services.database import db_service
 from app.services.provider_registry import ProviderRegistry
@@ -22,6 +23,7 @@ from app.schemas.credential import (
     CredentialMatrixResponse,
     MappingValidationReport,
     MappingIssue,
+    CredentialTestResult,
 )
 from app.api.endpoints.auth import get_current_user
 from app.core.platform_admin import require_platform_admin
@@ -358,6 +360,122 @@ async def delete_mapping(mapping_id: str, user_info: dict = Depends(require_plat
     )
     
     return {}
+
+
+@router.post("/mappings/{mapping_id}/test", response_model=CredentialMappingResponse)
+@handle_db_errors
+async def test_credential_mapping(
+    mapping_id: str,
+    user_info: dict = Depends(require_platform_admin())
+):
+    """Test a credential mapping by calling the provider adapter's test_credential method."""
+    tenant_id = get_current_tenant_id(user_info)
+    user = user_info.get("user", {})
+
+    # Get the mapping
+    mapping = await db_service.get_credential_mapping(tenant_id, mapping_id)
+    if not mapping:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mapping not found")
+
+    # Get environment to access provider adapter
+    env_id = mapping.get("environment_id")
+    env = await db_service.get_environment(env_id, tenant_id)
+    if not env:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Environment not found")
+
+    # Get logical credential for audit log
+    logical_cred = await db_service.get_logical_credential(tenant_id, mapping.get("logical_credential_id"))
+
+    # Get provider adapter
+    try:
+        adapter = ProviderRegistry.get_adapter_for_environment(env)
+    except Exception as e:
+        logger.error(f"Failed to get provider adapter: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get provider adapter: {str(e)}"
+        )
+
+    # Test the credential
+    test_timestamp = datetime.utcnow()
+    try:
+        test_result = await adapter.test_credential(mapping.get("physical_credential_id"))
+
+        # Determine status from test result
+        if test_result.get("status") == "unsupported":
+            test_status = "unsupported"
+            test_error = test_result.get("error")
+        elif test_result.get("success"):
+            test_status = "success"
+            test_error = None
+        else:
+            test_status = "failed"
+            test_error = test_result.get("error")
+
+        # Update mapping health
+        updated_mapping = await db_service.update_mapping_health(
+            tenant_id=tenant_id,
+            mapping_id=mapping_id,
+            status=test_status,
+            error=test_error,
+            test_timestamp=test_timestamp
+        )
+
+        # Add expiration info if available (computed, not persisted)
+        if updated_mapping and test_result.get("expiration_info"):
+            updated_mapping["expiration_info"] = test_result.get("expiration_info")
+
+        # Audit log
+        await create_audit_log(
+            action_type=AuditActionType.CREDENTIAL_MAPPING_UPDATED,
+            action=f"Tested credential mapping for '{logical_cred.get('name') if logical_cred else 'unknown'}' in {env.get('n8n_name') if env else 'unknown'}: {test_status}",
+            actor_id=user.get("id"),
+            actor_email=user.get("email"),
+            actor_name=user.get("name"),
+            tenant_id=tenant_id,
+            resource_type="credential_mapping",
+            resource_id=mapping_id,
+            resource_name=f"{logical_cred.get('name') if logical_cred else 'unknown'} -> {mapping.get('physical_name')}",
+            provider=mapping.get("provider"),
+            metadata={
+                "test_status": test_status,
+                "test_error": test_error
+            }
+        )
+
+        return updated_mapping
+
+    except Exception as e:
+        logger.error(f"Failed to test credential: {e}")
+
+        # Update mapping with failed status
+        updated_mapping = await db_service.update_mapping_health(
+            tenant_id=tenant_id,
+            mapping_id=mapping_id,
+            status="failed",
+            error=f"Test failed with exception: {str(e)}",
+            test_timestamp=test_timestamp
+        )
+
+        # Audit log for failure
+        await create_audit_log(
+            action_type=AuditActionType.CREDENTIAL_MAPPING_UPDATED,
+            action=f"Tested credential mapping for '{logical_cred.get('name') if logical_cred else 'unknown'}' in {env.get('n8n_name') if env else 'unknown'}: failed",
+            actor_id=user.get("id"),
+            actor_email=user.get("email"),
+            actor_name=user.get("name"),
+            tenant_id=tenant_id,
+            resource_type="credential_mapping",
+            resource_id=mapping_id,
+            resource_name=f"{logical_cred.get('name') if logical_cred else 'unknown'} -> {mapping.get('physical_name')}",
+            provider=mapping.get("provider"),
+            metadata={
+                "test_status": "failed",
+                "test_error": str(e)
+            }
+        )
+
+        return updated_mapping
 
 
 @router.post("/preflight", response_model=CredentialPreflightResult)

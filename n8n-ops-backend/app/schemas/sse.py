@@ -175,3 +175,17 @@ class RestoreProgressPayload(BaseModel):
     current_workflow_name: Optional[str] = None
     message: Optional[str] = None
     errors: Optional[List[str]] = None
+
+
+class BulkOperationProgressPayload(BaseModel):
+    """Payload for bulk workflow operation progress updates."""
+    job_id: str
+    operation_type: str  # sync, promote, snapshot
+    status: str  # running, completed, failed
+    current: int
+    total: int
+    succeeded: int
+    failed: int
+    current_workflow_id: Optional[str] = None
+    message: Optional[str] = None
+    percentage: Optional[int] = None

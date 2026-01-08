@@ -6,7 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
-import { useBackgroundJobsSSE, LogMessage } from '@/lib/use-background-jobs-sse';
+import { useBackgroundJobsSSE } from '@/lib/use-background-jobs-sse';
+import type { LogMessage } from '@/lib/use-background-jobs-sse';
 import { 
   ArrowLeft, 
   Activity, 
@@ -89,6 +90,7 @@ export function ActivityDetailPage() {
   // Subscribe to real-time updates if job is running
   useBackgroundJobsSSE({
     enabled: !isLoading && !!id && (job?.status === 'running' || job?.status === 'pending'),
+    jobId: id,  // Pass job ID to filter SSE events for this specific job
     onLogMessage: handleLogMessage,
   });
 
@@ -588,8 +590,15 @@ export function ActivityDetailPage() {
         </Card>
       )}
 
-      {/* Live Log Section */}
-      {(job.job_type === 'canonical_env_sync' || job.job_type === 'environment_sync') && (
+      {/* Live Log Section - Show for all job types that emit SSE progress events */}
+      {(job.job_type === 'canonical_env_sync' ||
+        job.job_type === 'environment_sync' ||
+        job.job_type === 'github_sync_to' ||
+        job.job_type === 'github_sync_from' ||
+        job.job_type === 'promotion_execute' ||
+        job.job_type === 'restore_execute' ||
+        job.job_type === 'snapshot_restore' ||
+        job.job_type === 'dev_git_sync') && (
         <Card>
           <Collapsible open={isLogOpen} onOpenChange={setIsLogOpen}>
             <CardHeader className="pb-2">
@@ -615,7 +624,7 @@ export function ActivityDetailPage() {
                   )}
                 </div>
               </CollapsibleTrigger>
-              <CardDescription>Real-time sync operation log</CardDescription>
+              <CardDescription>Real-time operation log</CardDescription>
             </CardHeader>
             <CollapsibleContent>
               <CardContent className="pt-2">
@@ -625,9 +634,9 @@ export function ActivityDetailPage() {
                 >
                   {logMessages.length === 0 ? (
                     <div className="text-zinc-500 italic">
-                      {(job.status === 'running' || job.status === 'pending') 
-                        ? 'Waiting for log messages...' 
-                        : 'No log messages captured. Run a sync to see live logs.'}
+                      {(job.status === 'running' || job.status === 'pending')
+                        ? 'Connecting to live updates...'
+                        : 'No log messages captured for this job.'}
                     </div>
                   ) : (
                     <div className="space-y-1">
@@ -646,6 +655,8 @@ export function ActivityDetailPage() {
                           reconciling_drift: 'text-orange-400',
                           persisting_to_git: 'text-green-400',
                           finalizing_sync: 'text-emerald-400',
+                          backup: 'text-blue-400',
+                          restore: 'text-amber-400',
                         }[log.phase || ''] || 'text-zinc-500';
                         
                         return (

@@ -133,6 +133,22 @@ async def _run_onboarding_inventory_background(
             error_message=str(e)
         )
 
+        # Emit failure SSE event
+        try:
+            from app.api.endpoints.sse import emit_sync_progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=None,  # Onboarding is tenant-level
+                status="failed",
+                current_step="failed",
+                current=0,
+                total=1,
+                message=f"Onboarding inventory failed: {str(e)}",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
+
 
 @router.post("/onboarding/migration-pr", response_model=MigrationPRResponse)
 async def create_migration_pr(
@@ -323,6 +339,22 @@ async def _run_repo_sync_background(
             error_message=str(e)
         )
 
+        # Emit failure SSE event
+        try:
+            from app.api.endpoints.sse import emit_sync_progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=None,  # Repo sync is not environment-specific
+                status="failed",
+                current_step="failed",
+                current=0,
+                total=1,
+                message=f"Repository sync failed: {str(e)}",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
+
 
 @router.post("/sync/env/{environment_id}")
 async def sync_environment(
@@ -413,12 +445,17 @@ async def _run_env_sync_background(
     environment: Dict[str, Any]
 ):
     """Background task for env sync"""
+    # Track final status to ensure job is always updated
+    final_status = BackgroundJobStatus.FAILED
+    final_error_message = None
+    final_results = {}
+
     try:
         await background_job_service.update_job_status(
             job_id=job_id,
             status=BackgroundJobStatus.RUNNING
         )
-        
+
         # Emit initial SSE event (Phase: Discovering workflows)
         try:
             from app.api.endpoints.sse import emit_sync_progress
@@ -434,11 +471,11 @@ async def _run_env_sync_background(
             )
         except Exception as sse_err:
             logger.warning(f"Failed to emit initial SSE event: {str(sse_err)}")
-        
+
         # Get checkpoint from job progress if resuming
         job_data = await background_job_service.get_job(job_id)
         checkpoint = job_data.get("progress", {}).get("checkpoint")
-        
+
         results = await CanonicalEnvSyncService.sync_environment(
             tenant_id=tenant_id,
             environment_id=environment_id,
@@ -447,7 +484,7 @@ async def _run_env_sync_background(
             checkpoint=checkpoint,
             tenant_id_for_sse=tenant_id
         )
-        
+
         # Update last_connected and last_sync_at timestamps on successful sync
         from datetime import datetime
         now = datetime.utcnow().isoformat()
@@ -462,18 +499,18 @@ async def _run_env_sync_background(
             )
         except Exception as conn_err:
             logger.warning(f"Failed to update environment timestamps: {str(conn_err)}")
-        
+
         workflows_synced = results.get("workflows_synced", 0)
         workflows_linked = results.get("workflows_linked", 0)
         workflows_untracked = results.get("workflows_untracked", 0)
         workflows_missing = results.get("workflows_missing", 0)
-        
+
         # Greenfield model: Drift detection only applies to non-DEV environments
         # DEV: n8n is source of truth, no drift concept
         # Non-DEV: Git is source of truth, detect drift between n8n and Git
         env_class = environment.get("environment_class", "").lower()
         is_dev = env_class == "dev"
-        
+
         drift_count = 0
         if not is_dev:
             # Phase 3: Reconciling drift (non-DEV only)
@@ -491,16 +528,19 @@ async def _run_env_sync_background(
                 )
             except Exception as sse_err:
                 logger.warning(f"Failed to emit reconciliation SSE event: {str(sse_err)}")
-            
-            # Trigger reconciliation for this environment
-            reconciliation_results = await CanonicalReconciliationService.reconcile_all_pairs_for_environment(
-                tenant_id=tenant_id,
-                changed_env_id=environment_id
-            )
-            
+
+            # Trigger reconciliation for this environment (wrapped in try-except to not block completion)
+            try:
+                reconciliation_results = await CanonicalReconciliationService.reconcile_all_pairs_for_environment(
+                    tenant_id=tenant_id,
+                    changed_env_id=environment_id
+                )
+            except Exception as recon_err:
+                logger.warning(f"Reconciliation failed but continuing sync: {str(recon_err)}")
+
             # Get drift count from workflow_diff_state
             try:
-                drift_result = await db_service.client.table("workflow_diff_state").select(
+                drift_result = db_service.client.table("workflow_diff_state").select(
                     "workflow_id"
                 ).eq("tenant_id", tenant_id).eq("source_environment_id", environment_id).eq("diff_status", "modified").execute()
                 drift_count = len(drift_result.data or [])
@@ -544,13 +584,20 @@ async def _run_env_sync_background(
             completion_summary["drift_detected_count"] = drift_count
         
         results["completion_summary"] = completion_summary
-        
-        await background_job_service.update_job_status(
-            job_id=job_id,
-            status=BackgroundJobStatus.COMPLETED,
-            result=results
-        )
-        
+
+        # Clean up large data from results before saving to database
+        # Phase 2 (DEV Git sync) will read these from the job result, so we keep them
+        # but only for DEV environments. For non-DEV, remove them to save space.
+        cleaned_results = {**results}
+        if not is_dev:
+            # Non-DEV environments don't need these large lists
+            cleaned_results.pop("observed_workflow_ids", None)
+            cleaned_results.pop("created_workflow_ids", None)
+
+        # Mark as successful - will be persisted in finally block
+        final_status = BackgroundJobStatus.COMPLETED
+        final_results = cleaned_results
+
         # Emit completion SSE event
         try:
             from app.api.endpoints.sse import emit_sync_progress
@@ -637,14 +684,12 @@ async def _run_env_sync_background(
                     logger.warning(f"DEV sync: Failed to enqueue Phase 2 Git sync job: {str(git_job_err)}", exc_info=True)
             else:
                 logger.debug(f"DEV environment {environment_id} has no Git configuration, skipping Phase 2 Git sync")
+
     except Exception as e:
         logger.error(f"Env sync failed: {str(e)}")
-        await background_job_service.update_job_status(
-            job_id=job_id,
-            status=BackgroundJobStatus.FAILED,
-            error_message=str(e)
-        )
-        
+        final_status = BackgroundJobStatus.FAILED
+        final_error_message = str(e)
+
         # Emit failure SSE event
         try:
             from app.api.endpoints.sse import emit_sync_progress
@@ -660,6 +705,39 @@ async def _run_env_sync_background(
             )
         except Exception as sse_err:
             logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
+
+    finally:
+        # ALWAYS update job status to ensure it never stays stuck in RUNNING state
+        try:
+            if final_status == BackgroundJobStatus.COMPLETED:
+                await background_job_service.update_job_status(
+                    job_id=job_id,
+                    status=final_status,
+                    result=final_results
+                )
+                logger.info(f"Env sync completed successfully for job {job_id}")
+            else:
+                await background_job_service.update_job_status(
+                    job_id=job_id,
+                    status=final_status,
+                    error_message=final_error_message
+                )
+                logger.info(f"Env sync failed for job {job_id}: {final_error_message}")
+        except Exception as status_update_err:
+            # If even the status update fails, log it critically
+            logger.critical(
+                f"CRITICAL: Failed to update job {job_id} final status to {final_status}. "
+                f"Job may be stuck in RUNNING state. Error: {str(status_update_err)}"
+            )
+            # Try one more time with minimal data to maximize chance of success
+            try:
+                await background_job_service.update_job_status(
+                    job_id=job_id,
+                    status=BackgroundJobStatus.FAILED,
+                    error_message=f"Sync completed but status update failed: {str(status_update_err)}"
+                )
+            except Exception:
+                pass  # At this point we've done everything we can
 
 
 async def _run_dev_git_sync_background(
@@ -780,6 +858,22 @@ async def _run_dev_git_sync_background(
             error_message=str(e)
         )
 
+        # Emit failure SSE event
+        try:
+            from app.api.endpoints.sse import emit_sync_progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="failed",
+                current_step="failed",
+                current=0,
+                total=1,
+                message=f"Git sync failed: {str(e)}",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
+
 
 async def _commit_dev_workflows_to_git(
     tenant_id: str,
@@ -842,7 +936,7 @@ async def _commit_dev_workflows_to_git(
     
     # Step 1: Detect bootstrap vs normal mode
     # Check if canonical_workflow_git_state has zero rows for this environment
-    git_state_check = await db_service.client.table("canonical_workflow_git_state").select(
+    git_state_check = db_service.client.table("canonical_workflow_git_state").select(
         "canonical_id"
     ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).limit(1).execute()
     
@@ -857,7 +951,7 @@ async def _commit_dev_workflows_to_git(
             return 0
         
         # Get only workflows observed in Phase 1
-        all_workflows_result = await db_service.client.table("workflow_env_map").select(
+        all_workflows_result = db_service.client.table("workflow_env_map").select(
             "canonical_id, env_content_hash, workflow_data, n8n_workflow_id, status"
         ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).in_("n8n_workflow_id", observed_workflow_ids).execute()
         
@@ -904,10 +998,10 @@ async def _commit_dev_workflows_to_git(
                             created_by_user_id=None,  # System-created during bootstrap
                             display_name=workflow_name
                         )
-                        canonical_id = canonical_workflow["id"]
+                        canonical_id = canonical_workflow["canonical_id"]
                         
                         # Update workflow_env_map to set canonical_id and status='linked'
-                        await db_service.client.table("workflow_env_map").update({
+                        db_service.client.table("workflow_env_map").update({
                             "canonical_id": canonical_id,
                             "status": WorkflowMappingStatus.LINKED.value,
                             "linked_at": datetime.utcnow().isoformat()
@@ -929,12 +1023,14 @@ async def _commit_dev_workflows_to_git(
                     )
                     
                     # Upsert canonical_workflow_git_state with git_content_hash = env_content_hash
-                    await db_service.client.table("canonical_workflow_git_state").upsert({
+                    git_path = f"workflows/{git_folder}/{canonical_id}.json"
+                    db_service.client.table("canonical_workflow_git_state").upsert({
                         "tenant_id": tenant_id,
                         "environment_id": environment_id,
                         "canonical_id": canonical_id,
+                        "git_path": git_path,
                         "git_content_hash": env_hash,
-                        "last_git_sync_at": datetime.utcnow().isoformat()
+                        "last_repo_sync_at": datetime.utcnow().isoformat()
                     }, on_conflict="tenant_id,environment_id,canonical_id").execute()
                     
                     committed_count += 1
@@ -969,7 +1065,7 @@ async def _commit_dev_workflows_to_git(
         logger.debug(f"DEV sync: Normal mode for environment {environment_id}")
         
         # Get linked workflows (canonical_id NOT NULL, status='linked')
-        linked_workflows_result = await db_service.client.table("workflow_env_map").select(
+        linked_workflows_result = db_service.client.table("workflow_env_map").select(
             "canonical_id, env_content_hash, workflow_data, n8n_workflow_id, status"
         ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq("status", WorkflowMappingStatus.LINKED.value).not_.is_("canonical_id", "null").execute()
         
@@ -981,10 +1077,11 @@ async def _commit_dev_workflows_to_git(
         canonical_ids = [row["canonical_id"] for row in (linked_workflows_result.data or []) if row.get("canonical_id")]
         git_hashes = {}
         if canonical_ids:
-            git_state_result = await db_service.client.table("canonical_workflow_git_state").select(
+            git_state_result = db_service.client.table("canonical_workflow_git_state").select(
                 "canonical_id, git_content_hash"
             ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).in_("canonical_id", canonical_ids).execute()
-            git_hashes = {row["canonical_id"]: row["git_content_hash"] for row in (git_state_result.data or [])}
+            git_state_data = git_state_result.data if git_state_result else []
+            git_hashes = {row["canonical_id"]: row["git_content_hash"] for row in git_state_data}
         
         # Find linked workflows with changes (env hash != git hash or no git hash)
         workflows_to_commit = []
@@ -1008,7 +1105,7 @@ async def _commit_dev_workflows_to_git(
         # Count untracked workflows to auto-canonicalize
         untracked_to_commit = []
         if created_workflow_ids:
-            untracked_workflows_result = await db_service.client.table("workflow_env_map").select(
+            untracked_workflows_result = db_service.client.table("workflow_env_map").select(
                 "canonical_id, env_content_hash, workflow_data, n8n_workflow_id, status"
             ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).in_("n8n_workflow_id", created_workflow_ids).eq("status", WorkflowMappingStatus.UNTRACKED.value).is_("canonical_id", "null").execute()
             if untracked_workflows_result.data:
@@ -1047,12 +1144,14 @@ async def _commit_dev_workflows_to_git(
                     )
                     
                     # Update git_state with new hash
-                    await db_service.client.table("canonical_workflow_git_state").upsert({
+                    git_path = f"workflows/{git_folder}/{wf['canonical_id']}.json"
+                    db_service.client.table("canonical_workflow_git_state").upsert({
                         "tenant_id": tenant_id,
                         "environment_id": environment_id,
                         "canonical_id": wf["canonical_id"],
+                        "git_path": git_path,
                         "git_content_hash": wf["env_hash"],
-                        "last_git_sync_at": datetime.utcnow().isoformat()
+                        "last_repo_sync_at": datetime.utcnow().isoformat()
                     }, on_conflict="tenant_id,environment_id,canonical_id").execute()
                     
                     committed_count += 1
@@ -1096,10 +1195,10 @@ async def _commit_dev_workflows_to_git(
                             created_by_user_id=None,  # System-created during sync
                             display_name=workflow_name
                         )
-                        canonical_id = canonical_workflow["id"]
+                        canonical_id = canonical_workflow["canonical_id"]
                         
                         # Update workflow_env_map to set canonical_id and status='linked'
-                        await db_service.client.table("workflow_env_map").update({
+                        db_service.client.table("workflow_env_map").update({
                             "canonical_id": canonical_id,
                             "status": WorkflowMappingStatus.LINKED.value,
                             "linked_at": datetime.utcnow().isoformat()
@@ -1114,12 +1213,14 @@ async def _commit_dev_workflows_to_git(
                         )
                         
                         # Upsert canonical_workflow_git_state
-                        await db_service.client.table("canonical_workflow_git_state").upsert({
+                        git_path = f"workflows/{git_folder}/{canonical_id}.json"
+                        db_service.client.table("canonical_workflow_git_state").upsert({
                             "tenant_id": tenant_id,
                             "environment_id": environment_id,
                             "canonical_id": canonical_id,
+                            "git_path": git_path,
                             "git_content_hash": env_hash,
-                            "last_git_sync_at": datetime.utcnow().isoformat()
+                            "last_repo_sync_at": datetime.utcnow().isoformat()
                         }, on_conflict="tenant_id,environment_id,canonical_id").execute()
                         
                         committed_count += 1
@@ -1231,6 +1332,22 @@ async def _run_reconciliation_background(
             status=BackgroundJobStatus.FAILED,
             error_message=str(e)
         )
+
+        # Emit failure SSE event
+        try:
+            from app.api.endpoints.sse import emit_sync_progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=None,  # Reconciliation is cross-environment
+                status="failed",
+                current_step="failed",
+                current=0,
+                total=1,
+                message=f"Reconciliation failed: {str(e)}",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
 
 
 # Diff State Endpoints

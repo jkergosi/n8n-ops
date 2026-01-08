@@ -17,6 +17,7 @@ import { EnvironmentDetailPage } from '@/pages/EnvironmentDetailPage';
 import { WorkflowsPage } from '@/pages/WorkflowsPage';
 import { WorkflowDetailPage } from '@/pages/WorkflowDetailPage';
 import { ExecutionsPage } from '@/pages/ExecutionsPage';
+import { ExecutionAnalyticsPage } from '@/pages/ExecutionAnalyticsPage';
 import { SnapshotsPage } from '@/pages/SnapshotsPage';
 import { DeploymentsPage } from '@/pages/DeploymentsPage';
 import { DeploymentDetailPage } from '@/pages/DeploymentDetailPage';
@@ -38,6 +39,9 @@ import { PipelineEditorPage } from '@/pages/PipelineEditorPage';
 import { PromotePage } from '@/pages/PromotePage';
 import { CanonicalOnboardingPage } from '@/pages/CanonicalOnboardingPage';
 import { CanonicalWorkflowsPage } from '@/pages/CanonicalWorkflowsPage';
+import { UntrackedWorkflowsPage } from '@/pages/UntrackedWorkflowsPage';
+import { WorkflowsOverviewPage } from '@/pages/WorkflowsOverviewPage';
+import { TechnicalDifficultiesPage } from '@/pages/TechnicalDifficultiesPage';
 import {
   TenantsPage,
   TenantDetailPage,
@@ -81,12 +85,12 @@ const queryClient = new QueryClient({
 
 // Protected Route Component with Onboarding Check
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, initComplete, needsOnboarding } = useAuth();
+  const { isAuthenticated, isLoading, initComplete, needsOnboarding, backendUnavailable } = useAuth();
   const navigate = useNavigate();
   const currentPath = window.location.pathname;
 
   // Debug logging
-  console.log('[ProtectedRoute] Render:', { currentPath, isAuthenticated, isLoading, initComplete, needsOnboarding });
+  console.log('[ProtectedRoute] Render:', { currentPath, isAuthenticated, isLoading, initComplete, needsOnboarding, backendUnavailable });
 
   useEffect(() => {
     // If user needs onboarding and not already on onboarding page, redirect
@@ -114,6 +118,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   // isAuthenticated is true when user is logged in AND has completed onboarding
   // Only redirect if we're not already on login or onboarding page to prevent loops
   if (!isAuthenticated && !needsOnboarding && currentPath !== '/login' && currentPath !== '/onboarding') {
+    // Show technical difficulties page instead of redirecting if backend is down
+    if (backendUnavailable) {
+      console.log('[ProtectedRoute] Backend unavailable, showing technical difficulties page');
+      return <TechnicalDifficultiesPage />;
+    }
     console.log('[ProtectedRoute] Not authenticated, redirecting to login');
     return <Navigate to="/login" replace />;
   }
@@ -276,6 +285,7 @@ function App() {
                 <Route path="/workflows" element={<RoleProtectedRoute><WorkflowsPage /></RoleProtectedRoute>} />
                 <Route path="/workflows/:id" element={<RoleProtectedRoute><WorkflowDetailPage /></RoleProtectedRoute>} />
                 <Route path="/executions" element={<RoleProtectedRoute><ExecutionsPage /></RoleProtectedRoute>} />
+                <Route path="/analytics/executions" element={<RoleProtectedRoute><ExecutionAnalyticsPage /></RoleProtectedRoute>} />
                 <Route path="/snapshots" element={<RoleProtectedRoute><SnapshotsPage /></RoleProtectedRoute>} />
                 <Route path="/deployments" element={<RoleProtectedRoute><DeploymentsPage /></RoleProtectedRoute>} />
                 <Route path="/deployments/:id" element={<RoleProtectedRoute><DeploymentDetailPage /></RoleProtectedRoute>} />
@@ -286,6 +296,8 @@ function App() {
                 <Route path="/deployments/new" element={<Navigate to="/promote" replace />} />
                 <Route path="/canonical/onboarding" element={<RoleProtectedRoute><CanonicalOnboardingPage /></RoleProtectedRoute>} />
                 <Route path="/canonical/workflows" element={<RoleProtectedRoute><CanonicalWorkflowsPage /></RoleProtectedRoute>} />
+                <Route path="/canonical/untracked" element={<RoleProtectedRoute><UntrackedWorkflowsPage /></RoleProtectedRoute>} />
+                <Route path="/workflows-overview" element={<RoleProtectedRoute><WorkflowsOverviewPage /></RoleProtectedRoute>} />
                 <Route path="/observability" element={<RoleProtectedRoute><ObservabilityPage /></RoleProtectedRoute>} />
                 <Route path="/alerts" element={<RoleProtectedRoute><AlertsPage /></RoleProtectedRoute>} />
                 <Route path="/activity" element={<RoleProtectedRoute><ActivityCenterPage /></RoleProtectedRoute>} />

@@ -1583,6 +1583,33 @@ class DatabaseService:
         response = self.client.table("promotions").update(promotion_data).eq("id", promotion_id).eq("tenant_id", tenant_id).execute()
         return response.data[0] if response.data else None
 
+    async def get_active_promotion_for_environment(
+        self,
+        tenant_id: str,
+        target_environment_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get an active (running) promotion targeting a specific environment.
+
+        Used for concurrency control to prevent multiple promotions from
+        executing against the same target environment simultaneously.
+
+        Args:
+            tenant_id: The tenant ID
+            target_environment_id: The target environment ID to check
+
+        Returns:
+            The active promotion record if one exists, None otherwise
+        """
+        response = self.client.table("promotions").select("*").eq(
+            "tenant_id", tenant_id
+        ).eq(
+            "target_environment_id", target_environment_id
+        ).eq(
+            "status", "running"
+        ).limit(1).execute()
+        return response.data[0] if response.data else None
+
     # Health check operations
     async def create_health_check(self, health_check_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a health check record"""
@@ -2784,14 +2811,57 @@ class DatabaseService:
     async def get_canonical_workflows(
         self,
         tenant_id: str,
-        include_deleted: bool = False
+        include_deleted: bool = False,
+        page: Optional[int] = None,
+        page_size: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        """Get all canonical workflows for a tenant"""
+        """
+        Get canonical workflows for a tenant with optional pagination.
+
+        Args:
+            tenant_id: Tenant UUID
+            include_deleted: Whether to include soft-deleted workflows
+            page: Page number (1-indexed). If provided, page_size must also be provided.
+            page_size: Number of items per page
+
+        Returns:
+            List of canonical workflow dictionaries
+
+        Note: Uses indexed query on (tenant_id, created_at) for efficient pagination.
+        """
         query = self.client.table("canonical_workflows").select("*").eq("tenant_id", tenant_id)
         if not include_deleted:
             query = query.is_("deleted_at", "null")
-        response = query.order("created_at", desc=True).execute()
+        query = query.order("created_at", desc=True)
+
+        # Apply pagination if requested
+        if page is not None and page_size is not None:
+            offset = (page - 1) * page_size
+            query = query.range(offset, offset + page_size - 1)
+
+        response = query.execute()
         return response.data or []
+
+    async def count_canonical_workflows(
+        self,
+        tenant_id: str,
+        include_deleted: bool = False
+    ) -> int:
+        """
+        Get count of canonical workflows for a tenant.
+
+        Args:
+            tenant_id: Tenant UUID
+            include_deleted: Whether to include soft-deleted workflows
+
+        Returns:
+            Total count of workflows
+        """
+        query = self.client.table("canonical_workflows").select("id", count="exact").eq("tenant_id", tenant_id)
+        if not include_deleted:
+            query = query.is_("deleted_at", "null")
+        response = query.execute()
+        return response.count or 0
     
     async def get_workflow_mappings(
         self,
@@ -3437,6 +3507,69 @@ class DatabaseService:
                 "error": str(e)
             }
 
+    async def get_materialized_view_refresh_status(self) -> List[Dict[str, Any]]:
+        """
+        Get the current refresh status of all materialized views.
+
+        Returns information about the last refresh attempt for each view,
+        including whether the view is stale or has consecutive failures.
+        """
+        try:
+            result = self.client.rpc("get_materialized_view_refresh_status").execute()
+            return result.data or []
+
+        except Exception as e:
+            logger.error(f"Failed to get materialized view refresh status: {e}")
+            return []
+
+    async def get_materialized_view_refresh_history(
+        self,
+        view_name: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        Get refresh history for materialized views.
+
+        Args:
+            view_name: Optional filter for a specific view
+            limit: Maximum number of records to return (default 100)
+
+        Returns a list of refresh log entries ordered by most recent first.
+        """
+        try:
+            query = (
+                self.client.table("materialized_view_refresh_log")
+                .select("*")
+                .order("refresh_started_at", desc=True)
+                .limit(limit)
+            )
+
+            if view_name:
+                query = query.eq("view_name", view_name)
+
+            response = query.execute()
+            return response.data or []
+
+        except Exception as e:
+            logger.error(f"Failed to get materialized view refresh history: {e}")
+            return []
+
+    async def cleanup_old_refresh_logs(self) -> int:
+        """
+        Clean up old refresh log entries, keeping only the most recent 1000 per view.
+
+        Returns the number of deleted records.
+        """
+        try:
+            result = self.client.rpc("cleanup_old_refresh_logs").execute()
+            deleted_count = result.data if isinstance(result.data, int) else 0
+            logger.info(f"Cleaned up {deleted_count} old refresh log entries")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup old refresh logs: {e}")
+            return 0
+
     # Execution Rollup Queries
     async def get_execution_rollups(
         self,
@@ -3817,6 +3950,89 @@ class DatabaseService:
                 long_running.append(exec_data)
 
         return long_running
+
+    async def get_sparkline_aggregated(
+        self,
+        tenant_id: str,
+        since: str,
+        until: str,
+        interval_minutes: int,
+        environment_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get sparkline data using SQL-side aggregation for better performance at scale.
+
+        This method performs aggregation on the database side using a stored procedure,
+        which is significantly faster than fetching all executions and aggregating client-side
+        when dealing with large datasets (10k+ executions).
+
+        Args:
+            tenant_id: Tenant ID
+            since: ISO timestamp for start of range
+            until: ISO timestamp for end of range
+            interval_minutes: Bucket size in minutes (e.g., 5, 30, 60)
+            environment_id: Optional environment filter
+
+        Returns:
+            Dict with:
+            - buckets: List of aggregated bucket data
+            - total_executions: Total count in range
+            - aggregation_method: "sql" or "fallback"
+        """
+        try:
+            # Try SQL aggregation via RPC function
+            params = {
+                "p_tenant_id": tenant_id,
+                "p_since": since,
+                "p_until": until,
+                "p_interval_minutes": interval_minutes
+            }
+            if environment_id:
+                params["p_environment_id"] = environment_id
+
+            response = self.client.rpc("get_sparkline_buckets", params).execute()
+
+            if response.data:
+                # SQL aggregation succeeded
+                buckets = response.data
+                total_executions = sum(b.get("total_count", 0) for b in buckets)
+
+                return {
+                    "buckets": buckets,
+                    "total_executions": total_executions,
+                    "aggregation_method": "sql"
+                }
+        except Exception as e:
+            logger.warning(f"SQL sparkline aggregation failed, will use fallback: {e}")
+
+        # Return None to indicate fallback should be used
+        return None
+
+    async def get_execution_count_in_range(
+        self,
+        tenant_id: str,
+        since: str,
+        until: str,
+        environment_id: Optional[str] = None
+    ) -> int:
+        """
+        Get count of executions in a time range without fetching all data.
+        Uses COUNT query for efficiency.
+        """
+        try:
+            query = self.client.table("executions").select(
+                "id", count="exact"
+            ).eq("tenant_id", tenant_id).gte("started_at", since).lte("started_at", until)
+
+            if environment_id:
+                query = query.eq("environment_id", environment_id)
+
+            # Limit to 1 row since we only need the count
+            response = query.limit(1).execute()
+            return response.count or 0
+        except Exception as e:
+            logger.warning(f"Failed to get execution count: {e}")
+            return 0
 
 
 # Global instance

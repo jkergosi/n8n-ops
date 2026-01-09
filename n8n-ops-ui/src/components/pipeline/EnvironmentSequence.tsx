@@ -1,4 +1,3 @@
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
@@ -7,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowRight, X, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import type { Environment } from '@/types';
 import { sortEnvironments } from '@/lib/environment-utils';
 
@@ -17,155 +16,137 @@ interface EnvironmentSequenceProps {
   onChange: (environmentIds: string[]) => void;
 }
 
+/**
+ * Simplified environment selector for MVP single-hop pipelines.
+ *
+ * MVP Constraint: Pipelines support exactly 2 environments (source → target).
+ * Multi-stage pipelines are not supported. Create separate pipelines for each hop
+ * (e.g., dev→staging and staging→prod as two distinct pipelines).
+ */
 export function EnvironmentSequence({
   environments,
   selectedEnvironmentIds = [],
   onChange,
 }: EnvironmentSequenceProps) {
-  const availableEnvironments = sortEnvironments(environments).filter(
-    (env) => !selectedEnvironmentIds.includes(env.id)
-  );
+  const sortedEnvironments = sortEnvironments(environments);
 
-  const handleAddEnvironment = (environmentId: string) => {
-    onChange([...selectedEnvironmentIds, environmentId]);
+  // Extract source and target from the environment IDs array
+  const sourceEnvId = selectedEnvironmentIds[0] || '';
+  const targetEnvId = selectedEnvironmentIds[1] || '';
+
+  const handleSourceChange = (newSourceId: string) => {
+    // If new source equals current target, clear target
+    if (newSourceId === targetEnvId) {
+      onChange([newSourceId]);
+    } else if (targetEnvId) {
+      onChange([newSourceId, targetEnvId]);
+    } else {
+      onChange([newSourceId]);
+    }
   };
 
-  const handleRemoveEnvironment = (index: number) => {
-    const newIds = selectedEnvironmentIds.filter((_, i) => i !== index);
-    onChange(newIds);
-  };
-
-  const handleMoveUp = (index: number) => {
-    if (index === 0) return;
-    const newIds = [...selectedEnvironmentIds];
-    [newIds[index - 1], newIds[index]] = [newIds[index], newIds[index - 1]];
-    onChange(newIds);
-  };
-
-  const handleMoveDown = (index: number) => {
-    if (index === selectedEnvironmentIds.length - 1) return;
-    const newIds = [...selectedEnvironmentIds];
-    [newIds[index], newIds[index + 1]] = [newIds[index + 1], newIds[index]];
-    onChange(newIds);
+  const handleTargetChange = (newTargetId: string) => {
+    if (sourceEnvId) {
+      onChange([sourceEnvId, newTargetId]);
+    } else {
+      // Shouldn't happen with UI constraints, but handle gracefully
+      onChange(['', newTargetId]);
+    }
   };
 
   const getEnvironment = (id: string) => {
     return environments.find((env) => env.id === id);
   };
 
+  // Filter out the selected source from target options
+  const targetOptions = sortedEnvironments.filter((env) => env.id !== sourceEnvId);
+
+  const sourceEnv = getEnvironment(sourceEnvId);
+  const targetEnv = getEnvironment(targetEnvId);
+
+  const isComplete = sourceEnvId && targetEnvId;
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Environment Sequence</CardTitle>
+        <CardTitle>Promotion Path</CardTitle>
         <CardDescription>
-          Define the ordered list of environments for this pipeline. Each adjacent pair forms a promotion stage.
+          Select the source and target environments for this pipeline. Each pipeline defines a single promotion hop.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {selectedEnvironmentIds.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            <p className="mb-4">No environments selected</p>
-            <p className="text-sm">Add at least 2 environments to create a pipeline</p>
+      <CardContent className="space-y-6">
+        {/* Source/Target Selectors */}
+        <div className="flex items-center gap-4">
+          {/* Source Environment */}
+          <div className="flex-1 space-y-2">
+            <label className="text-sm font-medium text-muted-foreground">
+              Source Environment
+            </label>
+            <Select
+              value={sourceEnvId}
+              onValueChange={handleSourceChange}
+            >
+              <SelectTrigger data-testid="source-environment-select">
+                <SelectValue placeholder="Select source..." />
+              </SelectTrigger>
+              <SelectContent>
+                {sortedEnvironments.map((env) => (
+                  <SelectItem key={env.id} value={env.id}>
+                    {env.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {selectedEnvironmentIds.map((envId, index) => {
-              const env = getEnvironment(envId);
-              return (
-                <div
-                  key={`${envId}-${index}`}
-                  className="flex items-center gap-3 p-3 border rounded-lg bg-muted/50"
-                >
-                  <div className="flex items-center gap-2 flex-1">
-                    <span className="text-sm font-medium text-muted-foreground w-8">
-                      {index + 1}.
-                    </span>
-                    <div className="flex-1">
-                      <div className="font-medium">{env?.name || envId}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleMoveUp(index)}
-                      disabled={index === 0}
-                      title="Move up"
-                    >
-                      <ChevronUp className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleMoveDown(index)}
-                      disabled={index === selectedEnvironmentIds.length - 1}
-                      title="Move down"
-                    >
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleRemoveEnvironment(index)}
-                      title="Remove"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
+
+          {/* Arrow */}
+          <div className="flex items-center justify-center pt-6">
+            <ArrowRight className="h-5 w-5 text-muted-foreground" />
+          </div>
+
+          {/* Target Environment */}
+          <div className="flex-1 space-y-2">
+            <label className="text-sm font-medium text-muted-foreground">
+              Target Environment
+            </label>
+            <Select
+              value={targetEnvId}
+              onValueChange={handleTargetChange}
+              disabled={!sourceEnvId}
+            >
+              <SelectTrigger data-testid="target-environment-select">
+                <SelectValue placeholder={sourceEnvId ? "Select target..." : "Select source first"} />
+              </SelectTrigger>
+              <SelectContent>
+                {targetOptions.map((env) => (
+                  <SelectItem key={env.id} value={env.id}>
+                    {env.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Visual Summary */}
+        {isComplete && (
+          <div className="flex items-center justify-center gap-3 p-4 rounded-lg bg-muted/50 border">
+            <div className="text-sm font-medium">{sourceEnv?.name}</div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            <div className="text-sm font-medium">{targetEnv?.name}</div>
           </div>
         )}
 
-        {selectedEnvironmentIds.length > 0 && (
-          <div className="flex items-center gap-2 pt-2">
-            {selectedEnvironmentIds.map((envId, index) => {
-              if (index === selectedEnvironmentIds.length - 1) return null;
-              const env = getEnvironment(envId);
-              const nextEnv = getEnvironment(selectedEnvironmentIds[index + 1]);
-              return (
-                <div key={`arrow-${index}`} className="flex items-center gap-2">
-                  <div className="text-sm font-medium">{env?.name || envId}</div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                  {index === selectedEnvironmentIds.length - 2 && (
-                    <div className="text-sm font-medium">{nextEnv?.name || selectedEnvironmentIds[index + 1]}</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {availableEnvironments.length > 0 && (
-          <div className="pt-4 border-t">
-            <div className="flex items-center gap-2">
-              <Select
-                value=""
-                onValueChange={handleAddEnvironment}
-              >
-                <SelectTrigger className="flex-1">
-                  <SelectValue placeholder="Add environment..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableEnvironments.map((env) => (
-                    <SelectItem key={env.id} value={env.id}>
-                      {env.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        )}
-
-        {selectedEnvironmentIds.length < 2 && (
-          <div className="text-sm text-muted-foreground pt-2">
-            Minimum 2 environments required to create a pipeline
+        {/* Help text */}
+        {!isComplete && (
+          <div className="text-sm text-muted-foreground">
+            {!sourceEnvId
+              ? 'Select a source environment to begin'
+              : 'Select a target environment to complete the pipeline configuration'
+            }
           </div>
         )}
       </CardContent>
     </Card>
   );
 }
-

@@ -312,10 +312,14 @@ await create_audit_log(
 | Test File | Coverage |
 |-----------|----------|
 | `tests/security/test_tenant_isolation.py` | Cross-tenant leak scenarios, endpoint scanning |
-| `tests/security/test_impersonation_audit.py` | Impersonation audit trail, dual attribution |
+| `tests/security/test_impersonation_audit.py` | Impersonation audit trail, dual attribution, admin-to-admin block |
+| `tests/e2e/test_impersonation_e2e.py` | Complete impersonation flow (start → perform actions → end session) |
 
-**Gaps**: 
-- No test for admin-to-admin impersonation block
+**Evidence:** E2E tests run in CI via `.github/workflows/e2e-tests.yml`
+
+**Test Coverage for Admin-to-Admin Block:** ✅ Verified in `test_impersonation_audit.py::test_platform_admin_cannot_impersonate_other_platform_admin` (line 640)
+
+**Gaps**:
 - Session timeout enforcement not tested
 - RLS policies not tested (Supabase-level)
 
@@ -330,8 +334,6 @@ await create_audit_log(
 2. **Scanner Regex Limitations**: May miss dynamic or obfuscated tenant_id extraction patterns.
 
 3. **Session Timeout**: No automatic timeout. Long-running impersonation sessions possible.
-
-4. **Admin-to-Admin Block**: Policy stated but test enforcement unknown.
 
 ### Medium Risk
 
@@ -357,9 +359,7 @@ await create_audit_log(
 
 2. **Read Action Audit**: Read operations during impersonation not logged.
 
-3. **Admin-to-Admin Block**: Test enforcement unknown.
-
-4. **RLS Policy Version Control**: Policies not in repo.
+3. **RLS Policy Version Control**: Policies not in repo.
 
 5. **IP Whitelist**: No IP-based access control.
 

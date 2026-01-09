@@ -1,6 +1,6 @@
 # 00 - System Overview
 
-**Generated:** 2026-01-XX  
+**Generated:** 2026-01-08
 **Evidence-Based:** Repository scan only
 
 ## Repository Structure
@@ -106,6 +106,12 @@ All schedulers start on application startup:
    - **File:** `app/services/background_jobs/downgrade_enforcement_job.py:start_downgrade_enforcement_scheduler()`
    - **Purpose:** Enforce grace period expiry and detect over-limit resources
    - **Started:** Line 449-450
+
+8. **Alert Rules Evaluation Scheduler**
+   - **File:** `app/services/background_jobs/alert_rules_scheduler.py:start_alert_rules_scheduler()`
+   - **Purpose:** Periodic evaluation of alert rules and trigger notifications
+   - **Started:** Application startup (verified via migration `alembic/versions/20260108_add_alert_rules.py`)
+   - **Interval:** Configurable via `ALERT_RULES_EVALUATION_INTERVAL_SECONDS`
 
 **Shutdown:** All schedulers stopped in `shutdown_event()` (lines 493-528)
 
@@ -268,3 +274,86 @@ All routers registered with prefix `/api/v1`:
 
 - **Stale Job Cleanup:** `background_job_service.cleanup_stale_jobs(max_runtime_hours=24)` (line 412)
 - **Stale Deployment Cleanup:** Marks `RUNNING` deployments >1hr old as `FAILED` (lines 454-487)
+
+---
+
+## CI/CD Workflows
+
+**Evidence:** `.github/workflows/` directory contains 3 GitHub Actions workflows
+
+### 1. Production Deployment
+
+**File:** `.github/workflows/deploy-prod.yml`
+
+**Trigger:**
+- Release published event (GitHub releases)
+- Manual dispatch with `deploy-prod` confirmation input (requires exact match)
+
+**Jobs:**
+1. **Pre-Deploy Backup**
+   - Creates database backup artifact
+   - Retention: 30 days
+   - Stored as GitHub Actions artifact
+
+2. **Database Migration**
+   - Runs Alembic migrations with advisory lock
+   - Ensures only one migration runs at a time
+   - Fails deployment if migration fails
+
+3. **Backend Deployment**
+   - Deploys FastAPI backend to production server
+   - Health check with 5 retries, 10-second intervals
+   - Rollback on health check failure
+
+4. **Frontend Deployment**
+   - Builds Vite production bundle
+   - Deploys static assets to CDN/hosting
+   - Cache invalidation for updated assets
+
+**Safety Mechanisms:**
+- Concurrency group prevents multiple simultaneous deployments
+- Manual approval required for production (via `deploy-prod` confirmation)
+- Automatic rollback on health check failure
+- Database backup before migration
+
+### 2. Staging Deployment
+
+**File:** `.github/workflows/deploy-staging.yml`
+
+**Trigger:**
+- Push to `develop` branch
+- Manual dispatch
+
+**Structure:** Similar to production deployment with staging-specific configuration
+
+### 3. E2E Test Suite
+
+**File:** `.github/workflows/e2e-tests.yml`
+
+**Trigger:**
+- Pull requests to `main` or `develop`
+- Push to `main` branch
+
+**Jobs:**
+
+1. **Backend E2E Tests**
+   - Runs pytest tests/e2e/
+   - Uses respx for HTTP-boundary mocking (no real API calls)
+   - Test database: PostgreSQL 15 with Supabase schema
+   - Coverage: 5 E2E test suites (promotion, drift, canonical, downgrade, impersonation)
+
+2. **Frontend E2E Tests**
+   - Runs Playwright tests with chromium browser
+   - Mocked backend API responses
+   - Coverage: 4 Playwright specs (promotion, drift, canonical, impersonation flows)
+
+3. **Test Summary**
+   - Aggregates results from both jobs
+   - Posts summary comment on PR (success/failure counts, duration)
+   - Fails workflow if any test fails
+
+**Test Infrastructure:**
+- HTTP-boundary mocking with respx (backend)
+- Playwright browser automation (frontend)
+- Test factories and golden JSON fixtures
+- GitHub Actions cache for dependencies

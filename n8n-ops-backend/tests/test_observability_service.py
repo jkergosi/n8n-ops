@@ -12,9 +12,52 @@ from app.schemas.observability import (
 )
 
 
+class FakeSupabaseTable:
+    """Fake Supabase table for testing"""
+    def __init__(self, data=None):
+        self._data = data or []
+        self._query = self
+
+    def select(self, *args, **kwargs):
+        return self
+
+    def eq(self, *args, **kwargs):
+        return self
+
+    def gte(self, *args, **kwargs):
+        return self
+
+    def lte(self, *args, **kwargs):
+        return self
+
+    def lt(self, *args, **kwargs):
+        return self
+
+    def order(self, *args, **kwargs):
+        return self
+
+    def limit(self, *args, **kwargs):
+        return self
+
+    def execute(self):
+        return type('Response', (), {'data': self._data, 'count': len(self._data)})()
+
+
+class FakeSupabaseClient:
+    """Fake Supabase client for testing"""
+    def __init__(self):
+        self._executions = []
+
+    def table(self, name):
+        if name == "executions":
+            return FakeSupabaseTable(self._executions)
+        return FakeSupabaseTable([])
+
+
 class FakeDB:
     def __init__(self):
         self.execution_calls = 0
+        self.client = FakeSupabaseClient()
 
     async def get_execution_stats(self, tenant_id: str, since: str, until: str, environment_id=None):
         self.execution_calls += 1
@@ -88,6 +131,24 @@ class FakeDB:
     async def create_environment_health_check(self, *args, **kwargs):
         return {"id": "hc-1", "checked_at": "now"}
 
+    async def get_credentials(self, tenant_id, environment_id=None):
+        return []
+
+    async def get_last_workflow_failures_batch(self, tenant_id, workflow_ids, environment_id=None):
+        return {}
+
+    async def get_failed_executions(self, tenant_id, since, until, environment_id=None):
+        return []
+
+    async def get_error_intelligence_aggregated(self, tenant_id, since, until, environment_id=None):
+        return []
+
+    async def get_execution_count_in_range(self, tenant_id, since, until, environment_id=None):
+        return 10  # Return small count to avoid SQL aggregation
+
+    async def get_sparkline_aggregated(self, tenant_id, since, until, interval_minutes, environment_id=None):
+        return None  # Return None to use client-side aggregation
+
 
 @pytest.mark.asyncio
 async def test_get_kpi_metrics_computes_delta(monkeypatch):
@@ -103,6 +164,58 @@ async def test_get_kpi_metrics_computes_delta(monkeypatch):
     # Delta computed against second call
     assert metrics.delta_executions == 5
     assert metrics.delta_success_rate == 0
+
+
+@pytest.mark.asyncio
+async def test_sparkline_returns_warnings_when_limit_exceeded(monkeypatch):
+    """Test that sparkline returns warnings when execution count exceeds limit"""
+    class FakeDBWithManyExecutions(FakeDB):
+        async def get_execution_count_in_range(self, tenant_id, since, until, environment_id=None):
+            return 100000  # Exceeds SPARKLINE_MAX_EXECUTIONS (50000)
+
+    db = FakeDBWithManyExecutions()
+    service = ObservabilityService()
+    monkeypatch.setattr("app.services.observability_service.db_service", db)
+
+    # Patch settings to use lower threshold for testing
+    from app.core.config import settings
+    original_max = settings.SPARKLINE_MAX_EXECUTIONS
+    settings.SPARKLINE_MAX_EXECUTIONS = 50000
+
+    try:
+        sparklines = await service._get_sparkline_data("tenant-1", TimeRange.TWENTY_FOUR_HOURS)
+
+        # Should have warnings
+        assert "warnings" in sparklines
+        assert len(sparklines["warnings"]) > 0
+
+        # Check warning structure
+        warning = sparklines["warnings"][0]
+        assert warning.code == "EXECUTION_LIMIT_EXCEEDED"
+        assert "100,000" in warning.message  # Contains actual count
+        assert warning.actual_count == 100000
+        assert warning.limit_applied == 50000
+    finally:
+        settings.SPARKLINE_MAX_EXECUTIONS = original_max
+
+
+@pytest.mark.asyncio
+async def test_sparkline_no_warnings_for_small_datasets(monkeypatch):
+    """Test that sparkline returns no warnings for small datasets"""
+    db = FakeDB()  # Returns 10 executions
+    service = ObservabilityService()
+    monkeypatch.setattr("app.services.observability_service.db_service", db)
+
+    sparklines = await service._get_sparkline_data("tenant-1", TimeRange.TWENTY_FOUR_HOURS)
+
+    # Should not have warnings for small datasets
+    assert "warnings" not in sparklines or sparklines.get("warnings") is None or len(sparklines.get("warnings", [])) == 0
+
+    # Should still have sparkline data
+    assert "executions" in sparklines
+    assert "success_rate" in sparklines
+    assert "duration" in sparklines
+    assert "failures" in sparklines
 
 
 @pytest.mark.asyncio

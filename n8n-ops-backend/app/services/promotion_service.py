@@ -79,6 +79,10 @@ from app.schemas.promotion import (
     RollbackResult,
 )
 from app.schemas.pipeline import PipelineStage, PipelineStageGates
+from app.services.drift_policy_enforcement import (
+    drift_policy_enforcement_service,
+    EnforcementResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -757,6 +761,9 @@ class PromotionService:
         """
         Compare workflows between source and target GitHub snapshots.
         Returns list of workflow selections with change types.
+
+        T006: Integrates with workflow_diff_state table to detect CONFLICT status
+        and properly classify workflows for conflict blocking.
         """
         # Get environment configs
         source_env = await self.db.get_environment(source_env_id, tenant_id)
@@ -777,6 +784,27 @@ class PromotionService:
         source_map = await source_github.get_all_workflows_from_github(environment_type=source_env_type)
         target_map = await target_github.get_all_workflows_from_github(environment_type=target_env_type)
 
+        # T006: Query workflow_diff_state to get conflict information
+        # This allows us to detect workflows with CONFLICT status and properly handle them
+        diff_states = await self.db.get_workflow_diff_states(
+            tenant_id=tenant_id,
+            source_env_id=source_env_id,
+            target_env_id=target_env_id
+        )
+
+        # Build a map from canonical_id to diff_status for quick lookup
+        diff_status_map = {
+            state.get("canonical_id"): state.get("diff_status")
+            for state in diff_states
+            if state.get("canonical_id") and state.get("diff_status")
+        }
+
+        # Build a map from workflow_id to canonical_id by querying workflow_env_map
+        # We need this to connect workflow IDs (from GitHub) to canonical IDs (in diff_state)
+        workflow_to_canonical_map = await self._get_workflow_to_canonical_map(
+            tenant_id, source_env_id, list(source_map.keys())
+        )
+
         selections = []
 
         # Find all unique workflow IDs
@@ -785,6 +813,25 @@ class PromotionService:
         for wf_id in all_workflow_ids:
             source_wf = source_map.get(wf_id)
             target_wf = target_map.get(wf_id)
+
+            # T006: Check for CONFLICT status from workflow_diff_state first
+            # Get canonical_id for this workflow
+            canonical_id = workflow_to_canonical_map.get(wf_id)
+            diff_status = diff_status_map.get(canonical_id) if canonical_id else None
+
+            # If workflow has CONFLICT status, mark it as such
+            if diff_status == "conflict":
+                workflow_name = source_wf.get("name", "Unknown") if source_wf else (target_wf.get("name", "Unknown") if target_wf else "Unknown")
+                selections.append(WorkflowSelection(
+                    workflow_id=wf_id,
+                    workflow_name=workflow_name,
+                    change_type=WorkflowChangeType.CONFLICT,
+                    enabled_in_source=source_wf.get("active", False) if source_wf else False,
+                    enabled_in_target=target_wf.get("active", False) if target_wf else None,
+                    selected=False,  # Never auto-select conflicts
+                    requires_overwrite=True  # Conflicts require explicit force
+                ))
+                continue
 
             if source_wf and not target_wf:
                 # New in source
@@ -809,13 +856,13 @@ class PromotionService:
                     # Log first 500 chars of each normalized JSON for comparison
                     logger.debug(f"Source normalized (first 500): {source_json[:500]}")
                     logger.debug(f"Target normalized (first 500): {target_json[:500]}")
-                    
+
                     # Check if target was modified independently
                     # (Simplified - in production, check commit history)
                     if target_wf.get("updatedAt") and source_wf.get("updatedAt"):
                         target_updated = datetime.fromisoformat(target_wf.get("updatedAt").replace('Z', '+00:00'))
                         source_updated = datetime.fromisoformat(source_wf.get("updatedAt").replace('Z', '+00:00'))
-                        
+
                         if target_updated > source_updated:
                             # Target was modified more recently - potential hotfix
                             selections.append(WorkflowSelection(
@@ -1264,6 +1311,50 @@ class PromotionService:
             repo_name=repo_parts[-1] if len(repo_parts) >= 1 else "",
             branch=env_config.get("git_branch", "main")
         )
+
+    async def _get_workflow_to_canonical_map(
+        self,
+        tenant_id: str,
+        environment_id: str,
+        workflow_ids: List[str]
+    ) -> Dict[str, str]:
+        """
+        Helper method to build a mapping from workflow_id to canonical_id.
+
+        T006: This is used to connect workflow IDs (from n8n/GitHub) to canonical IDs
+        (used in workflow_diff_state table) for conflict detection.
+
+        Args:
+            tenant_id: The tenant ID
+            environment_id: The environment ID to query mappings for
+            workflow_ids: List of workflow IDs to look up
+
+        Returns:
+            Dictionary mapping workflow_id -> canonical_id
+        """
+        if not workflow_ids:
+            return {}
+
+        try:
+            # Query workflow_env_map for the given workflow IDs
+            response = self.db.client.table("workflow_env_map").select(
+                "n8n_workflow_id, canonical_id"
+            ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).in_(
+                "n8n_workflow_id", workflow_ids
+            ).execute()
+
+            # Build the mapping
+            mapping = {}
+            for row in (response.data or []):
+                workflow_id = row.get("n8n_workflow_id")
+                canonical_id = row.get("canonical_id")
+                if workflow_id and canonical_id:
+                    mapping[workflow_id] = canonical_id
+
+            return mapping
+        except Exception as e:
+            logger.warning(f"Failed to fetch workflow_to_canonical_map: {str(e)}")
+            return {}
 
     def _check_schedule_restrictions(self, stage: PipelineStage) -> Tuple[bool, Optional[str]]:
         """
@@ -1835,6 +1926,14 @@ class PromotionService:
              * Sidecar (.env-map.json) files in Git repository
            - Git state updates are non-blocking (failures logged but don't fail promotion)
 
+        9. DRIFT POLICY ENFORCEMENT (T004):
+           - Before promotion proceeds, drift policy enforcement is checked
+           - If target environment has blocking drift incidents (expired TTL or active
+             drift with block_deployments_on_drift enabled), promotion is BLOCKED
+           - Approval overrides can allow promotion despite blocking incidents
+           - Uses fail-open behavior for internal errors (logs warning, proceeds)
+           - All enforcement decisions are logged with correlation_id for audit trail
+
         CURRENT LIMITATIONS (to be addressed by subsequent tasks):
         ===========================================================
         - Pre-promotion snapshot creation is caller's responsibility (promotion endpoint)
@@ -1845,6 +1944,7 @@ class PromotionService:
         - T002: Pre-promotion snapshot creation before target mutations ✓
         - T003: Atomic rollback on promotion failure ✓
         - T004: Idempotency check using workflow content hash ✓
+        - Drift policy enforcement check before execution (spec T004) ✓
         """
         # Get environment configs
         source_env = await self.db.get_environment(source_env_id, tenant_id)
@@ -1893,7 +1993,91 @@ class PromotionService:
                 errors=["Promotions are blocked until onboarding is complete. Please complete canonical workflow onboarding first."],
                 rollback_result=None  # No promotion attempted, no rollback needed
             )
-        
+
+        # ============================================================================
+        # DRIFT POLICY ENFORCEMENT CHECK (T004)
+        # ============================================================================
+        # Check drift policy enforcement before proceeding with promotion execution.
+        # This is a fail-closed check: if the target environment has blocking drift
+        # incidents (expired TTL or active drift with blocking enabled), the promotion
+        # is blocked unless an explicit approval override exists.
+        #
+        # This check is performed here at execution time as an additional safety layer,
+        # complementing the pre-flight validation check in PromotionValidator.
+        # ============================================================================
+        try:
+            enforcement_decision = await drift_policy_enforcement_service.check_enforcement_with_override(
+                tenant_id=tenant_id,
+                environment_id=target_env_id,
+                correlation_id=promotion_id,  # Use promotion_id for correlation
+            )
+
+            if not enforcement_decision.allowed:
+                # Drift policy enforcement is blocking this promotion
+                incident_details = enforcement_decision.incident_details or {}
+                incident_id = enforcement_decision.incident_id
+                incident_title = incident_details.get("title", "Unknown")
+
+                # Generate detailed error message based on enforcement result
+                if enforcement_decision.result == EnforcementResult.BLOCKED_TTL_EXPIRED:
+                    error_msg = (
+                        f"Promotion blocked by drift policy: Drift incident '{incident_title}' "
+                        f"has an expired TTL. Please resolve the incident or extend the TTL "
+                        f"before promoting to this environment."
+                    )
+                elif enforcement_decision.result == EnforcementResult.BLOCKED_ACTIVE_DRIFT:
+                    error_msg = (
+                        f"Promotion blocked by drift policy: Active drift incident "
+                        f"'{incident_title}' exists in the target environment. Please resolve "
+                        f"the incident or request a deployment override approval."
+                    )
+                else:
+                    error_msg = (
+                        f"Promotion blocked by drift policy: {enforcement_decision.reason}"
+                    )
+
+                logger.warning(
+                    f"Promotion execution blocked by drift policy enforcement "
+                    f"(promotion_id={promotion_id}, tenant_id={tenant_id}, "
+                    f"target_env_id={target_env_id}, result={enforcement_decision.result.value}, "
+                    f"incident_id={incident_id})"
+                )
+
+                return PromotionExecutionResult(
+                    promotion_id=promotion_id,
+                    status=PromotionStatus.FAILED,
+                    workflows_promoted=0,
+                    workflows_failed=0,
+                    workflows_skipped=0,
+                    source_snapshot_id=source_snapshot_id,
+                    target_pre_snapshot_id=target_pre_snapshot_id,
+                    target_post_snapshot_id="",
+                    errors=[error_msg],
+                    rollback_result=None,  # No promotion attempted, no rollback needed
+                )
+            else:
+                # Enforcement check passed - log for audit trail
+                override_info = enforcement_decision.incident_details or {}
+                if override_info.get("override_approval_id"):
+                    logger.info(
+                        f"Drift policy enforcement passed via approval override "
+                        f"(promotion_id={promotion_id}, approval_id={override_info.get('override_approval_id')})"
+                    )
+                else:
+                    logger.debug(
+                        f"Drift policy enforcement passed "
+                        f"(promotion_id={promotion_id}, reason={enforcement_decision.reason})"
+                    )
+
+        except Exception as e:
+            # Fail-open for internal errors: log warning but allow promotion to proceed
+            # This prevents enforcement service outages from blocking all promotions
+            logger.warning(
+                f"Drift policy enforcement check failed with error (fail-open): {str(e)} "
+                f"(promotion_id={promotion_id}, tenant_id={tenant_id}, target_env_id={target_env_id})"
+            )
+            # Continue with promotion - fail-open behavior for internal errors
+
         # Load workflows from Git (canonical workflow system)
         # Promotions ALWAYS load from Git, never from source environment
         source_workflow_map: Dict[str, Any] = {}
@@ -2028,8 +2212,29 @@ class PromotionService:
                     continue
 
                 # T006: Enforce allowForcePromotionOnConflicts policy flag
-                # Block promotion when conflicts exist and force promotion is not allowed
+                # Block promotion when conflicts exist (CONFLICT change_type) and force promotion is not allowed
+                # CONFLICT status means both source env AND target Git have independent modifications
+                if (selection.change_type == WorkflowChangeType.CONFLICT and
+                    not policy_flags.get('allow_force_promotion_on_conflicts', False)):
+                    error_msg = (
+                        f"Policy violation for '{selection.workflow_name}': "
+                        f"Git conflict detected. This workflow has been modified in both the source "
+                        f"environment and target Git independently. Promoting would overwrite target Git changes. "
+                        f"Enable 'allow_force_promotion_on_conflicts' policy flag to force promotion, "
+                        f"or resolve the conflict manually by syncing target changes to source first."
+                    )
+                    errors.append(error_msg)
+                    workflows_failed += 1
+                    logger.warning(
+                        f"Blocked promotion of {selection.workflow_name} due to conflict policy: "
+                        f"change_type=CONFLICT, allow_force_promotion_on_conflicts=False"
+                    )
+                    continue
+
+                # T006: Also block promotion when requires_overwrite flag is set (fallback check)
+                # This catches conflicts that may not be explicitly marked as CONFLICT change_type
                 if (selection.requires_overwrite and
+                    selection.change_type != WorkflowChangeType.CONFLICT and  # Already handled above
                     not policy_flags.get('allow_force_promotion_on_conflicts', False)):
                     error_msg = (
                         f"Policy violation for '{selection.workflow_name}': "

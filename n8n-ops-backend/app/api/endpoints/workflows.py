@@ -29,6 +29,8 @@ from app.services.background_job_service import (
 )
 from app.api.endpoints.sse import emit_backup_progress
 from app.services.auth_service import get_current_user
+from app.schemas.pagination import PaginatedResponse, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from math import ceil
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +84,13 @@ async def get_workflows(
     environment_id: Optional[str] = None,
     environment: Optional[str] = None,  # Deprecated: use environment_id instead
     force_refresh: bool = False,
-    page: Optional[int] = None,  # Page number (1-indexed) for pagination
-    limit: Optional[int] = None,  # Number of items per page
+    page: int = 1,  # Page number (1-indexed) for pagination
+    page_size: int = DEFAULT_PAGE_SIZE,  # Number of items per page
     user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("workflow_read"))
 ):
     """
-    Get all workflows for the specified environment.
+    Get all workflows for the specified environment with standardized pagination.
 
     By default, returns cached workflows from the database.
     Use force_refresh=true to fetch fresh data from N8N API and update the cache.
@@ -100,14 +102,25 @@ async def get_workflows(
     Args:
         environment_id: Environment UUID (preferred)
         environment: Environment type string (deprecated, for backward compatibility)
-        page: Page number (1-indexed) for pagination. If provided with limit, returns paginated response.
-        limit: Number of items per page. If provided with page, returns paginated response.
+        force_refresh: Fetch fresh data from N8N API instead of cached data
+        page: Page number (1-indexed, default 1)
+        page_size: Number of items per page (default 50, max 100)
 
     Returns:
-        If page and limit provided: {"items": [...], "total": 500, "page": 1, "pages": 10}
-        Otherwise: List of workflows (legacy behavior)
+        Standardized pagination envelope:
+        {
+            "items": [...],
+            "total": int,
+            "page": int,
+            "pageSize": int,
+            "totalPages": int,
+            "hasMore": bool
+        }
     """
     try:
+        # Cap page_size to prevent abuse
+        page_size = max(1, min(page_size, MAX_PAGE_SIZE))
+
         tenant_id = get_tenant_id(user_info)
         env_config = await resolve_environment_config(environment_id, environment, tenant_id)
         env_id = env_config.get("id")
@@ -122,7 +135,7 @@ async def get_workflows(
                     include_deleted=False,
                     include_ignored=False,
                     page=page,
-                    limit=limit
+                    limit=page_size
                 )
 
                 if cached_workflows:
@@ -146,7 +159,38 @@ async def get_workflows(
                             import logging
                             logging.warning(f"Failed to analyze workflow {workflow.get('id', 'unknown')}: {str(e)}")
 
-                    return cached_workflows
+                    # Convert to standardized envelope format
+                    if isinstance(cached_workflows, dict) and "items" in cached_workflows:
+                        # Already paginated, ensure it has all required fields
+                        total = cached_workflows.get("total", len(workflows_to_analyze))
+                        total_pages = ceil(total / page_size) if page_size > 0 else 0
+                        has_more = page < total_pages
+
+                        return {
+                            "items": workflows_to_analyze,
+                            "total": total,
+                            "page": page,
+                            "pageSize": page_size,
+                            "totalPages": total_pages,
+                            "hasMore": has_more
+                        }
+                    else:
+                        # List response - convert to paginated format
+                        total = len(workflows_to_analyze)
+                        start_idx = (page - 1) * page_size
+                        end_idx = start_idx + page_size
+                        page_items = workflows_to_analyze[start_idx:end_idx]
+                        total_pages = ceil(total / page_size) if page_size > 0 else 0
+                        has_more = page < total_pages
+
+                        return {
+                            "items": page_items,
+                            "total": total,
+                            "page": page,
+                            "pageSize": page_size,
+                            "totalPages": total_pages,
+                            "hasMore": has_more
+                        }
             except Exception as e:
                 # If canonical system fails, fall through to n8n fetch
                 import logging
@@ -189,87 +233,6 @@ async def get_workflows(
         # Transform n8n workflows to match frontend format
         transformed_workflows = []
         for workflow in workflows:
-            workflow_obj = {
-                "id": workflow.get("id"),
-                "name": workflow.get("name", "Unknown"),
-                "description": workflow.get("description", ""),
-                "active": workflow.get("active", False),
-                "tags": workflow.get("tags", []),
-                "createdAt": workflow.get("createdAt"),
-                "updatedAt": workflow.get("updatedAt"),
-                "nodes": workflow.get("nodes", []),
-                "connections": workflow.get("connections", {}),
-                "settings": workflow.get("settings", {}),
-                "lastSyncedAt": None,  # Not synced yet
-                "syncStatus": "pending"
-            }
-            # Include analysis if available
-            if workflow.get("id") in workflows_with_analysis:
-                workflow_obj["analysis"] = workflows_with_analysis[workflow.get("id")]
-            transformed_workflows.append(workflow_obj)
-        
-        return transformed_workflows
-
-        # Compute sync status for all workflows if GitHub is configured
-        sync_status_map = {}
-        if env_config.get("git_repo_url"):
-            try:
-                # Create GitHub service
-                repo_url = env_config.get("git_repo_url", "").rstrip('/').replace('.git', '')
-                repo_parts = repo_url.split("/")
-                github_service = GitHubService(
-                    token=env_config.get("git_pat"),
-                    repo_owner=repo_parts[-2] if len(repo_parts) >= 2 else "",
-                    repo_name=repo_parts[-1] if len(repo_parts) >= 1 else "",
-                    branch=env_config.get("git_branch", "main")
-                )
-                
-                if github_service.is_configured():
-                    # Get all workflows from GitHub (using environment type key for folder path)
-                    # get_all_workflows_from_github returns Dict[workflow_id, workflow_data]
-                    env_type = env_config.get("n8n_type")
-                    if not env_type:
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Environment type is required for GitHub workflow operations. Set the environment type and try again.",
-                        )
-                    github_workflow_map = await github_service.get_all_workflows_from_github(environment_type=env_type)
-                    
-                    # Compute sync status for each workflow
-                    for workflow in workflows:
-                        workflow_id = workflow.get("id")
-                        try:
-                            github_workflow = github_workflow_map.get(workflow_id)
-                            cached_workflow = await db_service.get_workflow(tenant_id, env_id, workflow_id)
-                            last_synced_at = cached_workflow.get("last_synced_at") if cached_workflow else None
-                            
-                            sync_status = compute_sync_status(
-                                n8n_workflow=workflow,
-                                github_workflow=github_workflow,
-                                last_synced_at=last_synced_at,
-                                n8n_updated_at=workflow.get("updatedAt"),
-                                github_updated_at=github_workflow.get("updatedAt") if github_workflow else None
-                            )
-                            
-                            sync_status_map[workflow_id] = sync_status
-                            
-                            # Update in database
-                            await db_service.update_workflow_sync_status(
-                                tenant_id=tenant_id,
-                                environment_id=env_id,
-                                n8n_workflow_id=workflow_id,
-                                sync_status=sync_status
-                            )
-                        except Exception as status_error:
-                            # Log but continue
-                            print(f"Failed to compute sync status for workflow {workflow_id}: {str(status_error)}")
-            except Exception as e:
-                # Log but don't fail the request
-                print(f"Failed to compute sync statuses: {str(e)}")
-
-        # Transform the response to match our frontend expectations
-        transformed_workflows = []
-        for workflow in workflows:
             # Transform tags from objects to strings
             tags = workflow.get("tags", [])
             tag_strings = []
@@ -282,8 +245,8 @@ async def get_workflows(
 
             workflow_obj = {
                 "id": workflow.get("id"),
-                "name": workflow.get("name"),
-                "description": "",  # N8N doesn't have description field
+                "name": workflow.get("name", "Unknown"),
+                "description": workflow.get("description", ""),
                 "active": workflow.get("active", False),
                 "tags": tag_strings,
                 "createdAt": workflow.get("createdAt"),
@@ -291,7 +254,8 @@ async def get_workflows(
                 "nodes": workflow.get("nodes", []),
                 "connections": workflow.get("connections", {}),
                 "settings": workflow.get("settings", {}),
-                "syncStatus": sync_status_map.get(workflow.get("id"))  # Include sync status
+                "lastSyncedAt": None,  # Not synced yet
+                "syncStatus": "pending"
             }
             # Include analysis if available
             workflow_id = workflow.get("id")
@@ -310,7 +274,23 @@ async def get_workflows(
             # Log error but don't fail the request
             print(f"Failed to update workflow count: {str(e)}")
 
-        return transformed_workflows
+        # Apply pagination to the transformed workflows
+        total = len(transformed_workflows)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        page_items = transformed_workflows[start_idx:end_idx]
+        total_pages = ceil(total / page_size) if page_size > 0 else 0
+        has_more = page < total_pages
+
+        # Return standardized pagination envelope
+        return {
+            "items": page_items,
+            "total": total,
+            "page": page,
+            "pageSize": page_size,
+            "totalPages": total_pages,
+            "hasMore": has_more
+        }
 
     except HTTPException:
         raise

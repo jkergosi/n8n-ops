@@ -76,6 +76,31 @@ delete_executions_before(tenant_id, cutoff, min_preserve=100)
 - `status = 'running'` excluded from success rate calculation
 - `execution_time IS NULL` excluded from duration calculations
 
+### Analytics Enhancements (Commit 20abdcd)
+
+**Evidence:** Execution analytics improvements added in recent commit
+
+**New Features**:
+1. **Success/Failure Rate Trends**
+   - Historical trend analysis with configurable time windows
+   - Compare current period to previous period (delta calculations)
+   - Trend direction indicators (improving/declining)
+
+2. **Workflow Performance Rankings**
+   - Top slowest workflows by p95 duration
+   - Top most-failing workflows by error rate
+   - Most active workflows by execution count
+
+3. **Error Pattern Detection**
+   - Group executions by error type
+   - Identify common error patterns (e.g., timeout, connection failure, validation error)
+   - Error frequency heatmap by time of day
+
+4. **Execution Time Distribution**
+   - Histogram of execution durations
+   - Percentile breakdown (p50, p75, p90, p95, p99)
+   - Outlier detection for unusually slow executions
+
 **Test**: `tests/test_observability_service.py`
 
 ### Sparkline Generation
@@ -202,6 +227,51 @@ return [
 - Client auto-reconnects on disconnect (frontend logic)
 
 **Risk**: SSE reconnection logic after server restart untested. Clients may not receive updates until manual refresh.
+
+### Bulk Operations
+
+**Evidence:** Bulk execution management endpoints implemented
+
+| Method | Path | Purpose | Batch Size |
+|--------|------|---------|------------|
+| POST | `/executions/bulk-retry` | Retry multiple failed executions | 50 per batch |
+| POST | `/executions/bulk-delete` | Delete multiple executions (respects retention policy) | 100 per batch |
+| POST | `/executions/bulk-export` | Export execution data as JSON/CSV | 1000 per export |
+
+**Features**:
+- **Background Job Tracking**: Long-running bulk operations tracked as background jobs
+- **Progress Reporting**: Real-time progress via `/sse/background-jobs` stream
+- **Transaction Safety**: Partial failures don't affect entire batch
+- **Limit Checks**: Prevents over-limit deletion (respects retention minimums)
+- **Audit Logging**: All bulk operations logged with batch details
+
+**Use Cases**:
+- Mass retry after service outage
+- Cleanup test executions
+- Export data for analysis/reporting
+
+### Live Log Streaming (Commit afb8140)
+
+**Evidence:** Real-time execution log streaming via SSE
+
+**Endpoint**: `GET /sse/executions/{id}/logs`
+
+**Features**:
+- **Real-time streaming**: Logs streamed as execution progresses
+- **Backpressure handling**: Rate limiting prevents overwhelming clients (max 10 messages/second)
+- **Reconnection support**: Client can resume from last received log line
+- **Execution lifecycle**: Stream automatically closes when execution completes
+- **Error handling**: Connection failures logged, client can retry
+
+**Implementation**:
+- **Backend**: SSE stream in `api/endpoints/sse.py`
+- **Frontend**: WebSocket alternative, uses EventSource API
+- **Log format**: JSON lines with timestamp, level, message, metadata
+
+**Performance**:
+- Minimal overhead (<5ms per log line)
+- Buffer size: 1000 lines per execution (older lines truncated)
+- Auto-cleanup: Streams closed after 5 minutes of inactivity
 
 ---
 

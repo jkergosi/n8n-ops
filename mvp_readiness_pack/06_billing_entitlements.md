@@ -257,7 +257,13 @@ POLICIES = {
 
 **Migration**: `alembic/versions/380513d302f0_add_downgrade_grace_periods_table.py`
 
-**Gap**: Grace period expiry not automated. No job to enforce action on expiry.
+**Automation**: ✅ **Grace period expiry is fully automated**
+- **Scheduler**: `services/background_jobs/downgrade_enforcement_job.py`
+- **Function**: `enforce_expired_grace_periods()` - enforces actions on expired grace periods
+- **Function**: `detect_overlimit_all_tenants()` - periodic detection of over-limit tenants
+- **Startup**: `main.py:449-450` calls `start_downgrade_enforcement_scheduler()`
+- **Interval**: Configurable via `DOWNGRADE_ENFORCEMENT_INTERVAL_SECONDS` (default: 3600s / 1 hour)
+- **Test**: `tests/test_downgrade_enforcement.py`, `tests/e2e/test_downgrade_e2e.py`
 
 ### Downgrade Error Handling
 
@@ -275,6 +281,31 @@ except Exception as e:
 **Behavior**: Downgrade errors logged but don't fail webhook. Tenant subscription updated even if downgrade handling fails.
 
 **Risk**: Webhook succeeds but tenant still over-limit with no grace period created.
+
+### Downgrade Notifications
+
+**File**: `services/notification_service.py`
+
+**Trigger Points**:
+1. **Grace Period Start**: When downgrade creates a grace period
+   - Notification sent to tenant admin
+   - Includes: affected resources, grace period duration, expiry date, required actions
+
+2. **Grace Period Expiry Warning**: 24 hours before expiry
+   - Reminder notification sent to tenant admin
+   - Includes: time remaining, consequences of non-action
+
+3. **Enforcement Completion**: When grace period expires and action is enforced
+   - Final notification sent to tenant admin
+   - Includes: actions taken (e.g., workflows deactivated, executions deleted)
+
+**Notification Channels**:
+- **Email**: Primary channel (via configured SMTP)
+- **Slack**: Optional webhook integration
+- **In-App**: Notification table for UI display
+- **Webhook**: Optional tenant-configured webhook
+
+**Evidence**: Notification service integrated with downgrade enforcement scheduler
 
 ---
 
@@ -404,8 +435,10 @@ async def trigger_retention_enforcement(dry_run=False):
 | `test_feature_gate.py` | Feature gate decorator |
 | `test_retention.py` | Retention enforcement, batch deletion |
 | `test_tenant_plan_service.py` | Plan resolution |
+| `test_downgrade_enforcement.py` | Grace period enforcement, over-limit detection |
+| `tests/e2e/test_downgrade_e2e.py` | E2E downgrade flow (Stripe webhook → enforcement) |
 
-**Gaps**: No E2E checkout flow test, grace period expiry enforcement untested
+**Gaps**: No E2E checkout flow test (Stripe checkout UI integration)
 
 ---
 
@@ -414,12 +447,9 @@ async def trigger_retention_enforcement(dry_run=False):
 ### High Risk
 
 1. **Downgrade Errors Don't Fail Webhook**: Tenant subscription updated even if downgrade handling fails. Could leave tenant over-limit with no grace period.
+   - **Mitigation**: Hourly scheduler runs `detect_overlimit_all_tenants()` to catch missed webhooks
 
-2. **Grace Period Expiry Not Enforced**: Grace periods tracked but no automated job to enforce action on expiry.
-
-3. **Over-Limit Detection Only on Webhook**: If webhook missed, tenant could stay over-limit indefinitely.
-
-4. **USER_CHOICE Strategy Not Implemented**: Policy exists but not usable. Always falls back to OLDEST_FIRST/NEWEST_FIRST.
+2. **USER_CHOICE Strategy Not Implemented**: Policy exists but not usable. Always falls back to OLDEST_FIRST/NEWEST_FIRST.
 
 ### Medium Risk
 
@@ -443,15 +473,11 @@ async def trigger_retention_enforcement(dry_run=False):
 
 ### Not Implemented
 
-1. **Grace Period Expiry Enforcement**: No automated job to enforce actions on expiry.
+1. **USER_CHOICE Downgrade Strategy**: User selection UI not implemented. Always uses OLDEST_FIRST/NEWEST_FIRST strategies.
 
-2. **USER_CHOICE Downgrade Strategy**: User selection UI not implemented.
+2. **Checkout E2E Testing**: No comprehensive E2E test for full Stripe checkout UI integration (backend webhook flow is E2E tested).
 
-3. **Periodic Over-Limit Detection**: Only runs on webhook.
-
-4. **Checkout E2E Testing**: No comprehensive E2E test for full checkout flow.
-
-5. **Override Auto-Removal**: Expired overrides not automatically removed.
+3. **Override Auto-Removal**: Expired overrides not automatically removed (requires admin manual cleanup).
 
 ### Unclear Behavior
 

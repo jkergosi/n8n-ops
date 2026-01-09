@@ -139,7 +139,14 @@ async def create_pipeline(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="At least 2 environments are required"
             )
-        
+
+        # MVP: Enforce single-hop pipelines (exactly 2 environments, 1 stage)
+        if len(pipeline.environment_ids) > 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Multi-stage pipelines are not supported in MVP. Create separate pipelines for each hop."
+            )
+
         # Validate no duplicate environments
         if len(pipeline.environment_ids) != len(set(pipeline.environment_ids)):
             raise HTTPException(
@@ -256,6 +263,12 @@ async def update_pipeline(
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="At least 2 environments are required"
+                )
+            # MVP: Enforce single-hop pipelines (exactly 2 environments, 1 stage)
+            if len(pipeline.environment_ids) > 2:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Multi-stage pipelines are not supported in MVP. Create separate pipelines for each hop."
                 )
             # Validate no duplicates
             if len(pipeline.environment_ids) != len(set(pipeline.environment_ids)):

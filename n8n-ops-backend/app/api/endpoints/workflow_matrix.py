@@ -72,6 +72,12 @@ class WorkflowMatrixCell(BaseModel):
     can_sync: bool = Field(alias="canSync", serialization_alias="canSync")
     n8n_workflow_id: Optional[str] = Field(default=None, alias="n8nWorkflowId", serialization_alias="n8nWorkflowId")
     content_hash: Optional[str] = Field(default=None, alias="contentHash", serialization_alias="contentHash")
+    collision_warning: Optional[str] = Field(
+        default=None,
+        alias="collisionWarning",
+        serialization_alias="collisionWarning",
+        description="Hash collision warning if detected for this workflow in this environment"
+    )
 
     model_config = {"populate_by_name": True}
 
@@ -95,11 +101,25 @@ class WorkflowMatrixRow(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class PageMetadata(BaseModel):
+    """Pagination metadata"""
+    page: int
+    page_size: int = Field(alias="pageSize", serialization_alias="pageSize")
+    total_workflows: int = Field(alias="totalWorkflows", serialization_alias="totalWorkflows")
+    total_pages: int = Field(alias="totalPages", serialization_alias="totalPages")
+    has_more: bool = Field(alias="hasMore", serialization_alias="hasMore")
+
+    model_config = {"populate_by_name": True}
+
+
 class WorkflowMatrixResponse(BaseModel):
     """Complete matrix response from the backend."""
     workflows: List[WorkflowMatrixRow]
     environments: List[WorkflowMatrixEnvironment]
     matrix: Dict[str, Dict[str, Optional[WorkflowMatrixCell]]]
+    page_metadata: PageMetadata = Field(alias="pageMetadata", serialization_alias="pageMetadata")
+
+    model_config = {"populate_by_name": True}
 
 
 def get_tenant_id(user_info: dict) -> str:
@@ -217,26 +237,47 @@ async def _compute_cell_status(
 
 @router.get("/matrix", response_model=WorkflowMatrixResponse)
 async def get_workflow_matrix(
+    page: int = 1,
+    page_size: int = 50,
     user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("workflow_read"))
 ):
     """
     Get the workflow × environment matrix with status badges.
 
-    Returns a complete matrix showing:
-    - Rows: All canonical workflows for the tenant
+    Returns a paginated matrix showing:
+    - Rows: Canonical workflows for the tenant (paginated)
     - Columns: All active environments for the tenant
     - Cells: Status badge (linked, untracked, drift, out_of_date) for each combination
+
+    Pagination:
+    - page: Page number (1-indexed, default: 1)
+    - page_size: Items per page (default: 50, max: 100)
 
     All status logic is computed server-side. The UI must not infer or compute status logic.
     """
     tenant_id = get_tenant_id(user_info)
 
+    # Validate and cap page_size
+    page_size = min(max(1, page_size), 100)  # Cap at 100
+    page = max(1, page)  # Ensure page is at least 1
+
     try:
-        # Fetch all data in parallel
+        # Get total count for pagination metadata (run in parallel with data fetch)
+        import asyncio
+        total_workflows_task = asyncio.create_task(
+            db_service.count_canonical_workflows(
+                tenant_id=tenant_id,
+                include_deleted=False
+            )
+        )
+
+        # Fetch paginated workflows and environments in parallel
         canonical_workflows = await db_service.get_canonical_workflows(
             tenant_id=tenant_id,
-            include_deleted=False
+            include_deleted=False,
+            page=page,
+            page_size=page_size
         )
 
         environments = await db_service.get_environments(tenant_id)
@@ -272,6 +313,21 @@ async def get_workflow_matrix(
                 if canonical_id not in git_states_by_canonical_env:
                     git_states_by_canonical_env[canonical_id] = {}
                 git_states_by_canonical_env[canonical_id][env_id] = gs
+
+        # Build hash collision detection map per environment
+        # Map of environment_id -> content_hash -> list of canonical_ids
+        hash_to_canonical_map: Dict[str, Dict[str, List[str]]] = {}
+        for mapping in all_mappings:
+            env_id = mapping.get("environment_id")
+            content_hash = mapping.get("env_content_hash")
+            canonical_id = mapping.get("canonical_id")
+
+            if env_id and content_hash and canonical_id:
+                if env_id not in hash_to_canonical_map:
+                    hash_to_canonical_map[env_id] = {}
+                if content_hash not in hash_to_canonical_map[env_id]:
+                    hash_to_canonical_map[env_id][content_hash] = []
+                hash_to_canonical_map[env_id][content_hash].append(canonical_id)
 
         # Build the response
         workflow_rows: List[WorkflowMatrixRow] = []
@@ -327,17 +383,48 @@ async def get_workflow_matrix(
                     # Workflow doesn't exist in this environment
                     matrix[canonical_id][env_id] = None
                 else:
+                    # Check for hash collision in this environment
+                    collision_warning = None
+                    if mapping:
+                        content_hash = mapping.get("env_content_hash")
+                        if content_hash and env_id in hash_to_canonical_map:
+                            canonical_ids_with_hash = hash_to_canonical_map[env_id].get(content_hash, [])
+                            if len(canonical_ids_with_hash) > 1:
+                                # Collision detected: multiple canonical workflows share the same hash
+                                other_workflows = [cid for cid in canonical_ids_with_hash if cid != canonical_id]
+                                collision_warning = (
+                                    f"Hash collision detected: Content hash '{content_hash[:12]}...' "
+                                    f"is shared with {len(other_workflows)} other workflow(s). "
+                                    f"This may indicate identical workflow content or a hash collision."
+                                )
+
                     matrix[canonical_id][env_id] = WorkflowMatrixCell(
                         status=computed_status,
                         can_sync=can_sync,
                         n8n_workflow_id=mapping.get("n8n_workflow_id") if mapping else None,
-                        content_hash=mapping.get("env_content_hash") if mapping else None
+                        content_hash=mapping.get("env_content_hash") if mapping else None,
+                        collision_warning=collision_warning
                     )
+
+        # Await the total count
+        total_workflows = await total_workflows_task
+
+        # Calculate pagination metadata
+        import math
+        total_pages = math.ceil(total_workflows / page_size) if page_size > 0 else 0
+        has_more = page < total_pages
 
         return WorkflowMatrixResponse(
             workflows=workflow_rows,
             environments=environment_cols,
-            matrix=matrix
+            matrix=matrix,
+            page_metadata=PageMetadata(
+                page=page,
+                page_size=page_size,
+                total_workflows=total_workflows,
+                total_pages=total_pages,
+                has_more=has_more
+            )
         )
 
     except HTTPException:

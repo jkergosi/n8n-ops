@@ -126,7 +126,17 @@ class CanonicalReconciliationService:
                         source_mapping,
                         target_mapping
                     )
-                    
+
+                    # Build conflict metadata if this is a conflict
+                    conflict_metadata = None
+                    if diff_status == WorkflowDiffStatus.CONFLICT:
+                        conflict_metadata = CanonicalReconciliationService._build_conflict_metadata(
+                            source_git_state,
+                            target_git_state,
+                            source_mapping,
+                            target_mapping
+                        )
+
                     # Upsert diff state
                     await CanonicalReconciliationService._upsert_diff_state(
                         tenant_id,
@@ -137,7 +147,8 @@ class CanonicalReconciliationService:
                         source_git_state.get("git_content_hash") if source_git_state else None,
                         target_git_state.get("git_content_hash") if target_git_state else None,
                         source_mapping.get("env_content_hash") if source_mapping else None,
-                        target_mapping.get("env_content_hash") if target_mapping else None
+                        target_mapping.get("env_content_hash") if target_mapping else None,
+                        conflict_metadata=conflict_metadata
                     )
                     
                     results["diffs_computed"] += 1
@@ -178,44 +189,132 @@ class CanonicalReconciliationService:
     ) -> WorkflowDiffStatus:
         """
         Compute diff status between source and target environments.
-        
+
         Logic:
         - If source Git hash == target Git hash: UNCHANGED
         - If source Git exists but target Git doesn't: ADDED
         - If target Git exists but source Git doesn't: TARGET_ONLY
         - If both exist but hashes differ:
+          - If BOTH source env AND target Git have independent changes: CONFLICT
           - If source Git hash == target env hash: TARGET_HOTFIX (target modified)
           - Else: MODIFIED (source is newer)
+
+        Conflict Detection:
+        A conflict occurs when:
+        1. Source environment has local changes (source_env_hash ≠ source_git_hash)
+        2. Target Git has different changes (target_git_hash ≠ source_git_hash)
+        3. Both changes are independent (not one being a subset of the other)
         """
         source_git_hash = source_git_state.get("git_content_hash") if source_git_state else None
         target_git_hash = target_git_state.get("git_content_hash") if target_git_state else None
+        source_env_hash = source_mapping.get("env_content_hash") if source_mapping else None
         target_env_hash = target_mapping.get("env_content_hash") if target_mapping else None
-        
+
         if not source_git_state and not target_git_state:
             # Neither exists in Git - shouldn't happen, but default to UNCHANGED
             return WorkflowDiffStatus.UNCHANGED
-        
+
         if not source_git_state:
             # Source doesn't exist in Git, target does
             return WorkflowDiffStatus.TARGET_ONLY
-        
+
         if not target_git_state:
             # Target doesn't exist in Git, source does
             return WorkflowDiffStatus.ADDED
-        
+
         # Both exist - compare hashes
         if source_git_hash == target_git_hash:
             return WorkflowDiffStatus.UNCHANGED
-        
-        # Hashes differ - check if target has hotfix
+
+        # Hashes differ - check for conflicts first
+        # Conflict occurs when BOTH sides have independent modifications
+        source_has_local_changes = (
+            source_env_hash is not None and
+            source_env_hash != source_git_hash
+        )
+        target_git_has_changes = target_git_hash != source_git_hash
+
+        if source_has_local_changes and target_git_has_changes:
+            # Both source environment and target Git have been modified independently
+            # Check if target env also differs from target Git (additional complexity)
+            target_has_local_changes = (
+                target_env_hash is not None and
+                target_env_hash != target_git_hash
+            )
+
+            # This is a conflict: source env modified, target Git modified
+            # (and possibly target env also modified)
+            return WorkflowDiffStatus.CONFLICT
+
+        # No conflict - check for target hotfix scenario
         if target_env_hash and source_git_hash == target_env_hash:
             # Target environment matches source Git, but target Git differs
             # This means target was modified in Git (hotfix scenario)
             return WorkflowDiffStatus.TARGET_HOTFIX
-        
-        # Source and target both differ
+
+        # Source and target both differ, but no conflict
         return WorkflowDiffStatus.MODIFIED
     
+    @staticmethod
+    def _build_conflict_metadata(
+        source_git_state: Optional[Dict[str, Any]],
+        target_git_state: Optional[Dict[str, Any]],
+        source_mapping: Optional[Dict[str, Any]],
+        target_mapping: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Build conflict metadata when a conflict is detected.
+
+        Captures the state of all four sources (source Git, target Git, source env, target env)
+        to provide context for conflict resolution.
+
+        Args:
+            source_git_state: Source environment Git state
+            target_git_state: Target environment Git state
+            source_mapping: Source environment mapping
+            target_mapping: Target environment mapping
+
+        Returns:
+            Conflict metadata dictionary with hashes and timestamps, or None if no conflict detected
+        """
+        source_git_hash = source_git_state.get("git_content_hash") if source_git_state else None
+        target_git_hash = target_git_state.get("git_content_hash") if target_git_state else None
+        source_env_hash = source_mapping.get("env_content_hash") if source_mapping else None
+        target_env_hash = target_mapping.get("env_content_hash") if target_mapping else None
+
+        # Only build metadata if there's actually a conflict scenario
+        source_has_local_changes = (
+            source_env_hash is not None and
+            source_env_hash != source_git_hash
+        )
+        target_git_has_changes = target_git_hash != source_git_hash
+
+        if not (source_has_local_changes and target_git_has_changes):
+            # Not a conflict scenario
+            return None
+
+        metadata = {
+            "conflict_detected_at": datetime.utcnow().isoformat(),
+            "source_git_hash": source_git_hash,
+            "target_git_hash": target_git_hash,
+            "source_env_hash": source_env_hash,
+            "target_env_hash": target_env_hash,
+            "conflict_type": "divergent_changes",
+            "description": "Source environment and target Git have independent modifications"
+        }
+
+        # Add timestamps if available
+        if source_git_state and "updated_at" in source_git_state:
+            metadata["source_git_updated_at"] = source_git_state["updated_at"]
+        if target_git_state and "updated_at" in target_git_state:
+            metadata["target_git_updated_at"] = target_git_state["updated_at"]
+        if source_mapping and "updated_at" in source_mapping:
+            metadata["source_env_updated_at"] = source_mapping["updated_at"]
+        if target_mapping and "updated_at" in target_mapping:
+            metadata["target_env_updated_at"] = target_mapping["updated_at"]
+
+        return metadata
+
     @staticmethod
     async def _get_canonical_workflows(tenant_id: str) -> List[Dict[str, Any]]:
         """Get all canonical workflows for a tenant (not deleted)"""
@@ -286,9 +385,24 @@ class CanonicalReconciliationService:
         source_git_hash: Optional[str] = None,
         target_git_hash: Optional[str] = None,
         source_env_hash: Optional[str] = None,
-        target_env_hash: Optional[str] = None
+        target_env_hash: Optional[str] = None,
+        conflict_metadata: Optional[Dict[str, Any]] = None
     ) -> None:
-        """Create or update diff state"""
+        """
+        Create or update diff state.
+
+        Args:
+            tenant_id: Tenant ID
+            source_env_id: Source environment ID
+            target_env_id: Target environment ID
+            canonical_id: Canonical workflow ID
+            diff_status: Computed diff status
+            source_git_hash: Source Git content hash (for incremental recompute)
+            target_git_hash: Target Git content hash (for incremental recompute)
+            source_env_hash: Source environment content hash (for incremental recompute)
+            target_env_hash: Target environment content hash (for incremental recompute)
+            conflict_metadata: Optional conflict metadata (only for CONFLICT status)
+        """
         diff_data = {
             "tenant_id": tenant_id,
             "source_env_id": source_env_id,
@@ -297,10 +411,18 @@ class CanonicalReconciliationService:
             "diff_status": diff_status.value,
             "computed_at": datetime.utcnow().isoformat()
         }
-        
-        # Store hashes in a JSONB field for comparison (not in schema, but useful for incremental recompute)
-        # For MVP, we'll recompute from source each time
-        
+
+        # Store hashes for incremental recomputation (used in reconcile_environment_pair)
+        # These are not in the DB schema but used for change detection
+        diff_data["source_git_hash"] = source_git_hash
+        diff_data["target_git_hash"] = target_git_hash
+        diff_data["source_env_hash"] = source_env_hash
+        diff_data["target_env_hash"] = target_env_hash
+
+        # Add conflict metadata if provided
+        if conflict_metadata is not None:
+            diff_data["conflict_metadata"] = conflict_metadata
+
         try:
             db_service.client.table("workflow_diff_state").upsert(
                 diff_data,

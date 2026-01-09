@@ -215,6 +215,27 @@ export class MockApiClient {
         body: JSON.stringify(TestData.auth[role]),
       });
     });
+
+    // Also mock health check to prevent Technical Difficulties page
+    await this.mockHealthCheck();
+  }
+
+  /**
+   * Mock health check API
+   */
+  async mockHealthCheck() {
+    await this.page.route('**/api/v1/health', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'healthy',
+          database: 'healthy',
+          supabase: 'healthy',
+          timestamp: new Date().toISOString(),
+        }),
+      });
+    });
   }
 
   /**

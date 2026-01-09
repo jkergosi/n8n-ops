@@ -333,3 +333,52 @@ class DiffSummaryResponse(BaseModel):
     is_new_workflow: bool = False
     cached: bool = False
 
+
+# =============================================================================
+# NEW: Promotion Conflict Error Response Schema
+# =============================================================================
+
+class BlockingPromotionInfo(BaseModel):
+    """
+    Information about a promotion that is blocking a new promotion request.
+
+    Used in 409 Conflict responses to provide details about the active
+    promotion preventing the requested operation.
+    """
+    id: str
+    name: Optional[str] = None
+    started_at: Optional[str] = None
+    started_by: Optional[str] = None
+    target_environment_id: str
+    target_environment_name: Optional[str] = None
+
+
+class PromotionConflictErrorResponse(BaseModel):
+    """
+    Response schema for 409 Conflict errors when a promotion cannot proceed
+    due to another active promotion targeting the same environment.
+
+    This schema is used for API documentation and client type safety.
+    The actual error is raised via PromotionConflictError exception in
+    the promotion_lock_service.
+
+    Example response:
+    ```json
+    {
+        "error": "promotion_conflict",
+        "message": "Cannot start promotion: another promotion is already running for this environment",
+        "blocking_promotion": {
+            "id": "promo_abc123",
+            "name": "Deploy v2.1.0 to Production",
+            "started_at": "2024-01-15T10:30:00Z",
+            "started_by": "user@example.com",
+            "target_environment_id": "env_prod_001",
+            "target_environment_name": "Production"
+        }
+    }
+    ```
+    """
+    error: str = "promotion_conflict"
+    message: str
+    blocking_promotion: BlockingPromotionInfo
+

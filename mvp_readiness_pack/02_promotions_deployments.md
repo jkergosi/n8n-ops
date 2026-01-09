@@ -361,6 +361,24 @@ async def _scheduler_loop():
 | `test_stale_deployment.py` | Stale detection |
 | `test_deployment_workflows.py` | Per-workflow tracking |
 
+### End-to-End Tests
+
+| Test File | Coverage |
+|-----------|----------|
+| `tests/e2e/test_promotion_e2e.py` | Complete promotion flow (create pipeline → execute promotion → verify target environment) |
+| `test_promotions_api.py` | Full API flow with background jobs |
+| `test_promotions_api_background.py` | Background execution with SSE updates |
+
+**Evidence:** E2E tests use HTTP-boundary mocking (respx) to avoid real API calls. Tests run in CI via `.github/workflows/e2e-tests.yml`.
+
+**Coverage:**
+- Pipeline creation with conflict policy flags
+- Promotion execution with workflow mapping
+- Rollback on failure scenarios
+- Snapshot creation and restoration
+- Audit trail validation
+- SSE event streaming
+
 ---
 
 ## Risk Areas
@@ -494,4 +512,32 @@ D-008)
 2. Approval delegation/escalation
 3. Promotion templates
 4. Rollback preview/impact analysis
+
+---
+
+## CI/CD Integration
+
+**Evidence:** `.github/workflows/deploy-prod.yml`, `.github/workflows/deploy-staging.yml`
+
+### Deployment Workflow Integration
+
+**Pre-Deploy Safety**:
+- Database backup artifact created before migrations
+- Advisory lock prevents concurrent migrations
+- Backup retention: 30 days
+
+**Migration Sequencing**:
+- Alembic migrations run before application deployment
+- Deployment fails if migration fails (safe default)
+- Health check with 5 retries, 10-second intervals
+
+**Promotion Integration**:
+- Promotions can be triggered via API after successful deployment
+- Background job tracking allows CI/CD to poll promotion status
+- SSE events enable real-time deployment monitoring
+
+**Rollback Strategy**:
+- Pre-promotion snapshots enable quick rollback
+- Health check failure triggers automatic rollback
+- Database migrations cannot be automatically rolled back (require manual intervention)
 

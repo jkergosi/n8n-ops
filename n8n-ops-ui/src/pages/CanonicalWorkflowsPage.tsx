@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { CheckCircle2, AlertCircle, RefreshCw, GitBranch, Link2, FileText } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { CheckCircle2, AlertCircle, RefreshCw, GitBranch, Link2, FileText, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api-client';
@@ -220,7 +221,41 @@ export function CanonicalWorkflowsPage() {
                       <TableCell className="font-mono text-xs">
                         {workflow.canonicalId.substring(0, 8)}...
                       </TableCell>
-                      <TableCell>{workflow.displayName || 'Unnamed'}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span>{workflow.displayName || 'Unnamed'}</span>
+                          {workflow.collisionWarnings && workflow.collisionWarnings.length > 0 && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center gap-1 cursor-help">
+                                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                                    <Badge variant="outline" className="text-xs border-amber-500 text-amber-700 dark:text-amber-400">
+                                      Collision
+                                    </Badge>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-md p-3">
+                                  <div className="space-y-2">
+                                    <div className="font-semibold text-sm">Hash Collision Detected</div>
+                                    <div className="text-xs text-muted-foreground space-y-1">
+                                      {workflow.collisionWarnings.map((warning, idx) => (
+                                        <div key={idx} className="flex items-start gap-2">
+                                          <span className="text-amber-500">•</span>
+                                          <span>{warning}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground pt-1 border-t">
+                                      The system has applied a deterministic fallback hash to prevent conflicts.
+                                    </div>
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                        </div>
+                      </TableCell>
                       {environments.map(env => {
                         const mapping = getMappingForWorkflow(workflow.canonicalId, env.id);
                         return (

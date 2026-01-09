@@ -73,6 +73,14 @@ class SparklineDataPoint(BaseModel):
     value: float
 
 
+class SparklineWarning(BaseModel):
+    """Warning when sparkline data is degraded or limited"""
+    code: str  # e.g., "EXECUTION_LIMIT_EXCEEDED", "WINDOW_TOO_LARGE", "AGGREGATION_DEGRADED"
+    message: str  # Human-readable message
+    limit_applied: Optional[int] = None  # The limit that was applied
+    actual_count: Optional[int] = None  # The actual count before limiting
+
+
 class KPIMetrics(BaseModel):
     total_executions: int
     success_count: int
@@ -87,6 +95,8 @@ class KPIMetrics(BaseModel):
     success_rate_sparkline: Optional[List[SparklineDataPoint]] = None
     duration_sparkline: Optional[List[SparklineDataPoint]] = None
     failures_sparkline: Optional[List[SparklineDataPoint]] = None
+    # Warnings for graceful degradation
+    sparkline_warnings: Optional[List[SparklineWarning]] = None
 
 
 # Error Intelligence (Section 3)

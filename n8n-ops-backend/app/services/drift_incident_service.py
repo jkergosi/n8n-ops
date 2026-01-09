@@ -12,12 +12,18 @@ from fastapi import HTTPException, status
 
 from app.services.database import db_service
 from app.services.feature_service import feature_service
+from app.services.gated_action_service import (
+    gated_action_service,
+    GatedActionType,
+)
+from app.services.audit_service import audit_service
 from app.schemas.drift_incident import (
     DriftIncidentStatus,
     DriftSeverity,
     ResolutionType,
     AffectedWorkflow,
 )
+from app.schemas.drift_policy import ApprovalType
 
 
 # Valid status transitions
@@ -280,8 +286,9 @@ class DriftIncidentService:
         expires_at: Optional[datetime] = None,
         severity: Optional[DriftSeverity] = None,
         drift_snapshot: Optional[Dict[str, Any]] = None,
+        admin_override: bool = False,
     ) -> Dict[str, Any]:
-        """Update incident fields (not status transitions).
+        """Update incident fields (not status transitions) with approval enforcement for TTL extension.
 
         Note: drift_snapshot is immutable and cannot be updated after creation.
         """
@@ -298,6 +305,43 @@ class DriftIncidentService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="drift_snapshot is immutable and cannot be modified after incident creation",
             )
+
+        # Check approval requirements for TTL extension (unless admin override)
+        approval_decision = None
+        if expires_at is not None and not admin_override:
+            # Check if this is actually an extension (new expires_at is later than current)
+            current_expires_at = incident.get("expires_at")
+            is_extension = False
+
+            if current_expires_at:
+                # Parse and compare timestamps
+                current_dt = datetime.fromisoformat(current_expires_at.replace('Z', '+00:00')) if isinstance(current_expires_at, str) else current_expires_at
+                if expires_at > current_dt:
+                    is_extension = True
+            else:
+                # Setting expires_at for the first time is considered an extension
+                is_extension = True
+
+            if is_extension:
+                approval_decision = await gated_action_service.check_approval_status(
+                    tenant_id=tenant_id,
+                    incident_id=incident_id,
+                    action_type=GatedActionType.EXTEND_TTL,
+                    user_id=user_id,
+                )
+
+                if not approval_decision.allowed:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail={
+                            "error": "approval_required",
+                            "message": approval_decision.reason,
+                            "requirement": approval_decision.requirement.value,
+                            "approval_id": approval_decision.approval_id,
+                            "approval_details": approval_decision.approval_details,
+                            "policy_config": approval_decision.policy_config,
+                        },
+                    )
 
         update_data = {"updated_at": datetime.utcnow().isoformat()}
 
@@ -322,8 +366,43 @@ class DriftIncidentService:
                 update_data
             ).eq("id", incident_id).eq("tenant_id", tenant_id).execute()
 
-            return response.data[0] if response.data else incident
+            updated_incident = response.data[0] if response.data else incident
+
+            # Mark approval as executed if approval was required for TTL extension
+            if approval_decision and approval_decision.approval_id:
+                await gated_action_service.mark_approval_executed(
+                    tenant_id=tenant_id,
+                    approval_id=approval_decision.approval_id,
+                    executed_by=user_id,
+                )
+                # Log successful execution to audit trail
+                await audit_service.log_approval_executed(
+                    tenant_id=tenant_id,
+                    approval_id=approval_decision.approval_id,
+                    incident_id=incident_id,
+                    actor_id=user_id,
+                    approval_type=ApprovalType.extend_ttl,
+                    execution_result={
+                        "previous_expires_at": incident.get("expires_at"),
+                        "new_expires_at": updated_incident.get("expires_at"),
+                        "reason": reason,
+                    },
+                )
+
+            return updated_incident
+        except HTTPException:
+            raise
         except Exception as e:
+            # Log execution failure if approval was involved
+            if approval_decision and approval_decision.approval_id:
+                await audit_service.log_approval_execution_failed(
+                    tenant_id=tenant_id,
+                    approval_id=approval_decision.approval_id,
+                    incident_id=incident_id,
+                    actor_id=user_id,
+                    approval_type=ApprovalType.extend_ttl,
+                    execution_error=str(e),
+                )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to update incident: {str(e)}",
@@ -364,7 +443,7 @@ class DriftIncidentService:
         expires_at: Optional[datetime] = None,
         admin_override: bool = False,
     ) -> Dict[str, Any]:
-        """Acknowledge a drift incident."""
+        """Acknowledge a drift incident with approval enforcement."""
         incident = await self.get_incident(tenant_id, incident_id)
         if not incident:
             raise HTTPException(
@@ -379,6 +458,29 @@ class DriftIncidentService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot acknowledge incident in '{incident['status']}' status. Valid transitions: {[s.value for s in VALID_TRANSITIONS.get(DriftIncidentStatus(incident['status']), [])]}",
             )
+
+        # Check approval requirements (unless admin override)
+        approval_decision = None
+        if not admin_override:
+            approval_decision = await gated_action_service.check_approval_status(
+                tenant_id=tenant_id,
+                incident_id=incident_id,
+                action_type=GatedActionType.ACKNOWLEDGE,
+                user_id=user_id,
+            )
+
+            if not approval_decision.allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "approval_required",
+                        "message": approval_decision.reason,
+                        "requirement": approval_decision.requirement.value,
+                        "approval_id": approval_decision.approval_id,
+                        "approval_details": approval_decision.approval_details,
+                        "policy_config": approval_decision.policy_config,
+                    },
+                )
 
         now = datetime.utcnow().isoformat()
         update_data = {
@@ -404,8 +506,45 @@ class DriftIncidentService:
                 update_data
             ).eq("id", incident_id).eq("tenant_id", tenant_id).execute()
 
-            return response.data[0] if response.data else incident
+            updated_incident = response.data[0] if response.data else incident
+
+            # Mark approval as executed if approval was required
+            if approval_decision and approval_decision.approval_id:
+                await gated_action_service.mark_approval_executed(
+                    tenant_id=tenant_id,
+                    approval_id=approval_decision.approval_id,
+                    executed_by=user_id,
+                )
+                # Log successful execution to audit trail
+                await audit_service.log_approval_executed(
+                    tenant_id=tenant_id,
+                    approval_id=approval_decision.approval_id,
+                    incident_id=incident_id,
+                    actor_id=user_id,
+                    approval_type=ApprovalType.acknowledge,
+                    execution_result={
+                        "incident_status": updated_incident.get("status"),
+                        "acknowledged_at": updated_incident.get("acknowledged_at"),
+                        "reason": reason,
+                        "owner_user_id": owner_user_id,
+                        "ticket_ref": ticket_ref,
+                    },
+                )
+
+            return updated_incident
+        except HTTPException:
+            raise
         except Exception as e:
+            # Log execution failure if approval was involved
+            if approval_decision and approval_decision.approval_id:
+                await audit_service.log_approval_execution_failed(
+                    tenant_id=tenant_id,
+                    approval_id=approval_decision.approval_id,
+                    incident_id=incident_id,
+                    actor_id=user_id,
+                    approval_type=ApprovalType.acknowledge,
+                    execution_error=str(e),
+                )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to acknowledge incident: {str(e)}",
@@ -468,7 +607,7 @@ class DriftIncidentService:
         resolution_details: Optional[Dict[str, Any]] = None,
         admin_override: bool = False,
     ) -> Dict[str, Any]:
-        """Mark incident as reconciled with resolution tracking."""
+        """Mark incident as reconciled with resolution tracking and approval enforcement."""
         incident = await self.get_incident(tenant_id, incident_id)
         if not incident:
             raise HTTPException(
@@ -483,6 +622,29 @@ class DriftIncidentService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot reconcile incident in '{incident['status']}' status. Valid transitions: {[s.value for s in VALID_TRANSITIONS.get(DriftIncidentStatus(incident['status']), [])]}",
             )
+
+        # Check approval requirements (unless admin override)
+        approval_decision = None
+        if not admin_override:
+            approval_decision = await gated_action_service.check_approval_status(
+                tenant_id=tenant_id,
+                incident_id=incident_id,
+                action_type=GatedActionType.RECONCILE,
+                user_id=user_id,
+            )
+
+            if not approval_decision.allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "approval_required",
+                        "message": approval_decision.reason,
+                        "requirement": approval_decision.requirement.value,
+                        "approval_id": approval_decision.approval_id,
+                        "approval_details": approval_decision.approval_details,
+                        "policy_config": approval_decision.policy_config,
+                    },
+                )
 
         now = datetime.utcnow().isoformat()
         update_data = {
@@ -503,8 +665,45 @@ class DriftIncidentService:
                 update_data
             ).eq("id", incident_id).eq("tenant_id", tenant_id).execute()
 
-            return response.data[0] if response.data else incident
+            updated_incident = response.data[0] if response.data else incident
+
+            # Mark approval as executed if approval was required
+            if approval_decision and approval_decision.approval_id:
+                await gated_action_service.mark_approval_executed(
+                    tenant_id=tenant_id,
+                    approval_id=approval_decision.approval_id,
+                    executed_by=user_id,
+                )
+                # Log successful execution to audit trail
+                await audit_service.log_approval_executed(
+                    tenant_id=tenant_id,
+                    approval_id=approval_decision.approval_id,
+                    incident_id=incident_id,
+                    actor_id=user_id,
+                    approval_type=ApprovalType.reconcile,
+                    execution_result={
+                        "incident_status": updated_incident.get("status"),
+                        "reconciled_at": updated_incident.get("reconciled_at"),
+                        "resolution_type": resolution_type.value,
+                        "reason": reason,
+                        "resolution_details": resolution_details,
+                    },
+                )
+
+            return updated_incident
+        except HTTPException:
+            raise
         except Exception as e:
+            # Log execution failure if approval was involved
+            if approval_decision and approval_decision.approval_id:
+                await audit_service.log_approval_execution_failed(
+                    tenant_id=tenant_id,
+                    approval_id=approval_decision.approval_id,
+                    incident_id=incident_id,
+                    actor_id=user_id,
+                    approval_type=ApprovalType.reconcile,
+                    execution_error=str(e),
+                )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to reconcile incident: {str(e)}",

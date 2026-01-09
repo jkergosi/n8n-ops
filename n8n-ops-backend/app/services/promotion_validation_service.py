@@ -10,6 +10,10 @@ import logging
 
 from app.services.database import db_service
 from app.services.provider_registry import ProviderRegistry
+from app.services.drift_policy_enforcement import (
+    drift_policy_enforcement_service,
+    EnforcementResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -554,8 +558,8 @@ class PromotionValidator:
         """
         Validate that no drift policy violations would block this promotion.
 
-        Wraps check_drift_policy_blocking to verify no active or expired drift
-        incidents exist that would block deployment.
+        Uses the DriftPolicyEnforcementService to check for active or expired drift
+        incidents that would block deployment, including approval override support.
 
         Args:
             target_environment_id: The target environment to check
@@ -573,7 +577,6 @@ class PromotionValidator:
             }
         """
         from uuid import uuid4
-        from app.api.endpoints.promotions import check_drift_policy_blocking
 
         check_name = "drift_policy_compliance"
         correlation_id = str(uuid4())
@@ -605,43 +608,81 @@ class PromotionValidator:
 
             environment_name = environment.get("name") or environment.get("n8n_name", "Unknown")
 
-            # Call check_drift_policy_blocking to verify no blocking incidents
-            drift_block_result = await check_drift_policy_blocking(
+            # Use the DriftPolicyEnforcementService with approval override support
+            enforcement_decision = await drift_policy_enforcement_service.check_enforcement_with_override(
                 tenant_id=tenant_id,
-                target_environment_id=target_environment_id
+                environment_id=target_environment_id,
+                correlation_id=correlation_id,
             )
 
-            if drift_block_result.get("blocked"):
+            if not enforcement_decision.allowed:
                 # Drift policy is blocking deployment
-                reason = drift_block_result.get("reason")
-                details = drift_block_result.get("details", {})
-                incident_id = details.get("incident_id")
-                incident_title = details.get("incident_title", "Unknown")
-                severity = details.get("severity", "unknown")
+                incident_details = enforcement_decision.incident_details or {}
+                incident_id = enforcement_decision.incident_id
+                incident_title = incident_details.get("title", "Unknown")
+                severity = incident_details.get("severity", "unknown")
 
                 blocking_incidents = [{
                     "incident_id": incident_id,
                     "incident_title": incident_title,
                     "severity": severity,
-                    "reason": reason,
-                    "status": details.get("status"),
-                    "expired_at": details.get("expired_at")
+                    "reason": enforcement_decision.result.value,
+                    "status": incident_details.get("status"),
+                    "expires_at": incident_details.get("expires_at"),
                 }]
 
-                if reason == "drift_incident_expired":
-                    message = f"Deployment blocked: Drift incident has expired. Please resolve or extend the TTL for incident '{incident_title}' before deploying to environment '{environment_name}'."
-                    remediation = f"Navigate to Drift Incidents and either: (1) Resolve incident '{incident_title}', or (2) Extend the TTL if the drift is acceptable."
-                elif reason == "active_drift_incident":
-                    message = f"Deployment blocked: Active drift incident exists. Please resolve incident '{incident_title}' before deploying to environment '{environment_name}'."
-                    remediation = f"Navigate to Drift Incidents and resolve incident '{incident_title}' before attempting deployment."
+                # Generate user-friendly message based on enforcement result
+                if enforcement_decision.result == EnforcementResult.BLOCKED_TTL_EXPIRED:
+                    message = (
+                        f"Deployment blocked: Drift incident has expired. "
+                        f"Please resolve or extend the TTL for incident '{incident_title}' "
+                        f"before deploying to environment '{environment_name}'."
+                    )
+                    remediation = (
+                        f"Navigate to Drift Incidents and either: "
+                        f"(1) Resolve incident '{incident_title}', "
+                        f"(2) Extend the TTL if the drift is acceptable, or "
+                        f"(3) Request a deployment override approval."
+                    )
+                elif enforcement_decision.result == EnforcementResult.BLOCKED_ACTIVE_DRIFT:
+                    message = (
+                        f"Deployment blocked: Active drift incident exists. "
+                        f"Please resolve incident '{incident_title}' "
+                        f"before deploying to environment '{environment_name}'."
+                    )
+                    remediation = (
+                        f"Navigate to Drift Incidents and either: "
+                        f"(1) Resolve incident '{incident_title}', "
+                        f"(2) Acknowledge the incident, or "
+                        f"(3) Request a deployment override approval."
+                    )
                 else:
-                    message = details.get("message", f"Deployment blocked by drift policy in environment '{environment_name}'.")
-                    remediation = "Navigate to Drift Incidents and resolve any active drift incidents before attempting deployment."
+                    message = enforcement_decision.reason or (
+                        f"Deployment blocked by drift policy in environment '{environment_name}'."
+                    )
+                    remediation = (
+                        "Navigate to Drift Incidents and resolve any active drift incidents "
+                        "or request a deployment override approval."
+                    )
+
+                # Check for pending overrides to provide helpful context
+                pending_overrides = []
+                if incident_id:
+                    pending_overrides = await drift_policy_enforcement_service.get_pending_overrides(
+                        tenant_id=tenant_id,
+                        incident_id=incident_id,
+                    )
+                    if pending_overrides:
+                        remediation += (
+                            f" Note: There are {len(pending_overrides)} pending override request(s) "
+                            f"for this incident."
+                        )
 
                 logger.warning(
                     f"Drift policy validation failed: Deployment blocked "
                     f"(environment_id={target_environment_id}, environment_name={environment_name}, "
-                    f"reason={reason}, incident_id={incident_id}, correlation_id={correlation_id})"
+                    f"result={enforcement_decision.result.value}, incident_id={incident_id}, "
+                    f"correlation_id={correlation_id})"
                 )
 
                 return {
@@ -654,31 +695,64 @@ class PromotionValidator:
                         "environment_id": target_environment_id,
                         "environment_name": environment_name,
                         "correlation_id": correlation_id,
-                        "reason": reason,
+                        "enforcement_result": enforcement_decision.result.value,
+                        "reason": enforcement_decision.reason,
                         "incident_id": incident_id,
                         "incident_title": incident_title,
                         "severity": severity,
-                        **details
+                        "policy_config": enforcement_decision.policy_config,
+                        "pending_overrides": len(pending_overrides),
+                        **incident_details,
                     }
                 }
             else:
-                # No blocking incidents, validation passes
-                logger.info(
-                    f"Drift policy validation passed: No blocking incidents "
-                    f"(environment_id={target_environment_id}, environment_name={environment_name})"
-                )
+                # Enforcement check passed - either no blocking incidents or override approved
+                incident_details = enforcement_decision.incident_details or {}
+                override_info = {}
+
+                # Check if this was allowed due to an override
+                if incident_details.get("override_approval_id"):
+                    override_info = {
+                        "override_approved": True,
+                        "override_approval_id": incident_details.get("override_approval_id"),
+                        "override_approval_type": incident_details.get("override_approval_type"),
+                        "override_approved_by": incident_details.get("override_approved_by"),
+                        "override_approved_at": incident_details.get("override_approved_at"),
+                    }
+                    message = (
+                        f"Drift policy check passed for environment '{environment_name}' "
+                        f"(deployment approved via override)."
+                    )
+                    logger.info(
+                        f"Drift policy validation passed via override "
+                        f"(environment_id={target_environment_id}, environment_name={environment_name}, "
+                        f"approval_id={incident_details.get('override_approval_id')}, "
+                        f"correlation_id={correlation_id})"
+                    )
+                else:
+                    message = (
+                        f"No drift policy violations blocking deployment to environment '{environment_name}'."
+                    )
+                    logger.info(
+                        f"Drift policy validation passed: No blocking incidents "
+                        f"(environment_id={target_environment_id}, environment_name={environment_name}, "
+                        f"reason={enforcement_decision.reason}, correlation_id={correlation_id})"
+                    )
 
                 return {
                     "passed": True,
                     "check": check_name,
-                    "message": f"No drift policy violations blocking deployment to environment '{environment_name}'.",
+                    "message": message,
                     "remediation": None,
                     "blocking_incidents": [],
                     "details": {
                         "environment_id": target_environment_id,
                         "environment_name": environment_name,
                         "correlation_id": correlation_id,
-                        "drift_check_result": drift_block_result
+                        "enforcement_result": enforcement_decision.result.value,
+                        "reason": enforcement_decision.reason,
+                        "policy_config": enforcement_decision.policy_config,
+                        **override_info,
                     }
                 }
 

@@ -7,6 +7,7 @@ from app.services.background_job_service import background_job_service
 from app.services.database import db_service
 from app.api.endpoints.admin_audit import create_audit_log
 from app.services.auth_service import supabase_auth_service
+from app.services.rate_limit_middleware import RateLimitMiddleware
 from datetime import datetime, timedelta
 import logging
 import traceback
@@ -89,6 +90,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting middleware
+# Note: Middleware is executed in reverse order, so this runs before CORS
+app.add_middleware(RateLimitMiddleware)
 
 # Include routers
 app.include_router(

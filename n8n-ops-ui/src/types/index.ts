@@ -212,6 +212,7 @@ export interface CanonicalWorkflow {
   createdByUserId?: string;
   displayName?: string;
   deletedAt?: string;
+  collisionWarnings?: string[];
 }
 
 export interface CanonicalWorkflowGitState {
@@ -287,6 +288,41 @@ export interface OnboardingInventoryResponse {
   jobId: string;
   status: string;
   message: string;
+}
+
+export interface WorkflowInventoryResult {
+  environment_id: string;
+  environment_name: string;
+  workflow_id?: string;
+  workflow_name?: string;
+  canonical_id?: string;
+  status: string;
+  error?: string;
+  is_new_untracked?: boolean;
+}
+
+export interface EnvironmentInventoryResult {
+  environment_id: string;
+  environment_name: string;
+  success_count: number;
+  error_count: number;
+  skipped_count: number;
+  created_count?: number;
+  linked_count?: number;
+  untracked_count?: number;
+}
+
+export interface OnboardingInventoryResults {
+  workflows_inventoried: number;
+  canonical_ids_generated: number;
+  auto_links: number;
+  suggested_links: number;
+  untracked_workflows: number;
+  errors: string[];
+  has_errors: boolean;
+  collision_warnings: string[];
+  workflow_results: WorkflowInventoryResult[];
+  environment_results: Record<string, EnvironmentInventoryResult>;
 }
 
 export interface MigrationPRRequest {
@@ -1065,6 +1101,13 @@ export interface SparklineDataPoint {
   value: number;
 }
 
+export interface SparklineWarning {
+  code: string; // e.g., "EXECUTION_LIMIT_EXCEEDED", "WINDOW_TOO_LARGE", "AGGREGATION_DEGRADED"
+  message: string;
+  limitApplied?: number;
+  actualCount?: number;
+}
+
 export interface KPIMetrics {
   totalExecutions: number;
   successCount: number;
@@ -1079,6 +1122,8 @@ export interface KPIMetrics {
   successRateSparkline?: SparklineDataPoint[];
   durationSparkline?: SparklineDataPoint[];
   failuresSparkline?: SparklineDataPoint[];
+  // Warnings for graceful degradation
+  sparklineWarnings?: SparklineWarning[];
 }
 
 // Section 3: Error Intelligence
@@ -1582,6 +1627,94 @@ export interface FeatureAccessLog {
   accessedAt: string;
 }
 
+// ============================================
+// Pagination Types
+// ============================================
+
+/**
+ * Standard pagination metadata for all paginated API responses.
+ * This matches the backend PageMetadata schema from app/schemas/pagination.py
+ */
+export interface PageMetadata {
+  /** Current page number (1-indexed) */
+  page: number;
+  /** Number of items per page (capped at 100) */
+  pageSize: number;
+  /** Total number of items across all pages */
+  total: number;
+  /** Total number of pages */
+  totalPages: number;
+  /** Boolean indicating if more pages exist beyond current page */
+  hasMore: boolean;
+}
+
+/**
+ * Generic paginated response envelope for standardized API responses.
+ * This matches the backend PaginatedResponse[T] schema from app/schemas/pagination.py
+ *
+ * All paginated endpoints should return this structure with:
+ * - items: Array of the actual data items
+ * - Pagination metadata fields (page, pageSize, total, totalPages, hasMore)
+ *
+ * @example
+ * // Workflows endpoint response
+ * PaginatedResponse<Workflow>
+ *
+ * // Executions endpoint response
+ * PaginatedResponse<Execution>
+ */
+export interface PaginatedResponse<T> {
+  /** List of items for the current page */
+  items: T[];
+  /** Total number of items across all pages */
+  total: number;
+  /** Current page number (1-indexed) */
+  page: number;
+  /** Number of items per page (default: 50, max: 100) */
+  pageSize: number;
+  /** Total number of pages */
+  totalPages: number;
+  /** Boolean indicating if more pages exist */
+  hasMore: boolean;
+}
+
+/**
+ * Pagination query parameters for API requests.
+ * Default page size: 50
+ * Maximum page size: 100
+ */
+export interface PaginationParams {
+  /** Page number (1-indexed, default: 1) */
+  page?: number;
+  /** Items per page (default: 50, max: 100) */
+  pageSize?: number;
+}
+
+/**
+ * Legacy paginated response format with named item fields.
+ * Used by some existing endpoints that return 'workflows' or 'executions' instead of 'items'.
+ *
+ * NOTE: New endpoints should use PaginatedResponse<T> instead.
+ * This type exists for backward compatibility during the migration period.
+ */
+export interface LegacyPaginatedWorkflowsResponse {
+  workflows: Workflow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasMore?: boolean;
+}
+
+export interface LegacyPaginatedExecutionsResponse {
+  executions: Execution[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasMore?: boolean;
+}
+
 // Credential types
 export interface WorkflowReference {
   id: string;
@@ -1926,6 +2059,8 @@ export interface WorkflowMatrixCell {
   n8nWorkflowId?: string;
   /** Content hash of the workflow in this environment */
   contentHash?: string;
+  /** Hash collision warning if detected for this workflow in this environment */
+  collisionWarning?: string;
 }
 
 /**
@@ -1951,6 +2086,23 @@ export interface WorkflowMatrixRow {
 }
 
 /**
+ * Pagination metadata for matrix response.
+ * This is specific to the workflow matrix endpoint which uses 'totalWorkflows' instead of 'total'.
+ */
+export interface WorkflowMatrixPageMetadata {
+  /** Current page number (1-indexed) */
+  page: number;
+  /** Number of items per page */
+  pageSize: number;
+  /** Total number of workflows */
+  totalWorkflows: number;
+  /** Total number of pages */
+  totalPages: number;
+  /** Whether there are more pages after this one */
+  hasMore: boolean;
+}
+
+/**
  * Complete matrix response from the backend.
  * This is the single source of truth for the Workflows Overview page.
  */
@@ -1964,6 +2116,8 @@ export interface WorkflowMatrixResponse {
    * A missing entry means the workflow has no presence in that environment.
    */
   matrix: Record<string, Record<string, WorkflowMatrixCell | null>>;
+  /** Pagination metadata */
+  pageMetadata: WorkflowMatrixPageMetadata;
 }
 
 // Untracked Workflows Types

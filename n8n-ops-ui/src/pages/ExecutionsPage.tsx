@@ -119,16 +119,17 @@ export function ExecutionsPage() {
             sortField: sortFieldMap[sortField],
             sortDirection,
           })
-        : Promise.resolve({ data: { executions: [], total: 0, page: 1, page_size: pageSize, total_pages: 0 } }),
+        : Promise.resolve({ data: { items: [], executions: [], total: 0, page: 1, pageSize, totalPages: 0, hasMore: false } }),
     enabled: !!currentEnvironmentId,
     keepPreviousData: true,
     staleTime: 60 * 1000, // 1 minute
   });
 
-  // Extract data from paginated response
-  const executions = executionsResponse?.data?.executions || [];
+  // Extract data from paginated response (using standardized envelope)
+  // The backend returns both 'items' (standardized) and 'executions' (backward compatibility alias)
+  const executions = executionsResponse?.data?.executions || executionsResponse?.data?.items || [];
   const totalExecutions = executionsResponse?.data?.total || 0;
-  const totalPages = executionsResponse?.data?.total_pages || 1;
+  const totalPages = executionsResponse?.data?.totalPages || 1;
 
   // Sync mutation to refresh from N8N (executions only)
   const syncMutation = useMutation({

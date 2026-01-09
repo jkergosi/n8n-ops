@@ -38,16 +38,19 @@ export function WorkflowsOverviewPage() {
   const [syncingEnvs, setSyncingEnvs] = useState<Set<string>>(new Set());
   // Single status filter (client-side filtering)
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(50); // Default page size
 
   useEffect(() => {
     document.title = 'Workflows Overview - WorkflowOps';
     loadMatrix();
-  }, []);
+  }, [currentPage]); // Reload when page changes
 
   const loadMatrix = async () => {
     setIsLoading(true);
     try {
-      const response = await apiClient.getWorkflowMatrix();
+      const response = await apiClient.getWorkflowMatrix(currentPage, pageSize);
       setMatrixData(response.data);
     } catch (error: any) {
       toast.error('Failed to load workflow matrix');
@@ -347,6 +350,51 @@ export function WorkflowsOverviewPage() {
                 </TableBody>
               </Table>
             </div>
+
+            {/* Pagination Controls */}
+            {matrixData?.pageMetadata && matrixData.pageMetadata.totalPages > 1 && (
+              <div className="mt-4 flex items-center justify-between border-t pt-4">
+                <div className="text-sm text-muted-foreground">
+                  Page {matrixData.pageMetadata.page} of {matrixData.pageMetadata.totalPages}
+                  {' · '}
+                  {matrixData.pageMetadata.totalWorkflows} total workflows
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(1)}
+                  >
+                    First
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(currentPage - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!matrixData.pageMetadata.hasMore}
+                    onClick={() => setCurrentPage(currentPage + 1)}
+                  >
+                    Next
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!matrixData.pageMetadata.hasMore}
+                    onClick={() => setCurrentPage(matrixData.pageMetadata.totalPages)}
+                  >
+                    Last
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -15,18 +15,145 @@ from app.schemas.canonical_workflow import WorkflowMappingStatus
 logger = logging.getLogger(__name__)
 
 
-def compute_workflow_hash(workflow: Dict[str, Any]) -> str:
+# Hash collision registry - tracks hash->payload mappings for collision detection
+# Key: content_hash (str), Value: normalized workflow payload (Dict[str, Any])
+_hash_collision_registry: Dict[str, Dict[str, Any]] = {}
+
+
+def register_workflow_hash(content_hash: str, normalized_payload: Dict[str, Any]) -> None:
     """
-    Compute SHA256 hash of normalized workflow content.
+    Register a workflow hash and its normalized payload in the collision registry.
+
+    This registry is used for collision detection during hash computation.
+    When a hash collision is detected (same hash, different payload),
+    the system can apply a deterministic fallback strategy.
+
+    Args:
+        content_hash: The SHA256 hash of the normalized workflow
+        normalized_payload: The normalized workflow payload that produced this hash
+    """
+    _hash_collision_registry[content_hash] = normalized_payload
+
+
+def get_registered_payload(content_hash: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve the registered payload for a given hash.
+
+    Returns None if the hash hasn't been registered yet.
+
+    Args:
+        content_hash: The SHA256 hash to lookup
+
+    Returns:
+        The normalized workflow payload if registered, None otherwise
+    """
+    return _hash_collision_registry.get(content_hash)
+
+
+def clear_hash_registry() -> None:
+    """
+    Clear the hash collision registry.
+
+    Useful for testing or when starting a fresh batch operation.
+    """
+    global _hash_collision_registry
+    _hash_collision_registry = {}
+
+
+def get_registry_stats() -> Dict[str, int]:
+    """
+    Get statistics about the current hash registry.
+
+    Returns:
+        Dictionary with registry statistics (total_entries)
+    """
+    return {
+        "total_entries": len(_hash_collision_registry)
+    }
+
+
+def compute_workflow_hash(workflow: Dict[str, Any], canonical_id: Optional[str] = None) -> str:
+    """
+    Compute SHA256 hash of normalized workflow content with collision detection.
 
     Uses normalize_workflow_for_comparison() as the single source of truth
     for normalization, then hashes the sorted JSON representation.
 
-    Returns hex digest (no prefix).
+    Implements collision detection with deterministic fallback strategy:
+    - If a hash collision is detected (same hash, different payload),
+      applies a deterministic fallback by appending the canonical_id to the
+      normalized content and rehashing.
+    - This ensures that workflows with identical content but different
+      canonical_ids receive unique, deterministic hashes.
+    - If no canonical_id is provided during a collision, a warning is logged
+      and the original colliding hash is returned (collision unresolved).
+
+    Args:
+        workflow: The workflow payload to hash
+        canonical_id: Optional canonical workflow ID (required for deterministic
+                     fallback in case of hash collision)
+
+    Returns:
+        SHA256 hex digest (no prefix). If collision detected and canonical_id
+        is provided, returns a deterministic fallback hash. If collision detected
+        without canonical_id, returns the original colliding hash.
     """
     normalized = normalize_workflow_for_comparison(workflow)
     json_str = json.dumps(normalized, sort_keys=True)
-    return hashlib.sha256(json_str.encode()).hexdigest()
+    content_hash = hashlib.sha256(json_str.encode()).hexdigest()
+
+    # Check for hash collision
+    registered_payload = get_registered_payload(content_hash)
+
+    if registered_payload is not None:
+        # Hash already exists - check if payloads are identical
+        if registered_payload != normalized:
+            # COLLISION DETECTED: Same hash, different payload
+            logger.warning(
+                f"Hash collision detected! Hash '{content_hash}' maps to different payloads. "
+                f"Canonical ID: {canonical_id or 'unknown'}. "
+                f"Applying deterministic fallback strategy."
+            )
+
+            # Apply deterministic fallback strategy
+            if canonical_id:
+                # Append canonical_id to normalized content and rehash
+                # This creates a deterministic, unique hash for this workflow
+                fallback_content = {
+                    **normalized,
+                    "__canonical_id__": canonical_id
+                }
+                fallback_json_str = json.dumps(fallback_content, sort_keys=True)
+                fallback_hash = hashlib.sha256(fallback_json_str.encode()).hexdigest()
+
+                logger.info(
+                    f"Applied fallback hash strategy for collision. "
+                    f"Original hash: '{content_hash}', "
+                    f"Fallback hash: '{fallback_hash}', "
+                    f"Canonical ID: {canonical_id}"
+                )
+
+                # Register the fallback hash to prevent future collisions
+                register_workflow_hash(fallback_hash, fallback_content)
+
+                return fallback_hash
+            else:
+                # No canonical_id provided - cannot apply fallback strategy
+                logger.error(
+                    f"Hash collision detected but no canonical_id provided for fallback. "
+                    f"Hash: '{content_hash}'. Returning colliding hash (unresolved collision)."
+                )
+                # Return the colliding hash - collision remains unresolved
+                return content_hash
+        else:
+            # Same hash, same payload - this is expected (duplicate workflow)
+            logger.debug(f"Hash '{content_hash}' matches existing payload (duplicate workflow)")
+    else:
+        # First time seeing this hash - register it
+        register_workflow_hash(content_hash, normalized)
+        logger.debug(f"Registered new hash '{content_hash}' in collision registry")
+
+    return content_hash
 
 
 def compute_workflow_mapping_status(

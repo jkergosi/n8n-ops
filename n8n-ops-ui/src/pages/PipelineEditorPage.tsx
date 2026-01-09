@@ -134,36 +134,47 @@ export function PipelineEditorPage() {
     },
   });
 
+  /**
+   * Handle environment selection changes for single-hop pipelines.
+   *
+   * MVP Constraint: Pipelines support exactly 2 environments (source → target).
+   * This creates exactly one stage from the source to target environment.
+   */
   const handleEnvironmentIdsChange = (newEnvironmentIds: string[]) => {
     // Filter out any undefined or invalid IDs
     const validEnvironmentIds = newEnvironmentIds.filter(id => id && typeof id === 'string' && id.trim() !== '');
-    setFormData({ ...formData, environmentIds: validEnvironmentIds });
-    
-    const newStages: PipelineStage[] = [];
-    for (let i = 0; i < validEnvironmentIds.length - 1; i++) {
-      const sourceId = validEnvironmentIds[i];
-      const targetId = validEnvironmentIds[i + 1];
-      
+
+    // MVP: Limit to exactly 2 environments for single-hop pipelines
+    const limitedEnvironmentIds = validEnvironmentIds.slice(0, 2);
+    setFormData({ ...formData, environmentIds: limitedEnvironmentIds });
+
+    // Create single stage if we have both source and target
+    if (limitedEnvironmentIds.length === 2) {
+      const sourceId = limitedEnvironmentIds[0];
+      const targetId = limitedEnvironmentIds[1];
+
       // Validate that both IDs are valid
       if (!sourceId || !targetId || sourceId === 'undefined' || targetId === 'undefined') {
-        console.warn(`Skipping stage creation: invalid environment IDs (source: ${sourceId}, target: ${targetId})`);
-        continue;
+        console.warn(`Invalid environment IDs (source: ${sourceId}, target: ${targetId})`);
+        setStages([]);
+        return;
       }
-      
+
+      // Check if we already have a stage for this source/target pair
       const existingStage = stages.find(
         (s) => s.sourceEnvironmentId === sourceId && s.targetEnvironmentId === targetId
       );
-      
+
       if (existingStage) {
-        newStages.push(existingStage);
+        setStages([existingStage]);
       } else {
         const targetEnv = availableEnvironments.find((e) => e.id === targetId);
         // Smart defaults based on environment name/type (production environments typically need stricter rules)
         const envName = targetEnv?.name?.toLowerCase() || '';
         const envType = targetEnv?.type?.toLowerCase() || '';
         const isProduction = envName.includes('prod') || envType === 'production';
-        
-        newStages.push({
+
+        setStages([{
           sourceEnvironmentId: sourceId,
           targetEnvironmentId: targetId,
           gates: {
@@ -184,11 +195,12 @@ export function PipelineEditorPage() {
             allowOverwritingHotfixes: !isProduction,
             allowForcePromotionOnConflicts: false,
           },
-        });
+        }]);
       }
+    } else {
+      // Clear stages if we don't have both environments selected
+      setStages([]);
     }
-    
-    setStages(newStages);
   };
 
   const handleStageChange = (index: number, updatedStage: PipelineStage) => {
@@ -205,8 +217,9 @@ export function PipelineEditorPage() {
       return;
     }
 
-    if (formData.environmentIds.length < 2) {
-      toast.error('At least 2 environments are required');
+    // MVP: Enforce exactly 2 environments for single-hop pipelines
+    if (formData.environmentIds.length !== 2) {
+      toast.error('Exactly 2 environments are required (source and target)');
       return;
     }
 
@@ -229,8 +242,9 @@ export function PipelineEditorPage() {
       return;
     }
 
-    if (stages.length !== formData.environmentIds.length - 1) {
-      toast.error(`Stage configuration mismatch: ${stages.length} stages but ${formData.environmentIds.length - 1} expected`);
+    // MVP: Enforce exactly 1 stage for single-hop pipelines
+    if (stages.length !== 1) {
+      toast.error('Pipeline must have exactly 1 stage (single-hop)');
       return;
     }
 
@@ -259,7 +273,7 @@ export function PipelineEditorPage() {
               {isNew ? 'Create Pipeline' : 'Edit Pipeline'}
             </h1>
             <p className="text-muted-foreground">
-              Define promotion rules and workflows between environments
+              Define a single-hop promotion from source to target environment
             </p>
           </div>
         </div>
@@ -318,13 +332,13 @@ export function PipelineEditorPage() {
         onChange={handleEnvironmentIdsChange}
       />
 
-      {/* Stage Configuration */}
-      {stages.length > 0 && (
+      {/* Stage Configuration - MVP: Single stage only */}
+      {stages.length === 1 && (
         <div className="space-y-4">
           <div>
-            <h2 className="text-2xl font-bold mb-2">Stage Configuration</h2>
+            <h2 className="text-2xl font-bold mb-2">Promotion Stage Configuration</h2>
             <p className="text-muted-foreground">
-              Configure promotion rules for each environment transition
+              Configure gates, approvals, and policies for this promotion
             </p>
           </div>
           {stages.map((stage, index) => {

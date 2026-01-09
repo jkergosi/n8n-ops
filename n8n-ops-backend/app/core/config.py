@@ -62,6 +62,19 @@ class Settings(BaseSettings):
     SMTP_FROM_NAME: str = "WorkflowOps"
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # Rate Limiting Configuration
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_PER_USER_MINUTE: int = 60  # requests per minute per user
+    RATE_LIMIT_PER_TENANT_MINUTE: int = 300  # requests per minute per tenant
+
+    # Sparkline Aggregation Safety Limits
+    # Maximum number of executions to process client-side for sparklines
+    SPARKLINE_MAX_EXECUTIONS: int = 50000
+    # Maximum time window in days for sparkline aggregation
+    SPARKLINE_MAX_WINDOW_DAYS: int = 30
+    # Prefer SQL aggregation when execution count exceeds this threshold
+    SPARKLINE_SQL_THRESHOLD: int = 10000
+
     class Config:
         env_file = ".env"
         case_sensitive = True

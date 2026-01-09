@@ -315,6 +315,9 @@ class DowngradeService:
         """
         Cancel an active grace period (e.g., when user upgrades or removes resource).
 
+        When a grace period is cancelled, this method also re-enables the resource
+        by clearing any downgrade markers that were applied.
+
         Args:
             tenant_id: The tenant ID
             resource_type: Type of resource
@@ -340,6 +343,25 @@ class DowngradeService:
                     f"Cancelled grace period for {resource_type.value} "
                     f"{resource_id} of tenant {tenant_id}"
                 )
+
+                # Re-enable the resource by clearing downgrade markers
+                reenable_success = await self._reenable_resource(
+                    tenant_id=tenant_id,
+                    resource_type=resource_type,
+                    resource_id=resource_id
+                )
+
+                if reenable_success:
+                    logger.info(
+                        f"Successfully re-enabled {resource_type.value} "
+                        f"{resource_id} after grace period cancellation"
+                    )
+                else:
+                    logger.warning(
+                        f"Grace period cancelled but failed to re-enable {resource_type.value} "
+                        f"{resource_id} for tenant {tenant_id}"
+                    )
+
                 return True
 
             return False
@@ -801,6 +823,209 @@ class DowngradeService:
             return bool(response.data)
 
         return False
+
+    # =========================================================================
+    # Resource Re-enable Methods
+    # =========================================================================
+
+    async def _reenable_resource(
+        self,
+        tenant_id: str,
+        resource_type: ResourceType,
+        resource_id: str
+    ) -> bool:
+        """
+        Re-enable a resource by clearing downgrade markers.
+
+        This is a dispatcher method that routes to the appropriate
+        resource-specific re-enable method based on the resource type.
+
+        Args:
+            tenant_id: The tenant ID
+            resource_type: Type of resource to re-enable
+            resource_id: ID of the specific resource
+
+        Returns:
+            True if re-enabled successfully
+        """
+        try:
+            if resource_type == ResourceType.ENVIRONMENT:
+                return await self._reenable_environment(tenant_id, resource_id)
+            elif resource_type == ResourceType.TEAM_MEMBER:
+                return await self._reenable_team_member(tenant_id, resource_id)
+            elif resource_type == ResourceType.WORKFLOW:
+                return await self._reenable_workflow(tenant_id, resource_id)
+            else:
+                logger.warning(
+                    f"Unknown resource type for re-enable: {resource_type.value}"
+                )
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"Failed to re-enable {resource_type.value} {resource_id} "
+                f"for tenant {tenant_id}: {e}"
+            )
+            return False
+
+    async def _reenable_environment(
+        self,
+        tenant_id: str,
+        environment_id: str
+    ) -> bool:
+        """
+        Re-enable an environment by clearing downgrade markers.
+
+        This method reverses the effects of downgrade actions by:
+        - Clearing the is_read_only flag
+        - Removing the read_only_reason
+        - Restoring is_active flag if it was disabled
+        - Clearing is_deleted and deletion-related fields
+
+        Args:
+            tenant_id: The tenant ID
+            environment_id: The environment ID to re-enable
+
+        Returns:
+            True if re-enabled successfully
+        """
+        try:
+            now = datetime.now(timezone.utc)
+
+            # Clear all downgrade-related flags
+            response = self.db_service.client.table("environments").update({
+                "is_read_only": False,
+                "read_only_reason": None,
+                "is_active": True,
+                "is_deleted": False,
+                "deleted_at": None,
+                "deletion_reason": None,
+                "updated_at": now.isoformat(),
+            }).eq("id", environment_id).eq("tenant_id", tenant_id).execute()
+
+            if response.data:
+                logger.info(
+                    f"Re-enabled environment {environment_id} for tenant {tenant_id} "
+                    f"(cleared downgrade markers)"
+                )
+                return True
+            else:
+                logger.warning(
+                    f"No environment found to re-enable: {environment_id} "
+                    f"for tenant {tenant_id}"
+                )
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"Failed to re-enable environment {environment_id} "
+                f"for tenant {tenant_id}: {e}"
+            )
+            return False
+
+    async def _reenable_team_member(
+        self,
+        tenant_id: str,
+        member_id: str
+    ) -> bool:
+        """
+        Re-enable a team member by clearing downgrade markers.
+
+        This method reverses the effects of downgrade actions by:
+        - Setting is_active flag back to True
+        - Clearing deactivated_at timestamp
+        - Removing deactivation_reason
+
+        Args:
+            tenant_id: The tenant ID
+            member_id: The team member ID to re-enable
+
+        Returns:
+            True if re-enabled successfully
+        """
+        try:
+            now = datetime.now(timezone.utc)
+
+            # Clear all downgrade-related flags
+            response = self.db_service.client.table("tenant_users").update({
+                "is_active": True,
+                "deactivated_at": None,
+                "deactivation_reason": None,
+                "updated_at": now.isoformat(),
+            }).eq("id", member_id).eq("tenant_id", tenant_id).execute()
+
+            if response.data:
+                logger.info(
+                    f"Re-enabled team member {member_id} for tenant {tenant_id} "
+                    f"(cleared downgrade markers)"
+                )
+                return True
+            else:
+                logger.warning(
+                    f"No team member found to re-enable: {member_id} "
+                    f"for tenant {tenant_id}"
+                )
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"Failed to re-enable team member {member_id} "
+                f"for tenant {tenant_id}: {e}"
+            )
+            return False
+
+    async def _reenable_workflow(
+        self,
+        tenant_id: str,
+        canonical_id: str
+    ) -> bool:
+        """
+        Re-enable a workflow by clearing downgrade markers.
+
+        This method reverses the effects of downgrade actions by:
+        - Clearing the is_read_only flag
+        - Removing the read_only_reason
+        - Clearing the is_archived flag
+        - Removing archived_at timestamp
+
+        Args:
+            tenant_id: The tenant ID
+            canonical_id: The workflow canonical ID to re-enable
+
+        Returns:
+            True if re-enabled successfully
+        """
+        try:
+            now = datetime.now(timezone.utc)
+
+            # Clear all downgrade-related flags
+            response = self.db_service.client.table("canonical_workflows").update({
+                "is_read_only": False,
+                "read_only_reason": None,
+                "is_archived": False,
+                "archived_at": None,
+                "updated_at": now.isoformat(),
+            }).eq("id", canonical_id).eq("tenant_id", tenant_id).execute()
+
+            if response.data:
+                logger.info(
+                    f"Re-enabled workflow {canonical_id} for tenant {tenant_id} "
+                    f"(cleared downgrade markers)"
+                )
+                return True
+            else:
+                logger.warning(
+                    f"No workflow found to re-enable: {canonical_id} "
+                    f"for tenant {tenant_id}"
+                )
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"Failed to re-enable workflow {canonical_id} "
+                f"for tenant {tenant_id}: {e}"
+            )
+            return False
 
     # =========================================================================
     # High-Level Downgrade Handler

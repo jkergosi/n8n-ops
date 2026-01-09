@@ -93,6 +93,7 @@ import type {
   UpdateRetentionPolicyRequest,
   CleanupResult,
   CleanupPreview,
+  PaginatedResponse,
 } from '@/types';
 
 // Helper function to determine if a string is a UUID
@@ -983,16 +984,35 @@ class ApiClient {
   }
 
   // Workflow endpoints
-  async getWorkflows(environment: EnvironmentType, forceRefresh: boolean = false): Promise<{ data: Workflow[] }> {
-    const params = { ...buildEnvironmentParams(environment), force_refresh: forceRefresh };
+  async getWorkflows(
+    environment: EnvironmentType,
+    forceRefresh: boolean = false,
+    page: number = 1,
+    pageSize: number = 50
+  ): Promise<{ data: PaginatedResponse<Workflow> }> {
+    const params = {
+      ...buildEnvironmentParams(environment),
+      force_refresh: forceRefresh,
+      page,
+      page_size: pageSize,
+    };
     // Backend is configured with redirect_slashes=False, so list endpoints must include trailing slash.
-    const response = await this.client.get<any[]>('/workflows/', { params });
+    const response = await this.client.get<PaginatedResponse<any>>('/workflows/', { params });
     // Add provider field with default for backward compatibility
-    const data = response.data.map((wf: any) => ({
+    const items = response.data.items.map((wf: any) => ({
       ...wf,
       provider: wf.provider || 'n8n',
     }));
-    return { data };
+    return {
+      data: {
+        items,
+        total: response.data.total,
+        page: response.data.page,
+        pageSize: response.data.pageSize,
+        totalPages: response.data.totalPages,
+        hasMore: response.data.hasMore,
+      },
+    };
   }
 
   async getWorkflow(id: string, environment: EnvironmentType): Promise<{ data: Workflow }> {
@@ -1259,11 +1279,13 @@ class ApiClient {
     }
   ): Promise<{
     data: {
-      executions: Execution[];
+      items: Execution[];
+      executions: Execution[];  // Backward compatibility alias
       total: number;
       page: number;
-      page_size: number;
-      total_pages: number;
+      pageSize: number;
+      totalPages: number;
+      hasMore: boolean;
     };
   }> {
     const params: Record<string, any> = {
@@ -1289,11 +1311,13 @@ class ApiClient {
     }
 
     const response = await this.client.get<{
-      executions: Execution[];
+      items: Execution[];
+      executions: Execution[];  // Backward compatibility alias
       total: number;
       page: number;
-      page_size: number;
-      total_pages: number;
+      pageSize: number;
+      totalPages: number;
+      hasMore: boolean;
     }>('/executions/paginated', { params });
 
     return { data: response.data };
@@ -3022,6 +3046,12 @@ class ApiClient {
           successRateSparkline: transformSparkline(data.kpi_metrics.success_rate_sparkline),
           durationSparkline: transformSparkline(data.kpi_metrics.duration_sparkline),
           failuresSparkline: transformSparkline(data.kpi_metrics.failures_sparkline),
+          sparklineWarnings: data.kpi_metrics.sparkline_warnings?.map((w: any) => ({
+            code: w.code,
+            message: w.message,
+            limitApplied: w.limit_applied,
+            actualCount: w.actual_count,
+          })),
         },
 
         // Section 3: Error Intelligence
@@ -4382,15 +4412,20 @@ class ApiClient {
   /**
    * Get the workflow × environment matrix with status badges.
    *
-   * Returns a complete matrix showing:
-   * - Rows: All canonical workflows for the tenant
+   * Returns a paginated matrix showing:
+   * - Rows: Canonical workflows for the tenant (paginated)
    * - Columns: All active environments for the tenant
    * - Cells: Status badge (linked, untracked, drift, out_of_date) for each combination
    *
    * All status logic is computed server-side. The UI must not infer or compute status logic.
+   *
+   * @param page - Page number (1-indexed, default: 1)
+   * @param pageSize - Items per page (default: 50, max: 100)
    */
-  async getWorkflowMatrix(): Promise<{ data: WorkflowMatrixResponse }> {
-    const response = await this.client.get<WorkflowMatrixResponse>('/workflows/matrix');
+  async getWorkflowMatrix(page: number = 1, pageSize: number = 50): Promise<{ data: WorkflowMatrixResponse }> {
+    const response = await this.client.get<WorkflowMatrixResponse>('/workflows/matrix', {
+      params: { page, page_size: pageSize }
+    });
     return { data: response.data };
   }
 

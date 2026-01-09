@@ -4,7 +4,7 @@
 
 **Evidence:** `n8n-ops-backend/app/api/endpoints/` directory contains 51 files (50 .py, 1 .md)
 
-- **Total Endpoints**: ~327 (estimated from router registrations)
+- **Total Endpoints**: ~344 (estimated from router registrations + new endpoints: 8 alert rules + 6 bulk ops + 3 SSE)
 - **Endpoint Modules**: 51 files in `n8n-ops-backend/app/api/endpoints/`
 - **API Prefix**: `/api/v1` (from `n8n-ops-backend/app/core/config.py:25`)
 
@@ -165,6 +165,66 @@
 
 **Note**: Platform admin endpoints exempt from tenant isolation by design. Protected by `require_platform_admin()` guard.
 
+### Alert Rules & Notifications (8 endpoints)
+
+| Method | Path | Auth | Tenant Scope | Entitlements | Audit Logged | Handler |
+|--------|------|------|--------------|--------------|--------------|---------|
+| GET | `/notifications/alert-rules` | JWT | User tenant | `alerts_enabled` | No | `alert_rules.py:list_alert_rules` |
+| POST | `/notifications/alert-rules` | JWT | User tenant | `alerts_enabled` | Yes | `alert_rules.py:create_alert_rule` |
+| GET | `/notifications/alert-rules/{id}` | JWT | User tenant | `alerts_enabled` | No | `alert_rules.py:get_alert_rule` |
+| PUT | `/notifications/alert-rules/{id}` | JWT | User tenant | `alerts_enabled` | Yes | `alert_rules.py:update_alert_rule` |
+| DELETE | `/notifications/alert-rules/{id}` | JWT | User tenant | `alerts_enabled` | Yes | `alert_rules.py:delete_alert_rule` |
+| POST | `/notifications/alert-rules/{id}/test` | JWT | User tenant | `alerts_enabled` | No | `alert_rules.py:test_alert_rule` |
+| GET | `/notifications/alert-rules/{id}/history` | JWT | User tenant | `alerts_enabled` | No | `alert_rules.py:get_alert_rule_history` |
+| GET | `/notifications/channels` | JWT | User tenant | None | No | `notifications.py:list_notification_channels` |
+
+**Evidence:** `app/services/alert_rules_service.py`, migration `alembic/versions/20260108_add_alert_rules.py`
+
+**Features:**
+- Configurable alert conditions (execution failure rate, workflow success rate, drift threshold)
+- JSONB conditions for flexible rule configuration
+- Periodic evaluation via background scheduler
+- Multi-channel notifications (email, Slack, webhook)
+- Evaluation history with 30-day retention
+
+### Bulk Operations (6 endpoints)
+
+| Method | Path | Auth | Tenant Scope | Entitlements | Audit Logged | Handler |
+|--------|------|------|--------------|--------------|--------------|---------|
+| POST | `/executions/bulk-retry` | JWT | User tenant | `workflow_ci_cd` | Yes | `executions.py:bulk_retry_executions` |
+| POST | `/executions/bulk-delete` | JWT | User tenant | `workflow_ci_cd` | Yes | `executions.py:bulk_delete_executions` |
+| POST | `/executions/bulk-export` | JWT | User tenant | `workflow_ci_cd` | No | `executions.py:bulk_export_executions` |
+| POST | `/credentials/bulk-health-check` | JWT | User tenant | `health_checks_enabled` | No | `credentials.py:bulk_health_check` |
+| POST | `/workflows/bulk-activate` | JWT | User tenant | `workflow_ci_cd` | Yes | `workflows.py:bulk_activate_workflows` |
+| POST | `/workflows/bulk-deactivate` | JWT | User tenant | `workflow_ci_cd` | Yes | `workflows.py:bulk_deactivate_workflows` |
+
+**Evidence:** Bulk operations implemented for execution management, credential health checks, and workflow activation
+
+**Features:**
+- Batch processing with configurable batch sizes
+- Async job tracking for long-running operations
+- Progress reporting via background jobs SSE
+- Transaction safety with rollback on failure
+- Limit checks to prevent resource exhaustion
+
+### SSE & Live Streaming (3 endpoints)
+
+| Method | Path | Auth | Tenant Scope | Entitlements | Audit Logged | Handler |
+|--------|------|------|--------------|--------------|--------------|---------|
+| GET | `/sse/deployments` | JWT | User tenant | `workflow_ci_cd` | No | `sse.py:sse_deployments_stream` |
+| GET | `/sse/deployments/{id}` | JWT | User tenant | `workflow_ci_cd` | No | `sse.py:sse_deployments_stream` |
+| GET | `/sse/background-jobs` | JWT | User tenant | None | No | `sse.py:sse_background_jobs_stream` |
+| GET | `/sse/executions/{id}/logs` | JWT | User tenant | `workflow_ci_cd` | No | `sse.py:sse_execution_logs_stream` |
+
+**Evidence:** `app/api/endpoints/sse.py`, frontend: `lib/use-deployments-sse.ts`, `lib/use-background-jobs-sse.ts`
+
+**Features:**
+- Real-time deployment status updates
+- Live execution log streaming with backpressure handling
+- Pub/sub pattern for multi-instance support
+- Automatic reconnect with exponential backoff (1s → 30s, max 10 attempts)
+- `lastEventId` support for missed event recovery
+
 ---
 
 ## Endpoint Protection Patterns
@@ -225,17 +285,22 @@
 
 ### Missing Endpoints
 
-1. **Bulk Workflow Operations**: Only `/bulk/sync`, `/bulk/backup`, `/bulk/restore`. No bulk delete, activate, etc.
-2. **Workflow Version History**: No endpoint to list workflow versions
-3. **Execution Retry**: No endpoint to retry failed executions
-4. **Audit Log Export**: No endpoint to export audit logs as CSV/JSON
-5. **Health Check Per Service**: Only overall `/health`, no per-service health
+1. **Workflow Version History**: No endpoint to list workflow versions (n8n maintains version history internally)
+2. **Audit Log Export**: No dedicated endpoint to export audit logs as CSV/JSON (can query via database)
+3. **Health Check Per Service**: Only overall `/health`, no per-service health breakdown
+
+### Recently Added (2026-01-08)
+
+1. ✅ **Bulk Workflow Operations**: Implemented `/workflows/bulk-activate`, `/workflows/bulk-deactivate`
+2. ✅ **Bulk Execution Operations**: Implemented `/executions/bulk-retry`, `/executions/bulk-delete`, `/executions/bulk-export`
+3. ✅ **Alert Rules Management**: 8 endpoints for configurable alert rules
+4. ✅ **Live Execution Logs**: SSE streaming endpoint `/sse/executions/{id}/logs`
 
 ### Recommendations
 
-1. **Add API Rate Limiting**: No rate limiting observed in code
-2. **Add Request ID Tracking**: No request ID header for tracing
-3. **Add Bulk Operations**: Extend bulk endpoints for more actions
-4. **Add Webhook Management**: No endpoints to manage webhooks
-5. **Add API Documentation**: Generate OpenAPI spec from FastAPI
+1. **Add API Rate Limiting**: No rate limiting observed in code (consider for production)
+2. **Add Request ID Tracking**: No request ID header for distributed tracing
+3. **Add Webhook Management**: No endpoints to manage outbound webhooks (notification channels exist)
+4. **Add API Documentation**: Generate OpenAPI spec from FastAPI (FastAPI auto-generates at `/docs`)
+5. **Add Workflow Version History API**: Expose n8n's internal version history
 

@@ -1,4 +1,4 @@
-"""Audit service for entitlements logging (Phase 3)."""
+"""Audit service for entitlements logging (Phase 3) and approval audit logging."""
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 import logging
@@ -13,17 +13,28 @@ from app.schemas.entitlements import (
     FeatureAccessLogResponse,
     FeatureConfigAuditResponse,
 )
+from app.schemas.drift_policy import (
+    ApprovalAuditEventType,
+    ApprovalType,
+    ApprovalStatus,
+    ApprovalAuditResponse,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class AuditService:
     """
-    Service for logging entitlement configuration changes and access events.
+    Service for logging entitlement configuration changes, access events, and approval workflows.
 
     Phase 3: Provides audit trail for:
     - Configuration changes (plan assignments, overrides)
     - Access events (denials, limit exceeded)
+
+    Drift Governance: Provides audit trail for:
+    - Approval workflows (requested, approved, rejected, cancelled)
+    - Action execution (executed, execution_failed)
+    - Auto-approval and expiration events
     """
 
     # ==========================================================================
@@ -325,6 +336,526 @@ class AuditService:
         except Exception as e:
             logger.error(f"Failed to get denial summary: {e}")
             return {}
+
+    # ==========================================================================
+    # Approval Audit Logging (Drift Governance)
+    # ==========================================================================
+
+    async def log_approval_event(
+        self,
+        tenant_id: str,
+        approval_id: str,
+        incident_id: str,
+        event_type: ApprovalAuditEventType,
+        actor_id: str,
+        approval_type: ApprovalType,
+        previous_status: Optional[ApprovalStatus] = None,
+        new_status: Optional[ApprovalStatus] = None,
+        action_metadata: Optional[Dict[str, Any]] = None,
+        execution_result: Optional[Dict[str, Any]] = None,
+        execution_error: Optional[str] = None,
+        reason: Optional[str] = None,
+        actor_email: Optional[str] = None,
+        actor_name: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Log an approval workflow event to the audit table.
+
+        This creates a comprehensive audit trail for all approval-related actions:
+        - Approval requests (requested)
+        - Approval decisions (approved, rejected)
+        - Approval cancellations (cancelled)
+        - Action execution (executed, execution_failed)
+        - Auto-approval events (auto_approved)
+        - Approval expiration (expired)
+
+        Args:
+            tenant_id: The tenant ID
+            approval_id: The approval request ID
+            incident_id: The drift incident ID
+            event_type: The type of approval event
+            actor_id: ID of the user performing the action
+            approval_type: The type of approval (acknowledge, extend_ttl, reconcile, etc.)
+            previous_status: The status before the event (if applicable)
+            new_status: The status after the event (if applicable)
+            action_metadata: Additional metadata about the action
+            execution_result: Result data from action execution
+            execution_error: Error message if execution failed
+            reason: Human-readable reason for the event
+            actor_email: Email of the actor
+            actor_name: Name of the actor
+            ip_address: IP address of the actor
+            user_agent: User agent of the actor
+
+        Returns:
+            The audit record ID if successful, None otherwise.
+        """
+        try:
+            data = {
+                "tenant_id": tenant_id,
+                "approval_id": approval_id,
+                "incident_id": incident_id,
+                "event_type": event_type.value if isinstance(event_type, ApprovalAuditEventType) else event_type,
+                "actor_id": actor_id,
+                "actor_email": actor_email,
+                "actor_name": actor_name,
+                "approval_type": approval_type.value if isinstance(approval_type, ApprovalType) else approval_type,
+                "previous_status": previous_status.value if isinstance(previous_status, ApprovalStatus) else previous_status,
+                "new_status": new_status.value if isinstance(new_status, ApprovalStatus) else new_status,
+                "action_metadata": action_metadata or {},
+                "execution_result": execution_result,
+                "execution_error": execution_error,
+                "reason": reason,
+                "ip_address": ip_address,
+                "user_agent": user_agent,
+            }
+
+            response = db_service.client.table("approval_audit_log").insert(data).execute()
+
+            if response.data:
+                audit_id = response.data[0].get("id")
+                logger.info(
+                    f"Approval audit logged: {event_type} for approval {approval_id} "
+                    f"(tenant={tenant_id}, incident={incident_id}, actor={actor_id})"
+                )
+                return audit_id
+            return None
+        except Exception as e:
+            logger.error(f"Failed to log approval event: {e}")
+            return None
+
+    async def log_approval_requested(
+        self,
+        tenant_id: str,
+        approval_id: str,
+        incident_id: str,
+        actor_id: str,
+        approval_type: ApprovalType,
+        reason: Optional[str] = None,
+        action_metadata: Optional[Dict[str, Any]] = None,
+        actor_email: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Convenience method for logging approval request creation.
+
+        Args:
+            tenant_id: The tenant ID
+            approval_id: The approval request ID
+            incident_id: The drift incident ID
+            actor_id: ID of the user requesting approval
+            approval_type: The type of approval being requested
+            reason: Reason for the approval request
+            action_metadata: Additional metadata (e.g., extension_hours for extend_ttl)
+            actor_email: Email of the requester
+            ip_address: IP address of the requester
+
+        Returns:
+            The audit record ID if successful, None otherwise.
+        """
+        return await self.log_approval_event(
+            tenant_id=tenant_id,
+            approval_id=approval_id,
+            incident_id=incident_id,
+            event_type=ApprovalAuditEventType.requested,
+            actor_id=actor_id,
+            approval_type=approval_type,
+            previous_status=None,
+            new_status=ApprovalStatus.pending,
+            action_metadata=action_metadata,
+            reason=reason,
+            actor_email=actor_email,
+            ip_address=ip_address,
+        )
+
+    async def log_approval_decision(
+        self,
+        tenant_id: str,
+        approval_id: str,
+        incident_id: str,
+        actor_id: str,
+        approval_type: ApprovalType,
+        decision: ApprovalStatus,
+        decision_notes: Optional[str] = None,
+        actor_email: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Convenience method for logging approval decision (approved/rejected).
+
+        Args:
+            tenant_id: The tenant ID
+            approval_id: The approval request ID
+            incident_id: The drift incident ID
+            actor_id: ID of the user making the decision
+            approval_type: The type of approval
+            decision: The decision (approved or rejected)
+            decision_notes: Notes explaining the decision
+            actor_email: Email of the approver/rejector
+            ip_address: IP address of the decision maker
+
+        Returns:
+            The audit record ID if successful, None otherwise.
+        """
+        event_type = (
+            ApprovalAuditEventType.approved
+            if decision == ApprovalStatus.approved
+            else ApprovalAuditEventType.rejected
+        )
+
+        return await self.log_approval_event(
+            tenant_id=tenant_id,
+            approval_id=approval_id,
+            incident_id=incident_id,
+            event_type=event_type,
+            actor_id=actor_id,
+            approval_type=approval_type,
+            previous_status=ApprovalStatus.pending,
+            new_status=decision,
+            reason=decision_notes,
+            actor_email=actor_email,
+            ip_address=ip_address,
+        )
+
+    async def log_approval_executed(
+        self,
+        tenant_id: str,
+        approval_id: str,
+        incident_id: str,
+        actor_id: str,
+        approval_type: ApprovalType,
+        execution_result: Optional[Dict[str, Any]] = None,
+        actor_email: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Convenience method for logging successful approval action execution.
+
+        Args:
+            tenant_id: The tenant ID
+            approval_id: The approval request ID
+            incident_id: The drift incident ID
+            actor_id: ID of the user executing the action
+            approval_type: The type of approval
+            execution_result: Result data from the action execution
+            actor_email: Email of the executor
+            ip_address: IP address of the executor
+
+        Returns:
+            The audit record ID if successful, None otherwise.
+        """
+        return await self.log_approval_event(
+            tenant_id=tenant_id,
+            approval_id=approval_id,
+            incident_id=incident_id,
+            event_type=ApprovalAuditEventType.executed,
+            actor_id=actor_id,
+            approval_type=approval_type,
+            execution_result=execution_result,
+            actor_email=actor_email,
+            ip_address=ip_address,
+        )
+
+    async def log_approval_execution_failed(
+        self,
+        tenant_id: str,
+        approval_id: str,
+        incident_id: str,
+        actor_id: str,
+        approval_type: ApprovalType,
+        execution_error: str,
+        actor_email: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Convenience method for logging failed approval action execution.
+
+        Args:
+            tenant_id: The tenant ID
+            approval_id: The approval request ID
+            incident_id: The drift incident ID
+            actor_id: ID of the user who attempted execution
+            approval_type: The type of approval
+            execution_error: Error message describing the failure
+            actor_email: Email of the executor
+            ip_address: IP address of the executor
+
+        Returns:
+            The audit record ID if successful, None otherwise.
+        """
+        return await self.log_approval_event(
+            tenant_id=tenant_id,
+            approval_id=approval_id,
+            incident_id=incident_id,
+            event_type=ApprovalAuditEventType.execution_failed,
+            actor_id=actor_id,
+            approval_type=approval_type,
+            execution_error=execution_error,
+            actor_email=actor_email,
+            ip_address=ip_address,
+        )
+
+    async def log_approval_cancelled(
+        self,
+        tenant_id: str,
+        approval_id: str,
+        incident_id: str,
+        actor_id: str,
+        approval_type: ApprovalType,
+        reason: Optional[str] = None,
+        actor_email: Optional[str] = None,
+        ip_address: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Convenience method for logging approval cancellation.
+
+        Args:
+            tenant_id: The tenant ID
+            approval_id: The approval request ID
+            incident_id: The drift incident ID
+            actor_id: ID of the user cancelling the approval
+            approval_type: The type of approval
+            reason: Reason for cancellation
+            actor_email: Email of the canceller
+            ip_address: IP address of the canceller
+
+        Returns:
+            The audit record ID if successful, None otherwise.
+        """
+        return await self.log_approval_event(
+            tenant_id=tenant_id,
+            approval_id=approval_id,
+            incident_id=incident_id,
+            event_type=ApprovalAuditEventType.cancelled,
+            actor_id=actor_id,
+            approval_type=approval_type,
+            previous_status=ApprovalStatus.pending,
+            new_status=ApprovalStatus.cancelled,
+            reason=reason,
+            actor_email=actor_email,
+            ip_address=ip_address,
+        )
+
+    async def get_approval_audit_logs(
+        self,
+        tenant_id: str,
+        approval_id: Optional[str] = None,
+        incident_id: Optional[str] = None,
+        event_type: Optional[ApprovalAuditEventType] = None,
+        approval_type: Optional[ApprovalType] = None,
+        actor_id: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[List[ApprovalAuditResponse], int]:
+        """
+        Get approval audit logs with filtering and pagination.
+
+        Args:
+            tenant_id: The tenant ID
+            approval_id: Filter by specific approval request ID
+            incident_id: Filter by specific incident ID
+            event_type: Filter by event type
+            approval_type: Filter by approval type
+            actor_id: Filter by actor ID
+            page: Page number (1-indexed)
+            page_size: Number of records per page
+
+        Returns:
+            Tuple of (logs, total_count)
+        """
+        try:
+            query = db_service.client.table("approval_audit_log").select(
+                "*",
+                count="exact"
+            ).eq("tenant_id", tenant_id)
+
+            if approval_id:
+                query = query.eq("approval_id", approval_id)
+            if incident_id:
+                query = query.eq("incident_id", incident_id)
+            if event_type:
+                query = query.eq("event_type", event_type.value if isinstance(event_type, ApprovalAuditEventType) else event_type)
+            if approval_type:
+                query = query.eq("approval_type", approval_type.value if isinstance(approval_type, ApprovalType) else approval_type)
+            if actor_id:
+                query = query.eq("actor_id", actor_id)
+
+            # Pagination
+            offset = (page - 1) * page_size
+            query = query.order("created_at", desc=True).range(offset, offset + page_size - 1)
+
+            response = query.execute()
+            total = response.count or 0
+
+            logs = []
+            for row in response.data or []:
+                logs.append(ApprovalAuditResponse(
+                    id=row["id"],
+                    tenant_id=row["tenant_id"],
+                    approval_id=row["approval_id"],
+                    incident_id=row["incident_id"],
+                    event_type=row["event_type"],
+                    actor_id=row["actor_id"],
+                    actor_email=row.get("actor_email"),
+                    actor_name=row.get("actor_name"),
+                    approval_type=row["approval_type"],
+                    previous_status=row.get("previous_status"),
+                    new_status=row.get("new_status"),
+                    action_metadata=row.get("action_metadata", {}),
+                    execution_result=row.get("execution_result"),
+                    execution_error=row.get("execution_error"),
+                    reason=row.get("reason"),
+                    ip_address=row.get("ip_address"),
+                    user_agent=row.get("user_agent"),
+                    created_at=row["created_at"],
+                ))
+
+            logger.info(
+                f"Retrieved {len(logs)} approval audit logs "
+                f"(tenant={tenant_id}, total={total})"
+            )
+            return logs, total
+        except Exception as e:
+            logger.error(f"Failed to get approval audit logs: {e}")
+            return [], 0
+
+    async def get_approval_timeline(
+        self,
+        tenant_id: str,
+        approval_id: str,
+    ) -> List[ApprovalAuditResponse]:
+        """
+        Get complete timeline of events for a specific approval request.
+
+        This provides a chronological view of all events related to a single
+        approval request, useful for understanding the complete approval workflow.
+
+        Args:
+            tenant_id: The tenant ID
+            approval_id: The approval request ID
+
+        Returns:
+            List of approval audit events in chronological order
+        """
+        logs, _ = await self.get_approval_audit_logs(
+            tenant_id=tenant_id,
+            approval_id=approval_id,
+            page=1,
+            page_size=1000,  # Get all events for this approval
+        )
+        # Reverse to get chronological order (oldest first)
+        return list(reversed(logs))
+
+    async def get_incident_approval_history(
+        self,
+        tenant_id: str,
+        incident_id: str,
+    ) -> List[ApprovalAuditResponse]:
+        """
+        Get complete approval history for a specific incident.
+
+        This shows all approval-related events across all approval requests
+        for an incident, useful for compliance and reporting.
+
+        Args:
+            tenant_id: The tenant ID
+            incident_id: The drift incident ID
+
+        Returns:
+            List of all approval audit events for the incident
+        """
+        logs, _ = await self.get_approval_audit_logs(
+            tenant_id=tenant_id,
+            incident_id=incident_id,
+            page=1,
+            page_size=1000,  # Get all events for this incident
+        )
+        return logs
+
+    async def get_approval_audit_summary(
+        self,
+        tenant_id: str,
+        days: int = 30,
+    ) -> Dict[str, Any]:
+        """
+        Get summary statistics of approval events for the last N days.
+
+        Provides aggregate metrics useful for governance dashboards:
+        - Total approval requests
+        - Approval/rejection rates
+        - Most common approval types
+        - Execution success/failure rates
+
+        Args:
+            tenant_id: The tenant ID
+            days: Number of days to include in summary
+
+        Returns:
+            Dictionary with approval statistics
+        """
+        try:
+            from datetime import timedelta
+            cutoff = datetime.utcnow() - timedelta(days=days)
+
+            response = db_service.client.table("approval_audit_log").select(
+                "event_type, approval_type, execution_error"
+            ).eq("tenant_id", tenant_id).gte("created_at", cutoff.isoformat()).execute()
+
+            events = response.data or []
+
+            # Calculate statistics
+            stats = {
+                "period_days": days,
+                "total_events": len(events),
+                "by_event_type": {},
+                "by_approval_type": {},
+                "execution_stats": {
+                    "total_executions": 0,
+                    "successful": 0,
+                    "failed": 0,
+                },
+            }
+
+            for event in events:
+                event_type = event.get("event_type")
+                approval_type = event.get("approval_type")
+
+                # Count by event type
+                stats["by_event_type"][event_type] = stats["by_event_type"].get(event_type, 0) + 1
+
+                # Count by approval type
+                stats["by_approval_type"][approval_type] = stats["by_approval_type"].get(approval_type, 0) + 1
+
+                # Track execution statistics
+                if event_type == "executed":
+                    stats["execution_stats"]["total_executions"] += 1
+                    stats["execution_stats"]["successful"] += 1
+                elif event_type == "execution_failed":
+                    stats["execution_stats"]["total_executions"] += 1
+                    stats["execution_stats"]["failed"] += 1
+
+            # Calculate approval rate
+            requested = stats["by_event_type"].get("requested", 0)
+            approved = stats["by_event_type"].get("approved", 0)
+            rejected = stats["by_event_type"].get("rejected", 0)
+
+            if requested > 0:
+                stats["approval_rate"] = round((approved / requested) * 100, 2)
+                stats["rejection_rate"] = round((rejected / requested) * 100, 2)
+            else:
+                stats["approval_rate"] = 0
+                stats["rejection_rate"] = 0
+
+            return stats
+        except Exception as e:
+            logger.error(f"Failed to get approval audit summary: {e}")
+            return {
+                "period_days": days,
+                "total_events": 0,
+                "error": str(e),
+            }
 
 
 # Singleton instance

@@ -94,6 +94,7 @@ class WorkflowDiffStatus(str, Enum):
     ADDED = "added"
     TARGET_ONLY = "target_only"
     TARGET_HOTFIX = "target_hotfix"
+    CONFLICT = "conflict"
 
 
 # Canonical Workflow Models
@@ -116,6 +117,7 @@ class CanonicalWorkflowResponse(BaseModel):
     created_by_user_id: Optional[str] = None
     display_name: Optional[str] = None
     deleted_at: Optional[datetime] = None
+    collision_warnings: Optional[List[str]] = None
 
     model_config = {"from_attributes": True}
 
@@ -237,6 +239,11 @@ class WorkflowDiffStateResponse(BaseModel):
     canonical_id: str
     diff_status: WorkflowDiffStatus
     computed_at: datetime
+    source_git_hash: Optional[str] = None
+    target_git_hash: Optional[str] = None
+    source_env_hash: Optional[str] = None
+    target_env_hash: Optional[str] = None
+    conflict_metadata: Optional[Dict[str, Any]] = None
 
     model_config = {"from_attributes": True}
 
@@ -327,6 +334,12 @@ class OnboardingInventoryResults(BaseModel):
     # Error summary
     errors: List[str] = Field(default_factory=list)
     has_errors: bool = Field(False, description="True if any errors occurred")
+
+    # Collision warnings
+    collision_warnings: List[str] = Field(
+        default_factory=list,
+        description="Hash collision warnings detected during inventory phase"
+    )
 
     # Detailed per-workflow results
     workflow_results: List[WorkflowInventoryResult] = Field(

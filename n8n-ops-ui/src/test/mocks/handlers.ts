@@ -330,6 +330,51 @@ export const handlers = [
     return HttpResponse.json({ success: true, synced: 2, skipped: 0, failed: 0 });
   }),
 
+  // Paginated workflows endpoint (supports both legacy and standardized format)
+  http.get(`${API_BASE}/workflows/paginated`, ({ request }) => {
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '1', 10);
+    const pageSize = parseInt(url.searchParams.get('page_size') || '50', 10);
+    const search = url.searchParams.get('search');
+    const statusFilter = url.searchParams.get('status_filter');
+
+    // Filter workflows based on query params
+    let filtered = [...mockWorkflows];
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filtered = filtered.filter(w => w.name.toLowerCase().includes(searchLower));
+    }
+
+    if (statusFilter === 'active') {
+      filtered = filtered.filter(w => w.active);
+    } else if (statusFilter === 'inactive') {
+      filtered = filtered.filter(w => !w.active);
+    }
+
+    const total = filtered.length;
+    const totalPages = Math.ceil(total / pageSize);
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    const workflows = filtered.slice(start, end);
+
+    // Return legacy format (workflows, page_size, total_pages)
+    return HttpResponse.json({
+      workflows,
+      total,
+      page,
+      page_size: pageSize,
+      total_pages: totalPages,
+    });
+  }),
+
+  http.get(`${API_BASE}/workflows/execution-counts`, () => {
+    return HttpResponse.json({
+      'wf-1': 2,
+      'wf-2': 1,
+    });
+  }),
+
   // Execution endpoints
   http.get(`${API_BASE}/executions`, () => {
     return HttpResponse.json([

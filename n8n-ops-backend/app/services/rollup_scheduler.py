@@ -50,16 +50,135 @@ async def _compute_rollups_for_date(rollup_date: datetime) -> int:
 async def _refresh_materialized_views():
     """
     Refresh all materialized views for dashboard performance.
+    Checks for failures and staleness, emitting notifications when issues are detected.
     """
     try:
         response = db_service.client.rpc('refresh_all_materialized_views').execute()
         results = response.data or []
+
+        has_failures = False
         for result in results:
-            logger.info(f"Refreshed {result.get('view_name')} in {result.get('refresh_time')}")
-        return True
+            view_name = result.get('view_name')
+            success = result.get('success')
+            refresh_time = result.get('refresh_time')
+            error_message = result.get('error_message')
+
+            if success:
+                logger.info(f"Refreshed {view_name} in {refresh_time}")
+            else:
+                has_failures = True
+                logger.error(f"Failed to refresh {view_name}: {error_message}")
+
+                # Emit failure event via notification service
+                try:
+                    from app.services.notification_service import notification_service
+                    await notification_service.emit_event(
+                        tenant_id="system",  # System-wide event
+                        event_type="materialized_view.refresh_failed",
+                        metadata={
+                            "view_name": view_name,
+                            "error_message": error_message or "Unknown error",
+                            "message": f"Materialized view '{view_name}' refresh failed"
+                        }
+                    )
+                except Exception as notification_error:
+                    logger.warning(f"Failed to emit notification for view refresh failure: {notification_error}")
+
+        # Check for stale views
+        await _check_stale_materialized_views()
+
+        return not has_failures
     except Exception as e:
         logger.warning(f"Failed to refresh materialized views: {e}")
+
+        # Emit critical failure event
+        try:
+            from app.services.notification_service import notification_service
+            await notification_service.emit_event(
+                tenant_id="system",
+                event_type="materialized_view.refresh_critical_failure",
+                metadata={
+                    "error_message": str(e),
+                    "message": "Critical failure in materialized view refresh process"
+                }
+            )
+        except Exception as notification_error:
+            logger.warning(f"Failed to emit notification for critical refresh failure: {notification_error}")
+
         return False
+
+
+async def _check_stale_materialized_views():
+    """
+    Check for stale materialized views and emit notifications.
+    A view is considered stale if it hasn't been successfully refreshed recently.
+    """
+    try:
+        response = db_service.client.rpc('get_materialized_view_refresh_status').execute()
+        statuses = response.data or []
+
+        for status in statuses:
+            view_name = status.get('view_name')
+            is_stale = status.get('is_stale')
+            last_status = status.get('last_status')
+            minutes_since = status.get('minutes_since_last_refresh')
+            consecutive_failures = status.get('consecutive_failures', 0)
+            last_error = status.get('last_error_message')
+
+            # Emit notification for stale views
+            if is_stale:
+                logger.warning(
+                    f"Materialized view '{view_name}' is stale. "
+                    f"Last status: {last_status}, Minutes since refresh: {minutes_since}, "
+                    f"Consecutive failures: {consecutive_failures}"
+                )
+
+                try:
+                    from app.services.notification_service import notification_service
+                    await notification_service.emit_event(
+                        tenant_id="system",
+                        event_type="materialized_view.stale_detected",
+                        metadata={
+                            "view_name": view_name,
+                            "last_status": last_status,
+                            "minutes_since_last_refresh": float(minutes_since) if minutes_since else None,
+                            "consecutive_failures": consecutive_failures,
+                            "last_error_message": last_error,
+                            "message": (
+                                f"Materialized view '{view_name}' is stale "
+                                f"({minutes_since:.0f} minutes since last refresh)"
+                            )
+                        }
+                    )
+                except Exception as notification_error:
+                    logger.warning(f"Failed to emit staleness notification: {notification_error}")
+
+            # Special alert for multiple consecutive failures
+            if consecutive_failures >= 3:
+                logger.error(
+                    f"Materialized view '{view_name}' has {consecutive_failures} consecutive failures"
+                )
+
+                try:
+                    from app.services.notification_service import notification_service
+                    await notification_service.emit_event(
+                        tenant_id="system",
+                        event_type="materialized_view.consecutive_failures",
+                        metadata={
+                            "view_name": view_name,
+                            "consecutive_failures": consecutive_failures,
+                            "last_error_message": last_error,
+                            "message": (
+                                f"Materialized view '{view_name}' has {consecutive_failures} "
+                                f"consecutive failures"
+                            )
+                        }
+                    )
+                except Exception as notification_error:
+                    logger.warning(f"Failed to emit consecutive failure notification: {notification_error}")
+
+    except Exception as e:
+        logger.error(f"Failed to check stale materialized views: {e}")
 
 
 async def _check_and_compute_rollups():

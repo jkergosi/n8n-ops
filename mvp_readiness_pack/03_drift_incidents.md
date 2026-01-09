@@ -303,6 +303,9 @@ VALID_TRANSITIONS = {
 | `test_drift_detection_service.py` | Detection logic, hash comparison |
 | `test_drift_incident_service.py` | Incident lifecycle, state transitions |
 | `test_drift_retention_service.py` | Payload purging, retention |
+| `tests/e2e/test_drift_e2e.py` | Complete drift flow (detection → incident creation → reconciliation) |
+
+**Evidence:** E2E tests run in CI via `.github/workflows/e2e-tests.yml`. DEV environment drift detection automatically skipped (commit afb8140).
 
 **Gaps**: No tests for approvals, SLA enforcement, TTL blocking during promotions
 

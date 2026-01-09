@@ -14,10 +14,66 @@ from app.services.database import db_service
 from app.services.github_service import GitHubService
 from app.services.canonical_workflow_service import (
     CanonicalWorkflowService,
-    compute_workflow_hash
+    compute_workflow_hash,
+    get_registered_payload
 )
+from app.services.promotion_service import normalize_workflow_for_comparison
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_hash_collision(
+    workflow: Dict[str, Any],
+    content_hash: str,
+    canonical_id: Optional[str] = None,
+    file_path: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Detect if a hash collision occurred for a workflow during repo sync.
+
+    A collision occurs when:
+    - The hash already exists in the registry
+    - But the normalized payload is different
+
+    Args:
+        workflow: The workflow payload
+        content_hash: The computed hash
+        canonical_id: Optional canonical ID for the workflow
+        file_path: Optional Git file path for the workflow
+
+    Returns:
+        Collision warning dict if collision detected, None otherwise
+        Format: {
+            "canonical_id": str,
+            "workflow_name": str,
+            "content_hash": str,
+            "file_path": Optional[str],
+            "message": str
+        }
+    """
+    normalized = normalize_workflow_for_comparison(workflow)
+    registered_payload = get_registered_payload(content_hash)
+
+    if registered_payload is not None and registered_payload != normalized:
+        # Collision detected: same hash, different payload
+        workflow_name = workflow.get("name", "unknown")
+
+        warning = {
+            "canonical_id": canonical_id or "unknown",
+            "workflow_name": workflow_name,
+            "content_hash": content_hash,
+            "file_path": file_path,
+            "message": f"Hash collision detected for workflow '{workflow_name}' (canonical_id: {canonical_id}). "
+                      f"Hash '{content_hash[:12]}...' maps to different payloads. File: {file_path or 'unknown'}"
+        }
+
+        logger.warning(
+            f"Hash collision detected during repo sync: {warning['message']}"
+        )
+
+        return warning
+
+    return None
 
 
 class CanonicalRepoSyncService:
@@ -75,7 +131,8 @@ class CanonicalRepoSyncService:
             "workflows_created": 0,
             "workflows_updated": 0,
             "sidecars_ingested": 0,
-            "errors": []
+            "errors": [],
+            "collision_warnings": []  # Hash collisions detected during processing
         }
         
         try:
@@ -101,10 +158,15 @@ class CanonicalRepoSyncService:
                     # Extract canonical_id from filename
                     # Format: workflows/{git_folder}/{canonical_id}.json
                     canonical_id = file_path.split('/')[-1].replace('.json', '')
-                    
+
                     # Compute content hash
-                    content_hash = compute_workflow_hash(workflow_data)
-                    
+                    content_hash = compute_workflow_hash(workflow_data, canonical_id=canonical_id)
+
+                    # Check for hash collision and track warning
+                    collision = _detect_hash_collision(workflow_data, content_hash, canonical_id, file_path)
+                    if collision:
+                        results["collision_warnings"].append(collision)
+
                     # Skip-if-unchanged optimization: check existing git_content_hash
                     existing_git_state = await CanonicalWorkflowService.get_canonical_workflow_git_state(
                         tenant_id, environment_id, canonical_id
@@ -172,7 +234,8 @@ class CanonicalRepoSyncService:
             logger.info(
                 f"Repo sync completed for tenant {tenant_id}, env {environment_id}: "
                 f"{results['workflows_synced']} synced, {results['workflows_unchanged']} unchanged, "
-                f"{results['sidecars_ingested']} sidecars"
+                f"{results['sidecars_ingested']} sidecars, "
+                f"{len(results['collision_warnings'])} collision(s) detected"
             )
             
             return results

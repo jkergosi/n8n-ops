@@ -191,12 +191,56 @@ async def list_canonical_workflows(
     user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("workflow_read"))
 ):
-    """List all canonical workflows for tenant"""
+    """List all canonical workflows for tenant with collision warnings"""
     tenant_id = get_tenant_id(user_info)
     workflows = await CanonicalWorkflowService.list_canonical_workflows(
         tenant_id=tenant_id,
         include_deleted=include_deleted
     )
+
+    # Detect hash collisions across all environments
+    # Get all workflow mappings to build hash collision detection map
+    all_mappings = await db_service.get_workflow_mappings(tenant_id=tenant_id)
+
+    # Build hash collision detection map per environment
+    # Map of environment_id -> content_hash -> list of canonical_ids
+    hash_to_canonical_map: Dict[str, Dict[str, List[str]]] = {}
+    for mapping in all_mappings:
+        env_id = mapping.get("environment_id")
+        content_hash = mapping.get("env_content_hash")
+        canonical_id = mapping.get("canonical_id")
+
+        if env_id and content_hash and canonical_id:
+            if env_id not in hash_to_canonical_map:
+                hash_to_canonical_map[env_id] = {}
+            if content_hash not in hash_to_canonical_map[env_id]:
+                hash_to_canonical_map[env_id][content_hash] = []
+            if canonical_id not in hash_to_canonical_map[env_id][content_hash]:
+                hash_to_canonical_map[env_id][content_hash].append(canonical_id)
+
+    # Enrich workflows with collision warnings
+    for workflow in workflows:
+        canonical_id = workflow.get("canonical_id")
+        if not canonical_id:
+            continue
+
+        # Check for hash collisions across all environments
+        collision_warnings = []
+        for env_id, hash_map in hash_to_canonical_map.items():
+            for content_hash, canonical_ids in hash_map.items():
+                if canonical_id in canonical_ids and len(canonical_ids) > 1:
+                    # Collision detected
+                    other_workflows = [cid for cid in canonical_ids if cid != canonical_id]
+                    collision_warnings.append(
+                        f"Environment {env_id}: Hash collision with {len(other_workflows)} other workflow(s) (hash: {content_hash[:12]}...)"
+                    )
+
+        # Add collision_warnings field to workflow
+        if collision_warnings:
+            workflow["collision_warnings"] = collision_warnings
+        else:
+            workflow["collision_warnings"] = None
+
     return workflows
 
 
@@ -206,7 +250,7 @@ async def get_canonical_workflow(
     user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("workflow_read"))
 ):
-    """Get a canonical workflow by ID"""
+    """Get a canonical workflow by ID with collision warnings"""
     tenant_id = get_tenant_id(user_info)
     workflow = await CanonicalWorkflowService.get_canonical_workflow(
         tenant_id=tenant_id,
@@ -217,6 +261,50 @@ async def get_canonical_workflow(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Canonical workflow not found"
         )
+
+    # Detect hash collisions across all environments for this specific workflow
+    # Get all workflow mappings for this canonical workflow
+    all_mappings = await db_service.get_workflow_mappings(
+        tenant_id=tenant_id,
+        canonical_id=canonical_id
+    )
+
+    # Also get all other mappings to detect collisions
+    all_tenant_mappings = await db_service.get_workflow_mappings(tenant_id=tenant_id)
+
+    # Build hash collision detection map per environment
+    # Map of environment_id -> content_hash -> list of canonical_ids
+    hash_to_canonical_map: Dict[str, Dict[str, List[str]]] = {}
+    for mapping in all_tenant_mappings:
+        env_id = mapping.get("environment_id")
+        content_hash = mapping.get("env_content_hash")
+        mapped_canonical_id = mapping.get("canonical_id")
+
+        if env_id and content_hash and mapped_canonical_id:
+            if env_id not in hash_to_canonical_map:
+                hash_to_canonical_map[env_id] = {}
+            if content_hash not in hash_to_canonical_map[env_id]:
+                hash_to_canonical_map[env_id][content_hash] = []
+            if mapped_canonical_id not in hash_to_canonical_map[env_id][content_hash]:
+                hash_to_canonical_map[env_id][content_hash].append(mapped_canonical_id)
+
+    # Check for hash collisions across all environments
+    collision_warnings = []
+    for env_id, hash_map in hash_to_canonical_map.items():
+        for content_hash, canonical_ids in hash_map.items():
+            if canonical_id in canonical_ids and len(canonical_ids) > 1:
+                # Collision detected
+                other_workflows = [cid for cid in canonical_ids if cid != canonical_id]
+                collision_warnings.append(
+                    f"Environment {env_id}: Hash collision with {len(other_workflows)} other workflow(s) (hash: {content_hash[:12]}...)"
+                )
+
+    # Add collision_warnings field to workflow
+    if collision_warnings:
+        workflow["collision_warnings"] = collision_warnings
+    else:
+        workflow["collision_warnings"] = None
+
     return workflow
 
 

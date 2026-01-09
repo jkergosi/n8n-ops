@@ -13,13 +13,68 @@ from app.services.database import db_service
 from app.services.provider_registry import ProviderRegistry
 from app.services.canonical_workflow_service import (
     CanonicalWorkflowService,
-    compute_workflow_hash
+    compute_workflow_hash,
+    get_registered_payload
 )
+from app.services.promotion_service import normalize_workflow_for_comparison
 from app.schemas.canonical_workflow import WorkflowMappingStatus
 
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 25  # Process 25-30 workflows per batch (checkpoint after each)
+
+
+def _detect_hash_collision(
+    workflow: Dict[str, Any],
+    content_hash: str,
+    canonical_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Detect if a hash collision occurred for a workflow.
+
+    A collision occurs when:
+    - The hash already exists in the registry
+    - But the normalized payload is different
+
+    Args:
+        workflow: The workflow payload
+        content_hash: The computed hash
+        canonical_id: Optional canonical ID for the workflow
+
+    Returns:
+        Collision warning dict if collision detected, None otherwise
+        Format: {
+            "n8n_workflow_id": str,
+            "workflow_name": str,
+            "content_hash": str,
+            "canonical_id": Optional[str],
+            "message": str
+        }
+    """
+    normalized = normalize_workflow_for_comparison(workflow)
+    registered_payload = get_registered_payload(content_hash)
+
+    if registered_payload is not None and registered_payload != normalized:
+        # Collision detected: same hash, different payload
+        workflow_name = workflow.get("name", "unknown")
+        n8n_workflow_id = workflow.get("id", "unknown")
+
+        warning = {
+            "n8n_workflow_id": n8n_workflow_id,
+            "workflow_name": workflow_name,
+            "content_hash": content_hash,
+            "canonical_id": canonical_id,
+            "message": f"Hash collision detected for workflow '{workflow_name}' (ID: {n8n_workflow_id}). "
+                      f"Hash '{content_hash[:12]}...' maps to different payloads."
+        }
+
+        logger.warning(
+            f"Hash collision detected during env sync: {warning['message']}"
+        )
+
+        return warning
+
+    return None
 
 
 def _normalize_timestamp(ts: Optional[str]) -> Optional[str]:
@@ -70,7 +125,8 @@ class CanonicalEnvSyncService:
             "workflows_missing": 0,
             "errors": [],
             "observed_workflow_ids": [],  # All workflows observed in Phase 1
-            "created_workflow_ids": []  # New untracked workflows created in Phase 1
+            "created_workflow_ids": [],  # New untracked workflows created in Phase 1
+            "collision_warnings": []  # Hash collisions detected during processing
         }
         
         try:
@@ -189,6 +245,7 @@ class CanonicalEnvSyncService:
                 results["errors"].extend(batch_results["errors"])
                 results["observed_workflow_ids"].extend(batch_results.get("observed_workflow_ids", []))
                 results["created_workflow_ids"].extend(batch_results.get("created_workflow_ids", []))
+                results["collision_warnings"].extend(batch_results.get("collision_warnings", []))
                 
                 # Checkpoint after batch (store in job progress for resumability)
                 if job_id:
@@ -239,7 +296,8 @@ class CanonicalEnvSyncService:
             logger.info(
                 f"Environment sync completed for tenant {tenant_id}, env {environment_id}: "
                 f"{results['workflows_synced']} synced, {results['workflows_skipped']} skipped, "
-                f"{results['workflows_untracked']} untracked, {results['workflows_missing']} missing"
+                f"{results['workflows_untracked']} untracked, {results['workflows_missing']} missing, "
+                f"{len(results['collision_warnings'])} collision(s) detected"
             )
             
             return results
@@ -279,7 +337,8 @@ class CanonicalEnvSyncService:
             "untracked": 0,
             "errors": [],
             "observed_workflow_ids": [],  # All workflows observed in this batch
-            "created_workflow_ids": []  # New workflows created in this batch (untracked)
+            "created_workflow_ids": [],  # New workflows created in this batch (untracked)
+            "collision_warnings": []  # Hash collisions detected in this batch
         }
         
         for workflow in workflows:
@@ -317,8 +376,13 @@ class CanonicalEnvSyncService:
                             continue
                     
                     # Compute content hash (only if not short-circuited)
-                    content_hash = compute_workflow_hash(workflow)
-                    
+                    content_hash = compute_workflow_hash(workflow, canonical_id=existing_canonical_id)
+
+                    # Check for hash collision and track warning
+                    collision = _detect_hash_collision(workflow, content_hash, existing_canonical_id)
+                    if collision:
+                        batch_results["collision_warnings"].append(collision)
+
                     # Determine new status based on canonical_id presence for missing workflows
                     new_status = None
                     if existing_status == "missing":
@@ -348,8 +412,14 @@ class CanonicalEnvSyncService:
                         batch_results["untracked"] += 1
                 else:
                     # New workflow - compute hash
+                    # Note: canonical_id is unknown at this point (will be determined by auto-link)
                     content_hash = compute_workflow_hash(workflow)
-                    
+
+                    # Check for hash collision and track warning (before auto-link)
+                    collision = _detect_hash_collision(workflow, content_hash, canonical_id=None)
+                    if collision:
+                        batch_results["collision_warnings"].append(collision)
+
                     # Try to auto-link by hash
                     canonical_id = await CanonicalEnvSyncService._try_auto_link_by_hash(
                         tenant_id,
@@ -357,7 +427,11 @@ class CanonicalEnvSyncService:
                         content_hash,
                         n8n_workflow_id
                     )
-                    
+
+                    # Update collision warning with canonical_id if auto-linked
+                    if canonical_id and collision:
+                        collision["canonical_id"] = canonical_id
+
                     if canonical_id:
                         # Auto-linked
                         # DEV: store workflow_data

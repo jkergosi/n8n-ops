@@ -15,6 +15,10 @@ from app.services.background_job_service import (
     BackgroundJobStatus,
     BackgroundJobType
 )
+from app.services.promotion_lock_service import (
+    promotion_lock_service,
+    PromotionConflictError
+)
 from app.schemas.deployment import DeploymentStatus
 from app.schemas.promotion import PromotionStatus
 from app.api.endpoints.promotions import _execute_promotion_background
@@ -128,7 +132,25 @@ async def _process_scheduled_deployments():
                             "finished_at": datetime.utcnow().isoformat()
                         })
                         continue
-                    
+
+                    # Check for concurrent promotions to the same target environment
+                    # This prevents race conditions when scheduled promotions attempt
+                    # to run against an environment that already has an active promotion.
+                    try:
+                        await promotion_lock_service.check_and_acquire_promotion_lock(
+                            tenant_id=tenant_id,
+                            target_environment_id=target_env_id,
+                            requesting_promotion_id=promotion_id  # Exclude self in retry scenarios
+                        )
+                    except PromotionConflictError as e:
+                        logger.warning(
+                            f"Scheduled deployment {deployment_id} blocked by concurrent promotion: "
+                            f"{e.conflict.promotion_id}. Will retry on next poll cycle."
+                        )
+                        # Don't mark as failed - leave as scheduled so it retries on next poll
+                        # The blocking promotion should complete eventually
+                        continue
+
                     # Create background job
                     job = await background_job_service.create_job(
                         tenant_id=tenant_id,

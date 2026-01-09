@@ -6,7 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { CheckCircle2, AlertCircle, Loader2, GitBranch, Link2, FileCheck } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, GitBranch, Link2, FileCheck, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/auth';
 import { apiClient } from '@/lib/api-client';
@@ -14,6 +14,7 @@ import type {
   OnboardingPreflight,
   OnboardingInventoryRequest,
   OnboardingInventoryResponse,
+  OnboardingInventoryResults,
   MigrationPRRequest,
   MigrationPRResponse,
   OnboardingCompleteCheck,
@@ -30,6 +31,7 @@ export function CanonicalOnboardingPage() {
   const [preflight, setPreflight] = useState<OnboardingPreflight | null>(null);
   const [inventoryJobId, setInventoryJobId] = useState<string | null>(null);
   const [inventoryProgress, setInventoryProgress] = useState(0);
+  const [inventoryResults, setInventoryResults] = useState<OnboardingInventoryResults | null>(null);
   const [tenantSlug, setTenantSlug] = useState('');
   const [migrationPR, setMigrationPR] = useState<MigrationPRResponse | null>(null);
   const [onboardingComplete, setOnboardingComplete] = useState<OnboardingCompleteCheck | null>(null);
@@ -110,6 +112,12 @@ export function CanonicalOnboardingPage() {
         if (job.status === 'completed') {
           clearInterval(interval);
           setInventoryProgress(100);
+
+          // Capture inventory results from job result field
+          if (job.result) {
+            setInventoryResults(job.result as OnboardingInventoryResults);
+          }
+
           // Move to migration PR phase
           setPhase('migration-pr');
           // Generate tenant slug
@@ -249,6 +257,70 @@ export function CanonicalOnboardingPage() {
         <CardDescription>Generate a pull request with all canonical workflows</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Display inventory results summary */}
+        {inventoryResults && (
+          <div className="space-y-3 p-4 bg-muted rounded-lg">
+            <h3 className="font-semibold text-sm">Inventory Complete</h3>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-muted-foreground">Workflows inventoried:</span>
+                <span className="ml-2 font-medium">{inventoryResults.workflows_inventoried}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Canonical IDs generated:</span>
+                <span className="ml-2 font-medium">{inventoryResults.canonical_ids_generated}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Auto-links:</span>
+                <span className="ml-2 font-medium">{inventoryResults.auto_links}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Suggested links:</span>
+                <span className="ml-2 font-medium">{inventoryResults.suggested_links}</span>
+              </div>
+            </div>
+
+            {/* Display collision warnings if any exist */}
+            {inventoryResults.collision_warnings && inventoryResults.collision_warnings.length > 0 && (
+              <Alert className="mt-3 border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-800 dark:text-amber-200">
+                  <div className="font-semibold mb-2">Hash Collision Warnings Detected</div>
+                  <div className="text-sm space-y-1">
+                    {inventoryResults.collision_warnings.map((warning, idx) => (
+                      <div key={idx} className="flex items-start gap-2">
+                        <span className="text-amber-600 dark:text-amber-400">•</span>
+                        <span>{warning}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    These workflows have identical content hashes but different payloads. The system has applied a deterministic fallback hash to prevent conflicts.
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Display general errors if any exist */}
+            {inventoryResults.has_errors && inventoryResults.errors.length > 0 && (
+              <Alert className="mt-3 border-red-500 bg-red-50 dark:bg-red-950/20">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-800 dark:text-red-200">
+                  <div className="font-semibold mb-2">Inventory Errors</div>
+                  <div className="text-sm space-y-1 max-h-40 overflow-y-auto">
+                    {inventoryResults.errors.map((error, idx) => (
+                      <div key={idx} className="flex items-start gap-2">
+                        <span className="text-red-600 dark:text-red-400">•</span>
+                        <span>{error}</span>
+                      </div>
+                    ))}
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        )}
+
         <div className="space-y-2">
           <Label htmlFor="tenant-slug">Tenant Slug</Label>
           <Input

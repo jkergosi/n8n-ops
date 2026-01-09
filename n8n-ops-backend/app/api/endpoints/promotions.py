@@ -23,6 +23,10 @@ from app.services.environment_action_guard import (
     EnvironmentAction,
     ActionGuardError
 )
+from app.services.promotion_lock_service import (
+    promotion_lock_service,
+    PromotionConflictError
+)
 from app.schemas.environment import EnvironmentClass
 from app.services.background_job_service import (
     background_job_service,
@@ -52,6 +56,8 @@ from app.schemas.promotion import (
     CompareSummary,
     PromotionCompareResult,
     DiffSummaryResponse,
+    # Conflict response schema for API docs
+    PromotionConflictErrorResponse,
 )
 from app.core.provider import Provider, DEFAULT_PROVIDER
 from app.schemas.pipeline import PipelineResponse
@@ -62,104 +68,81 @@ router = APIRouter()
 
 async def check_drift_policy_blocking(
     tenant_id: str,
-    target_environment_id: str
+    target_environment_id: str,
+    correlation_id: Optional[str] = None
 ) -> dict:
     """
     Check if drift policy blocks the deployment.
+
+    This function delegates to the DriftPolicyEnforcementService for centralized
+    policy enforcement with approval override support. The service handles:
+    - Entitlement checks
+    - Policy configuration validation
+    - Active incident detection
+    - TTL expiration checks
+    - Approval override verification
+
+    Args:
+        tenant_id: The tenant ID
+        target_environment_id: The target environment ID for the deployment
+        correlation_id: Optional ID for tracking/logging across service calls
 
     Returns dict with:
     - blocked: bool - whether deployment is blocked
     - reason: str - reason for blocking (if blocked)
     - details: dict - additional details about the block
     """
-    from app.services.entitlements_service import entitlements_service
+    from app.services.drift_policy_enforcement import (
+        drift_policy_enforcement_service,
+        EnforcementResult,
+    )
 
     try:
-        # Check if tenant has drift_policies entitlement
-        if not await entitlements_service.has_flag(tenant_id, "drift_policies"):
-            # No policy feature = no blocking
-            return {"blocked": False, "reason": None, "details": {}}
+        # Delegate to the centralized enforcement service with approval override support
+        decision = await drift_policy_enforcement_service.check_enforcement_with_override(
+            tenant_id=tenant_id,
+            environment_id=target_environment_id,
+            correlation_id=correlation_id,
+        )
 
-        # Get tenant's drift policy
-        policy_response = db_service.client.table("drift_policies").select(
-            "*"
-        ).eq("tenant_id", tenant_id).execute()
-
-        if not policy_response.data or len(policy_response.data) == 0:
-            # No policy defined = no blocking
-            return {"blocked": False, "reason": None, "details": {}}
-
-        policy = policy_response.data[0]
-
-        # Check if policy blocks on drift or expired incidents
-        block_on_drift = policy.get("block_deployments_on_drift", False)
-        block_on_expired = policy.get("block_deployments_on_expired", False)
-
-        if not block_on_drift and not block_on_expired:
-            # Policy doesn't block anything
-            return {"blocked": False, "reason": None, "details": {}}
-
-        # Get active drift incidents for target environment
-        incidents_response = db_service.client.table("drift_incidents").select(
-            "id, status, severity, expires_at, title"
-        ).eq("tenant_id", tenant_id).eq("environment_id", target_environment_id).in_(
-            "status", ["detected", "acknowledged", "stabilized"]
-        ).order("created_at", desc=True).limit(1).execute()
-
-        if not incidents_response.data or len(incidents_response.data) == 0:
-            # No active incidents = no blocking
-            return {"blocked": False, "reason": None, "details": {}}
-
-        incident = incidents_response.data[0]
-        incident_id = incident.get("id")
-
-        # Check for expired TTL
-        if block_on_expired and incident.get("expires_at"):
-            from datetime import datetime, timezone
-            expires_at_str = incident.get("expires_at")
-            expires_at = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
-            if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-            now = datetime.now(timezone.utc)
-            if now >= expires_at:
-                return {
-                    "blocked": True,
-                    "reason": "drift_incident_expired",
-                    "details": {
-                        "incident_id": incident_id,
-                        "incident_title": incident.get("title"),
-                        "severity": incident.get("severity"),
-                        "expired_at": expires_at_str,
-                        "message": (
-                            f"Deployment blocked: Drift incident has expired. "
-                            f"Please resolve or extend the TTL for incident '{incident.get('title')}' before deploying."
-                        )
-                    }
-                }
-
-        # Check for active drift (not necessarily expired)
-        if block_on_drift:
+        if decision.allowed:
             return {
-                "blocked": True,
-                "reason": "active_drift_incident",
+                "blocked": False,
+                "reason": None,
                 "details": {
-                    "incident_id": incident_id,
-                    "incident_title": incident.get("title"),
-                    "severity": incident.get("severity"),
-                    "status": incident.get("status"),
-                    "message": (
-                        f"Deployment blocked: Active drift incident exists. "
-                        f"Please resolve incident '{incident.get('title')}' before deploying to this environment."
-                    )
+                    "enforcement_result": decision.result.value,
+                    "correlation_id": decision.correlation_id,
                 }
             }
 
-        return {"blocked": False, "reason": None, "details": {}}
+        # Map enforcement result to blocking reason for API response compatibility
+        reason_map = {
+            EnforcementResult.BLOCKED_TTL_EXPIRED: "drift_incident_expired",
+            EnforcementResult.BLOCKED_ACTIVE_DRIFT: "active_drift_incident",
+            EnforcementResult.BLOCKED_POLICY_VIOLATION: "policy_violation",
+        }
+
+        return {
+            "blocked": True,
+            "reason": reason_map.get(decision.result, "policy_violation"),
+            "details": {
+                "incident_id": decision.incident_id,
+                "incident_title": decision.incident_details.get("title") if decision.incident_details else None,
+                "severity": decision.incident_details.get("severity") if decision.incident_details else None,
+                "status": decision.incident_details.get("status") if decision.incident_details else None,
+                "expires_at": decision.incident_details.get("expires_at") if decision.incident_details else None,
+                "message": decision.reason,
+                "enforcement_result": decision.result.value,
+                "policy_config": decision.policy_config,
+                "correlation_id": decision.correlation_id,
+            }
+        }
 
     except Exception as e:
         logger.warning(f"Failed to check drift policy blocking: {e}")
-        # On error, don't block - fail open
+        # On error, don't block - fail open for backwards compatibility
+        # Note: The enforcement service itself uses fail-closed internally,
+        # but API layer fails open to avoid breaking deployments on transient errors
         return {"blocked": False, "reason": None, "details": {"error": str(e)}}
 
 def get_tenant_id(user_info: dict) -> str:
@@ -1522,7 +1505,15 @@ async def _execute_promotion_background(
             logger.error(f"Failed to update promotion/deployment status: {str(update_error)}")
 
 
-@router.post("/execute/{deployment_id}")
+@router.post(
+    "/execute/{deployment_id}",
+    responses={
+        409: {
+            "model": PromotionConflictErrorResponse,
+            "description": "Another promotion is already running for the target environment"
+        }
+    }
+)
 async def execute_deployment(
     deployment_id: str,
     request: Optional[PromotionExecuteRequest] = None,
@@ -1536,6 +1527,10 @@ async def execute_deployment(
     If scheduled_at is provided, deployment will be scheduled for that time.
     Otherwise, executes immediately.
     Returns immediately with job_id for tracking progress.
+
+    Returns 409 Conflict if another promotion is already running for the target environment.
+    The error response includes details about the blocking promotion to help users understand
+    why their request was rejected and when they can retry.
     """
     from app.schemas.deployment import DeploymentStatus
     
@@ -1581,12 +1576,29 @@ async def execute_deployment(
                 detail="Source or target environment not found"
             )
 
+        # Check for concurrent promotions to the same target environment
+        # This prevents race conditions when multiple users attempt to promote
+        # to the same environment simultaneously. Raises PromotionConflictError (409)
+        # if another promotion is already running for this environment.
+        await promotion_lock_service.check_and_acquire_promotion_lock(
+            tenant_id=tenant_id,
+            target_environment_id=promotion.get("target_environment_id"),
+            requesting_promotion_id=promotion_id  # Exclude self in retry scenarios
+        )
+
         # Re-check drift policy blocking before execution (may have changed since initiation)
+        # Uses the centralized DriftPolicyEnforcementService with approval override support
         drift_block = await check_drift_policy_blocking(
             tenant_id=tenant_id,
-            target_environment_id=promotion.get("target_environment_id")
+            target_environment_id=promotion.get("target_environment_id"),
+            correlation_id=f"promotion-execute-{promotion_id}"
         )
         if drift_block.get("blocked"):
+            logger.warning(
+                f"Promotion {promotion_id} blocked by drift policy: "
+                f"reason={drift_block.get('reason')}, "
+                f"correlation_id={drift_block.get('details', {}).get('correlation_id')}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={

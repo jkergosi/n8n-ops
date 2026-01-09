@@ -26,11 +26,13 @@ from app.schemas.observability import (
     SystemStatus,
     SystemStatusInsight,
     SparklineDataPoint,
+    SparklineWarning,
     ErrorGroup,
     ErrorIntelligence,
     CredentialHealth,
     ImpactedWorkflow,
 )
+from app.core.config import settings
 
 
 def get_time_range_bounds(time_range: TimeRange) -> tuple[str, str]:
@@ -132,21 +134,62 @@ class ObservabilityService:
             return 30  # 1-day intervals
         return 12
 
+    def _get_interval_minutes(self, time_range: TimeRange) -> int:
+        """Get the interval duration in minutes for sparkline based on time range"""
+        if time_range == TimeRange.ONE_HOUR:
+            return 5  # 5-minute intervals
+        elif time_range == TimeRange.SIX_HOURS:
+            return 30  # 30-minute intervals
+        elif time_range == TimeRange.TWENTY_FOUR_HOURS:
+            return 60  # 1-hour intervals
+        elif time_range == TimeRange.SEVEN_DAYS:
+            return 720  # 12-hour intervals
+        elif time_range == TimeRange.THIRTY_DAYS:
+            return 1440  # 1-day intervals
+        return 60
+
+    def _get_time_window_days(self, time_range: TimeRange) -> float:
+        """Get the time window in days for a given TimeRange"""
+        if time_range == TimeRange.ONE_HOUR:
+            return 1 / 24  # ~0.04 days
+        elif time_range == TimeRange.SIX_HOURS:
+            return 6 / 24  # 0.25 days
+        elif time_range == TimeRange.TWENTY_FOUR_HOURS:
+            return 1
+        elif time_range == TimeRange.SEVEN_DAYS:
+            return 7
+        elif time_range == TimeRange.THIRTY_DAYS:
+            return 30
+        return 1
+
     async def _get_sparkline_data(
         self,
         tenant_id: str,
         time_range: TimeRange,
         environment_id: Optional[str] = None
-    ) -> Dict[str, List[SparklineDataPoint]]:
+    ) -> Dict[str, Any]:
         """
-        Get sparkline data for KPIs using optimized single-query aggregation.
+        Get sparkline data for KPIs using safe, scalable aggregation.
 
-        OPTIMIZATION: Instead of N sequential queries (12-30 queries), this fetches all
-        executions in the time range once and aggregates them into buckets on the client side.
-        This reduces query count from N to 1, improving performance by 90%+.
+        SAFETY FEATURES:
+        1. Enforces maximum execution window sizes based on config
+        2. Prefers SQL-side aggregation when execution count exceeds threshold
+        3. Falls back to client-side aggregation for smaller datasets
+        4. Includes warnings when limits are exceeded or aggregation is degraded
+        5. Preserves existing API response shape with optional warnings field
+
+        Returns:
+            Dict with sparkline data and optional warnings:
+            - executions: List[SparklineDataPoint]
+            - success_rate: List[SparklineDataPoint]
+            - duration: List[SparklineDataPoint]
+            - failures: List[SparklineDataPoint]
+            - warnings: List[SparklineWarning] (optional)
         """
         intervals = self._get_sparkline_intervals(time_range)
+        interval_minutes = self._get_interval_minutes(time_range)
         now = datetime.now(timezone.utc)
+        warnings: List[SparklineWarning] = []
 
         # Calculate interval duration
         if time_range == TimeRange.ONE_HOUR:
@@ -165,67 +208,91 @@ class ObservabilityService:
         # Calculate time range bounds
         time_range_start = now - (intervals * interval_delta)
 
-        # OPTIMIZATION: Single query to fetch all executions in the time range
-        # Then bucket them client-side instead of N separate queries
-        try:
-            query = db_service.client.table("executions").select(
-                "id, status, started_at, finished_at, duration_ms"
-            ).eq("tenant_id", tenant_id).gte("started_at", time_range_start.isoformat()).lte("started_at", now.isoformat())
+        # Check if time window exceeds maximum allowed
+        window_days = self._get_time_window_days(time_range)
+        if window_days > settings.SPARKLINE_MAX_WINDOW_DAYS:
+            warnings.append(SparklineWarning(
+                code="WINDOW_TOO_LARGE",
+                message=f"Time window ({window_days:.0f} days) exceeds maximum ({settings.SPARKLINE_MAX_WINDOW_DAYS} days). Data may be truncated.",
+                limit_applied=settings.SPARKLINE_MAX_WINDOW_DAYS
+            ))
+            logger.warning(
+                f"SPARKLINE_WINDOW_EXCEEDED: tenant_id={tenant_id}, "
+                f"requested_days={window_days}, max_days={settings.SPARKLINE_MAX_WINDOW_DAYS}"
+            )
 
-            if environment_id:
-                query = query.eq("environment_id", environment_id)
+        # Get execution count first to decide on aggregation strategy
+        execution_count = await db_service.get_execution_count_in_range(
+            tenant_id,
+            time_range_start.isoformat(),
+            now.isoformat(),
+            environment_id
+        )
 
-            query = query.order("started_at", desc=False)
-            response = query.execute()
-            all_executions = response.data or []
-        except Exception as e:
-            logger.error(f"Failed to fetch executions for sparkline: {e}")
-            all_executions = []
+        # Check if execution count exceeds safety limits
+        if execution_count > settings.SPARKLINE_MAX_EXECUTIONS:
+            warnings.append(SparklineWarning(
+                code="EXECUTION_LIMIT_EXCEEDED",
+                message=f"Execution count ({execution_count:,}) exceeds maximum ({settings.SPARKLINE_MAX_EXECUTIONS:,}). Using sampled data.",
+                limit_applied=settings.SPARKLINE_MAX_EXECUTIONS,
+                actual_count=execution_count
+            ))
+            logger.warning(
+                f"SPARKLINE_EXECUTION_LIMIT: tenant_id={tenant_id}, "
+                f"execution_count={execution_count}, max={settings.SPARKLINE_MAX_EXECUTIONS}"
+            )
 
-        # Initialize buckets for each interval
-        buckets = []
-        for i in range(intervals):
-            interval_end = now - (i * interval_delta)
-            interval_start = interval_end - interval_delta
-            buckets.append({
-                "start": interval_start,
-                "end": interval_end,
-                "executions": [],
-                "successes": 0,
-                "failures": 0,
-                "durations": []
-            })
+        # Decide aggregation strategy based on execution count
+        use_sql_aggregation = execution_count >= settings.SPARKLINE_SQL_THRESHOLD
+        aggregation_method = "client"
+        buckets = None
 
-        # Reverse buckets to process chronologically
-        buckets.reverse()
-
-        # Distribute executions into buckets
-        for execution in all_executions:
-            started_at_str = execution.get("started_at")
-            if not started_at_str:
-                continue
-
+        if use_sql_aggregation:
+            # Try SQL-side aggregation for large datasets
             try:
-                from dateutil import parser
-                exec_time = parser.parse(started_at_str)
-                if exec_time.tzinfo is None:
-                    exec_time = exec_time.replace(tzinfo=timezone.utc)
-            except Exception:
-                continue
+                sql_result = await db_service.get_sparkline_aggregated(
+                    tenant_id,
+                    time_range_start.isoformat(),
+                    now.isoformat(),
+                    interval_minutes,
+                    environment_id
+                )
 
-            # Find the bucket this execution belongs to
-            for bucket in buckets:
-                if bucket["start"] <= exec_time < bucket["end"]:
-                    bucket["executions"].append(execution)
-                    if execution.get("status") == "success":
-                        bucket["successes"] += 1
-                    elif execution.get("status") == "error":
-                        bucket["failures"] += 1
+                if sql_result and sql_result.get("buckets"):
+                    aggregation_method = "sql"
+                    buckets = self._convert_sql_buckets_to_sparkline(
+                        sql_result["buckets"],
+                        time_range_start,
+                        interval_delta,
+                        intervals
+                    )
+                    logger.info(
+                        f"SPARKLINE_SQL_AGGREGATION: tenant_id={tenant_id}, "
+                        f"execution_count={execution_count}, buckets={len(buckets)}"
+                    )
+            except Exception as e:
+                logger.warning(f"SQL sparkline aggregation failed, falling back to client-side: {e}")
 
-                    duration = execution.get("duration_ms")
-                    if duration is not None and isinstance(duration, (int, float)):
-                        bucket["durations"].append(duration)
-                    break
+        # Fall back to client-side aggregation
+        if buckets is None:
+            buckets = await self._get_sparkline_data_client_side(
+                tenant_id,
+                time_range_start,
+                now,
+                interval_delta,
+                intervals,
+                environment_id,
+                max_executions=settings.SPARKLINE_MAX_EXECUTIONS if execution_count > settings.SPARKLINE_MAX_EXECUTIONS else None
+            )
+            aggregation_method = "client"
+
+            if execution_count > settings.SPARKLINE_MAX_EXECUTIONS:
+                warnings.append(SparklineWarning(
+                    code="AGGREGATION_DEGRADED",
+                    message="Using sampled aggregation due to large dataset. Values are approximate.",
+                    limit_applied=settings.SPARKLINE_MAX_EXECUTIONS,
+                    actual_count=execution_count
+                ))
 
         # Generate sparkline data from buckets
         executions_data = []
@@ -234,13 +301,12 @@ class ObservabilityService:
         failures_data = []
 
         for bucket in buckets:
-            total = len(bucket["executions"])
-            successes = bucket["successes"]
-            failures = bucket["failures"]
-            durations = bucket["durations"]
+            total = bucket.get("total", 0)
+            successes = bucket.get("successes", 0)
+            failures = bucket.get("failures", 0)
+            avg_duration = bucket.get("avg_duration", 0)
 
             success_rate = (successes / total * 100) if total > 0 else 0
-            avg_duration = (sum(durations) / len(durations)) if durations else 0
 
             executions_data.append(SparklineDataPoint(
                 timestamp=bucket["start"],
@@ -259,12 +325,167 @@ class ObservabilityService:
                 value=float(failures)
             ))
 
-        return {
+        result = {
             "executions": executions_data,
             "success_rate": success_rate_data,
             "duration": duration_data,
             "failures": failures_data
         }
+
+        # Only include warnings if there are any
+        if warnings:
+            result["warnings"] = warnings
+
+        return result
+
+    def _convert_sql_buckets_to_sparkline(
+        self,
+        sql_buckets: List[Dict[str, Any]],
+        time_range_start: datetime,
+        interval_delta: timedelta,
+        intervals: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Convert SQL aggregated buckets to the internal bucket format.
+
+        The SQL function returns buckets with:
+        - bucket_start: timestamp
+        - total_count: int
+        - success_count: int
+        - error_count: int
+        - avg_duration_ms: float
+        """
+        # Create a map of bucket timestamps to SQL data
+        sql_bucket_map = {}
+        for bucket in sql_buckets:
+            bucket_start = bucket.get("bucket_start")
+            if bucket_start:
+                if isinstance(bucket_start, str):
+                    from dateutil import parser
+                    bucket_start = parser.parse(bucket_start)
+                    if bucket_start.tzinfo is None:
+                        bucket_start = bucket_start.replace(tzinfo=timezone.utc)
+                sql_bucket_map[bucket_start] = bucket
+
+        # Build result buckets for all intervals (filling in zeros for missing)
+        result = []
+        for i in range(intervals):
+            bucket_start = time_range_start + (i * interval_delta)
+
+            # Find matching SQL bucket (within tolerance)
+            matching_bucket = None
+            for sql_start, sql_data in sql_bucket_map.items():
+                if abs((sql_start - bucket_start).total_seconds()) < interval_delta.total_seconds() / 2:
+                    matching_bucket = sql_data
+                    break
+
+            if matching_bucket:
+                result.append({
+                    "start": bucket_start,
+                    "total": matching_bucket.get("total_count", 0),
+                    "successes": matching_bucket.get("success_count", 0),
+                    "failures": matching_bucket.get("error_count", 0),
+                    "avg_duration": matching_bucket.get("avg_duration_ms", 0)
+                })
+            else:
+                result.append({
+                    "start": bucket_start,
+                    "total": 0,
+                    "successes": 0,
+                    "failures": 0,
+                    "avg_duration": 0
+                })
+
+        return result
+
+    async def _get_sparkline_data_client_side(
+        self,
+        tenant_id: str,
+        time_range_start: datetime,
+        time_range_end: datetime,
+        interval_delta: timedelta,
+        intervals: int,
+        environment_id: Optional[str] = None,
+        max_executions: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get sparkline data using client-side aggregation.
+
+        This is the fallback method when SQL aggregation is not available.
+        Supports limiting the number of executions processed for safety.
+        """
+        try:
+            query = db_service.client.table("executions").select(
+                "id, status, started_at, finished_at, duration_ms"
+            ).eq("tenant_id", tenant_id).gte("started_at", time_range_start.isoformat()).lte("started_at", time_range_end.isoformat())
+
+            if environment_id:
+                query = query.eq("environment_id", environment_id)
+
+            query = query.order("started_at", desc=False)
+
+            # Apply limit if specified for safety
+            if max_executions:
+                query = query.limit(max_executions)
+
+            response = query.execute()
+            all_executions = response.data or []
+        except Exception as e:
+            logger.error(f"Failed to fetch executions for sparkline: {e}")
+            all_executions = []
+
+        # Initialize buckets for each interval
+        buckets = []
+        for i in range(intervals):
+            bucket_start = time_range_start + (i * interval_delta)
+            bucket_end = bucket_start + interval_delta
+            buckets.append({
+                "start": bucket_start,
+                "end": bucket_end,
+                "total": 0,
+                "successes": 0,
+                "failures": 0,
+                "durations": [],
+                "avg_duration": 0
+            })
+
+        # Distribute executions into buckets
+        for execution in all_executions:
+            started_at_str = execution.get("started_at")
+            if not started_at_str:
+                continue
+
+            try:
+                from dateutil import parser
+                exec_time = parser.parse(started_at_str)
+                if exec_time.tzinfo is None:
+                    exec_time = exec_time.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+
+            # Find the bucket this execution belongs to
+            for bucket in buckets:
+                if bucket["start"] <= exec_time < bucket["end"]:
+                    bucket["total"] += 1
+                    if execution.get("status") == "success":
+                        bucket["successes"] += 1
+                    elif execution.get("status") == "error":
+                        bucket["failures"] += 1
+
+                    duration = execution.get("duration_ms")
+                    if duration is not None and isinstance(duration, (int, float)):
+                        bucket["durations"].append(duration)
+                    break
+
+        # Calculate average durations
+        for bucket in buckets:
+            durations = bucket.get("durations", [])
+            bucket["avg_duration"] = (sum(durations) / len(durations)) if durations else 0
+            # Remove durations list to match SQL bucket format
+            del bucket["durations"]
+            del bucket["end"]
+
+        return buckets
 
     async def get_kpi_metrics(
         self,
@@ -340,6 +561,11 @@ class ObservabilityService:
         total_duration_ms = int((time.time() - query_start) * 1000)
         logger.info(f"get_kpi_metrics completed: tenant_id={tenant_id}, total_duration_ms={total_duration_ms}")
 
+        # Extract sparkline warnings if present
+        sparkline_warnings = None
+        if sparklines and sparklines.get("warnings"):
+            sparkline_warnings = sparklines.get("warnings")
+
         return KPIMetrics(
             total_executions=stats["total_executions"],
             success_count=stats["success_count"],
@@ -352,7 +578,8 @@ class ObservabilityService:
             executions_sparkline=sparklines.get("executions") if sparklines else None,
             success_rate_sparkline=sparklines.get("success_rate") if sparklines else None,
             duration_sparkline=sparklines.get("duration") if sparklines else None,
-            failures_sparkline=sparklines.get("failures") if sparklines else None
+            failures_sparkline=sparklines.get("failures") if sparklines else None,
+            sparkline_warnings=sparkline_warnings
         )
 
     async def get_workflow_performance(

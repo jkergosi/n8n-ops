@@ -142,9 +142,10 @@ export function WorkflowsPage() {
   });
 
   // Extract data from paginated response
-  const workflows = workflowsResponse?.data?.workflows || [];
+  // Support both standardized format (items, pageSize, totalPages) and legacy format (workflows, page_size, total_pages)
+  const workflows = workflowsResponse?.data?.items || workflowsResponse?.data?.workflows || [];
   const totalWorkflows = workflowsResponse?.data?.total || 0;
-  const totalPages = workflowsResponse?.data?.total_pages || 1;
+  const totalPages = workflowsResponse?.data?.totalPages || workflowsResponse?.data?.total_pages || 1;
 
   // Fetch environments to get the n8n base URL for opening workflows
   const { data: environments } = useQuery({

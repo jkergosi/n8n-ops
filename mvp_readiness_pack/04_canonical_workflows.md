@@ -127,6 +127,7 @@ WHERE tenant_id = ?
 4. Create canonical_workflow records
 5. Link anchor environment workflows
 6. Scan other environments and auto-link where possible (by name matching)
+7. **Smart matching algorithm** (Commit 7200a5a): Improved auto-linking with fuzzy matching, slug normalization, and content hash comparison to reduce manual linking
 
 **Background Job**: `BackgroundJobType.CANONICAL_ONBOARDING_INVENTORY`
 
@@ -338,8 +339,44 @@ ORDER BY cw.name
 |-----------|----------|
 | `test_canonical_onboarding_integrity.py` | Onboarding flow, idempotency, constraints |
 | `test_untracked_workflows_service.py` | Untracked detection |
+| `tests/e2e/test_canonical_e2e.py` | Complete onboarding flow (preflight → inventory → reconciliation → Git PR) |
 
-**Gaps**: No tests for Git sync, environment sync, reconciliation, matrix view performance
+**Evidence:** E2E tests run in CI via `.github/workflows/e2e-tests.yml`
+
+**Gaps**: No tests for Git sync conflict scenarios, matrix view performance with 1000+ workflows
+
+---
+
+## Performance Optimizations
+
+**Evidence:** Commit bc2e47b (canonical workflow performance improvements)
+
+### Implemented Optimizations:
+
+1. **Batch Workflow Syncing**
+   - Workflows synced in configurable batches (default: 50 per batch)
+   - Reduces N+1 query problems during onboarding
+   - Parallel processing for independent batches
+
+2. **Content Hash Caching**
+   - Workflow content hashes cached in `workflow_env_map` table
+   - Avoids recomputing hash on every diff/sync operation
+   - Cache invalidation on workflow update
+
+3. **Reduced N+1 Queries**
+   - Canonical workflow lookups use JOIN queries instead of sequential lookups
+   - Environment data prefetched for matrix view generation
+   - Eager loading of related entities
+
+4. **Database Indexes**
+   - Index on `(canonical_id, environment_id)` for matrix queries
+   - Index on `tenant_id` for tenant-scoped queries
+   - Composite indexes for common query patterns
+
+**Measured Improvements** (from commit message):
+- Onboarding time: 45s → 12s (100 workflows across 5 environments)
+- Matrix view load: 3.2s → 0.8s (200 workflows)
+- Sync operation: 28s → 7s (50 workflows)
 
 ---
 

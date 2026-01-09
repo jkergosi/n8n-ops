@@ -270,12 +270,19 @@
 **Security**: Secrets stored in n8n only, never in this DB
 
 ### credential_health
-**Purpose**: Credential status monitoring
+**Purpose**: Credential status monitoring and health tracking
 
 **Key Columns**:
-- `id` (UUID PK), `credential_id`
-- `last_checked_at`, `status`: healthy/warning/error
-- `error_message`
+- `id` (UUID PK), `credential_id` (FK to credentials)
+- `last_checked_at` (timestamp): Last health check time
+- `status`: healthy/warning/error/unknown
+- `status_details` (JSONB): Detailed error information, check metadata
+- `consecutive_failures` (int): Counter for retry/escalation logic
+- `error_message` (text): Human-readable error description
+
+**Migration**: Added in commit 20abdcd (credential health tracking feature)
+
+**Usage**: Bulk credential health checks, credential monitoring dashboard
 
 ---
 
@@ -477,6 +484,36 @@
 - `event_type`: deployment.completed, drift.detected
 - `channel_ids` (JSONB array)
 - `is_enabled` (bool)
+
+### alert_rules
+**Purpose**: Configurable alert conditions and triggers
+
+**Key Columns**:
+- `id` (UUID PK), `tenant_id`
+- `name` (text): Alert rule display name
+- `rule_type` (text): execution_failure_rate, workflow_success_rate, drift_threshold, etc.
+- `conditions` (JSONB): Rule-specific conditions (e.g., `{"threshold": 0.8, "window_minutes": 60}`)
+- `notification_channel_ids` (JSONB array): Channels to notify on trigger
+- `is_enabled` (bool): Active/inactive status
+- `evaluation_interval_seconds` (int): How often to evaluate (default: 300)
+
+**Migration**: `alembic/versions/20260108_add_alert_rules.py`
+
+**Usage**: Alert rules scheduler evaluates periodically, triggers notifications when conditions met
+
+### alert_rule_evaluations
+**Purpose**: Audit trail of alert rule evaluations
+
+**Key Columns**:
+- `id` (UUID PK), `alert_rule_id` (FK to alert_rules)
+- `evaluated_at` (timestamp): Evaluation timestamp
+- `triggered` (bool): Whether alert was triggered
+- `evaluation_result` (JSONB): Detailed evaluation data (metrics, thresholds, actual values)
+- `notification_sent` (bool): Whether notification was successfully sent
+
+**Migration**: `alembic/versions/20260108_add_alert_rules.py`
+
+**Retention**: Evaluations older than 30 days automatically purged (configurable)
 
 ---
 

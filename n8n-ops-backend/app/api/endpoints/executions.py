@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, status, Depends
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
 from app.services.database import db_service
 from app.services.auth_service import get_current_user
+from app.schemas.pagination import PaginatedResponse
 import logging
 
 router = APIRouter()
@@ -16,69 +17,7 @@ def get_tenant_id(user_info: dict) -> str:
     return tenant_id
 
 
-@router.get("/", response_model=List[Dict[str, Any]], deprecated=True)
-async def get_executions(
-    environment_id: Optional[str] = None,
-    workflow_id: Optional[str] = None,
-    limit: int = 100,
-    user_info: dict = Depends(get_current_user)
-):
-    """
-    DEPRECATED: Use /executions/paginated instead for better performance.
-
-    Get executions from the database cache, optionally filtered by environment and workflow.
-    This endpoint is maintained for backward compatibility but will limit results to prevent performance issues.
-
-    NOTE: This endpoint returns a maximum of 100 executions. Use /executions/paginated for full access.
-    """
-    try:
-        tenant_id = get_tenant_id(user_info)
-
-        # Cap limit to prevent loading too many records
-        limit = min(max(limit, 1), 1000)
-
-        logger.warning(
-            f"DEPRECATED: /executions/ endpoint called by tenant {tenant_id}. "
-            f"Please migrate to /executions/paginated for better performance."
-        )
-
-        executions = await db_service.get_executions(
-            tenant_id,
-            environment_id=environment_id,
-            workflow_id=workflow_id,
-            limit=limit
-        )
-
-        # Transform snake_case to camelCase for frontend
-        transformed_executions = []
-        for execution in executions:
-            transformed_executions.append({
-                "id": execution.get("id"),
-                "executionId": execution.get("execution_id"),
-                "workflowId": execution.get("workflow_id"),
-                "workflowName": execution.get("workflow_name"),
-                "status": execution.get("status"),
-                "mode": execution.get("mode"),
-                "startedAt": execution.get("started_at"),
-                "finishedAt": execution.get("finished_at"),
-                "executionTime": execution.get("execution_time"),
-                "data": execution.get("data"),
-                "tenantId": execution.get("tenant_id"),
-                "environmentId": execution.get("environment_id"),
-                "createdAt": execution.get("created_at"),
-                "updatedAt": execution.get("updated_at"),
-            })
-
-        return transformed_executions
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to fetch executions: {str(e)}"
-        )
-
-
-@router.get("/paginated", response_model=Dict[str, Any])
+@router.get("/paginated")
 async def get_executions_paginated(
     environment_id: str,
     page: int = 1,
@@ -97,6 +36,7 @@ async def get_executions_paginated(
     - Returning only the requested page of executions
     - Performing search/filter operations at the database level
     - Reducing payload size by ~95%
+    - Using standardized pagination envelope
 
     Query params:
         environment_id: Environment UUID (required)
@@ -109,13 +49,17 @@ async def get_executions_paginated(
         sort_direction: 'asc' or 'desc'
 
     Returns:
+        Standardized pagination envelope:
         {
-            "executions": [...],
+            "items": [...],
             "total": int,
             "page": int,
-            "page_size": int,
-            "total_pages": int
+            "pageSize": int,
+            "totalPages": int,
+            "hasMore": bool
         }
+
+        For backward compatibility, also includes "executions" field as an alias for "items".
     """
     try:
         tenant_id = get_tenant_id(user_info)
@@ -152,12 +96,21 @@ async def get_executions_paginated(
                 "environmentId": execution.get("environment_id"),
             })
 
+        # Calculate pagination metadata
+        from math import ceil
+        total = result.get("total", 0)
+        total_pages = ceil(total / page_size) if page_size > 0 else 0
+        has_more = page < total_pages
+
+        # Return standardized envelope with backward compatibility
         return {
-            "executions": transformed_executions,
-            "total": result.get("total", 0),
-            "page": result.get("page", page),
-            "page_size": result.get("page_size", page_size),
-            "total_pages": result.get("total_pages", 1)
+            "items": transformed_executions,
+            "executions": transformed_executions,  # Backward compatibility alias
+            "total": total,
+            "page": page,
+            "pageSize": page_size,
+            "totalPages": total_pages,
+            "hasMore": has_more
         }
 
     except HTTPException:

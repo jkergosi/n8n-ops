@@ -243,6 +243,53 @@ curl -X POST "http://localhost:8000/api/v1/workflows/upload?environment=dev" \
   -F "files=@workflow.json"
 ```
 
+## MVP Pipeline Model
+
+### Single-Hop Semantics
+
+In the MVP release, pipelines follow a **single-hop model**. This means each pipeline connects exactly **two environments**: a source and a target.
+
+**Key Constraints:**
+- Each pipeline must have exactly **2 environments** (source → target)
+- Each pipeline contains exactly **1 stage** (the promotion step between environments)
+- Multi-stage pipelines (e.g., dev → staging → prod in a single pipeline) are **not supported**
+
+**Why Single-Hop?**
+
+Multi-stage pipelines add complexity that isn't necessary for MVP:
+- Simpler mental model for users
+- Clearer audit trail (each promotion is a discrete action)
+- Easier to debug promotion failures
+- More flexible composition (users can create custom paths by chaining single-hop pipelines)
+
+**Example Valid Pipelines:**
+```
+Pipeline A: Development → Staging
+Pipeline B: Staging → Production
+```
+
+**Example Invalid Pipeline (Rejected):**
+```
+Pipeline C: Development → Staging → Production  ❌
+```
+
+If you attempt to create a pipeline with more than 2 environments, the API will return:
+```json
+{
+  "detail": "Multi-stage pipelines are not supported in MVP. Create separate pipelines for each hop."
+}
+```
+
+### Creating a Pipeline
+
+To promote workflows through multiple environments, create separate pipelines for each hop:
+
+1. Create `dev-to-staging` pipeline (Development → Staging)
+2. Create `staging-to-prod` pipeline (Staging → Production)
+3. Promote workflow through each pipeline sequentially
+
+This approach provides full traceability and allows different approval workflows at each stage.
+
 ## Next Steps
 
 1. Set up Supabase project and apply schema

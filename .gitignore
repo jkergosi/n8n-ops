@@ -297,6 +297,20 @@ coverage/
 n8n-ops-backend/.env
 nul
 
+# Claude Code temporary working directories
+tmpclaude-*-cwd
+tmpclaude-*
+**/tmpclaude-*
+
+# Test output files
+test_results.txt
+**/test_results.txt
+temp_patch.txt
+**/temp_patch.txt
+test-verification-output.txt
+**/test-verification-output.txt
+**/tests/verification/
+
 # ============================================================================
 # Temporary Documentation & Status Files
 # ============================================================================

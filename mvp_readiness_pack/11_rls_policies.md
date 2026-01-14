@@ -7,7 +7,7 @@
 
 **Status:** ✅ **RLS EXPORT COMPLETED** (2026-01-08)
 
-**Evidence:** `n8n-ops-backend/docs/security/` directory contains 7 RLS-related documentation files:
+**Evidence:** `app-back/docs/security/` directory contains 7 RLS-related documentation files:
 
 1. **RLS_POLICIES.md** (1416 lines)
    - Complete inventory of all 76 tables
@@ -37,7 +37,7 @@
 
 ## Current RLS Posture
 
-**Evidence:** `n8n-ops-backend/docs/security/RLS_POLICIES.md:5-6`
+**Evidence:** `app-back/docs/security/RLS_POLICIES.md:5-6`
 
 - **Total Tables:** 76
 - **Tables with RLS:** 12 (15.8%)
@@ -45,9 +45,9 @@
 
 ### Backend Service Key Usage
 
-**Evidence:** `n8n-ops-backend/app/core/config.py:13` - `SUPABASE_SERVICE_KEY` defined
+**Evidence:** `app-back/app/core/config.py:13` - `SUPABASE_SERVICE_KEY` defined
 
-**Evidence:** `n8n-ops-backend/docs/security/RLS_POLICIES.md:55` - "Backend uses SERVICE_KEY which bypasses RLS"
+**Evidence:** `app-back/docs/security/RLS_POLICIES.md:55` - "Backend uses SERVICE_KEY which bypasses RLS"
 
 **Implication:** 
 - Backend queries bypass RLS policies entirely
@@ -62,7 +62,7 @@ Backend (SERVICE_KEY) → RLS bypassed (all tables)
 
 ## Tables WITH RLS Enabled
 
-**Evidence:** `n8n-ops-backend/docs/security/RLS_POLICIES.md:78-1416`
+**Evidence:** `app-back/docs/security/RLS_POLICIES.md:78-1416`
 
 1. `canonical_workflow_git_state` - Tenant isolation policy
 2. `canonical_workflows` - Tenant isolation policy
@@ -81,7 +81,7 @@ Backend (SERVICE_KEY) → RLS bypassed (all tables)
 
 ## Tables WITHOUT RLS (Critical Gaps)
 
-**Evidence:** `n8n-ops-backend/docs/security/RLS_POLICIES.md` - Sections for each category
+**Evidence:** `app-back/docs/security/RLS_POLICIES.md` - Sections for each category
 
 ### Core Tables (No RLS)
 - `tenants` - **CRITICAL**: Core tenant table
@@ -113,7 +113,7 @@ Backend (SERVICE_KEY) → RLS bypassed (all tables)
 
 ## RLS Policy Patterns
 
-**Evidence:** `n8n-ops-backend/docs/security/RLS_POLICIES.md` - Policy examples
+**Evidence:** `app-back/docs/security/RLS_POLICIES.md` - Policy examples
 
 **Standard Pattern:**
 ```sql
@@ -127,7 +127,7 @@ WITH CHECK (tenant_id = (current_setting('app.tenant_id', true))::uuid);
 
 ## Recommendations
 
-**Evidence:** `n8n-ops-backend/docs/security/RLS_POLICIES.md` - Migration plan section
+**Evidence:** `app-back/docs/security/RLS_POLICIES.md` - Migration plan section
 
 1. **Priority 1:** Enable RLS on `tenants`, `users`, `environments` (core tables)
 2. **Priority 2:** Enable RLS on `workflows`, `executions`, `audit_logs` (high-volume tables)
@@ -140,7 +140,7 @@ WITH CHECK (tenant_id = (current_setting('app.tenant_id', true))::uuid);
 
 ## Verification
 
-**Evidence:** `n8n-ops-backend/docs/security/RLS_VERIFICATION.md`
+**Evidence:** `app-back/docs/security/RLS_VERIFICATION.md`
 
 To verify RLS status:
 ```sql
@@ -164,7 +164,7 @@ WHERE schemaname = 'public';
 - **RLS testing:** Unknown if RLS policies are tested in test suite
 
 **Search Locations:**
-- `n8n-ops-backend/app/services/database.py` - Check if session variables are set
-- `n8n-ops-ui/src/lib/supabase.ts` - Check which key is used
-- `n8n-ops-backend/tests/` - Search for RLS-related tests
+- `app-back/app/services/database.py` - Check if session variables are set
+- `app-front/src/lib/supabase.ts` - Check which key is used
+- `app-back/tests/` - Search for RLS-related tests
 

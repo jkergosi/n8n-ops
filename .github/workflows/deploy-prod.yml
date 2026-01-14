@@ -54,10 +54,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: n8n-ops-ui/package-lock.json
+          cache-dependency-path: app-front/package-lock.json
 
       - name: Install Python dependencies
-        working-directory: n8n-ops-backend
+        working-directory: app-back
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -98,7 +98,7 @@ jobs:
       # Run migrations with extra safety
       - name: Run database migrations
         if: ${{ github.event.inputs.skip_migrations != 'true' }}
-        working-directory: n8n-ops-backend
+        working-directory: app-back
         env:
           DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
         run: |
@@ -159,11 +159,11 @@ jobs:
 
       # Build and deploy frontend
       - name: Install frontend dependencies
-        working-directory: n8n-ops-ui
+        working-directory: app-front
         run: npm ci
 
       - name: Build frontend
-        working-directory: n8n-ops-ui
+        working-directory: app-front
         env:
           VITE_API_BASE_URL: ${{ secrets.PROD_API_URL }}
         run: npm run build
@@ -174,7 +174,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "n8n-ops-ui/dist/*"
+          source: "app-front/dist/*"
           target: ${{ secrets.PROD_FRONTEND_PATH }}
           strip_components: 2
 

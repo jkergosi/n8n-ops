@@ -975,12 +975,12 @@ DETECTED → ACKNOWLEDGED → STABILIZED → RECONCILED → CLOSED
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Frontend: React + TanStack Query + Zustand + shadcn/ui        │
-│  n8n-ops-ui/ (Vite, TypeScript)                                │
+│  app-front/ (Vite, TypeScript)                                │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ REST API + SSE
 ┌──────────────────────────▼──────────────────────────────────────┐
 │  Backend: FastAPI + Pydantic + httpx                           │
-│  n8n-ops-backend/ (Python 3.11+, async)                        │
+│  app-back/ (Python 3.11+, async)                        │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │  Provider Registry → N8NProviderAdapter                 │   │
 │  │                    → ❗MakeAdapter (NOT IMPLEMENTED)     │   │

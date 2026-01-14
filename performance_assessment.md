@@ -376,19 +376,19 @@ REFRESH MATERIALIZED VIEW CONCURRENTLY workflow_performance_summary;
 ## Files to Modify
 
 ### Phase 1
-- `n8n-ops-backend/app/api/endpoints/executions.py` - Add pagination
-- `n8n-ops-backend/app/services/database.py` - Add `get_executions_paginated()`
-- `n8n-ops-ui/src/pages/ExecutionsPage.tsx` - Use paginated endpoint
-- `n8n-ops-ui/src/lib/api-client.ts` - Add `getExecutionsPaginated()`
-- `n8n-ops-backend/app/services/observability_service.py` - DB error classification
+- `app-back/app/api/endpoints/executions.py` - Add pagination
+- `app-back/app/services/database.py` - Add `get_executions_paginated()`
+- `app-front/src/pages/ExecutionsPage.tsx` - Use paginated endpoint
+- `app-front/src/lib/api-client.ts` - Add `getExecutionsPaginated()`
+- `app-back/app/services/observability_service.py` - DB error classification
 
 ### Phase 2
-- `n8n-ops-backend/app/core/cache.py` - New Redis cache service
-- `n8n-ops-backend/app/services/observability_service.py` - Add caching decorators
-- `n8n-ops-backend/alembic/versions/xxx_add_rollup_tables.py` - Rollup tables
-- `n8n-ops-backend/app/services/background_job_service.py` - Add rollup job
+- `app-back/app/core/cache.py` - New Redis cache service
+- `app-back/app/services/observability_service.py` - Add caching decorators
+- `app-back/alembic/versions/xxx_add_rollup_tables.py` - Rollup tables
+- `app-back/app/services/background_job_service.py` - Add rollup job
 
 ### Phase 3
-- `n8n-ops-ui/src/pages/admin/UsagePage.tsx` - Use Recharts
-- `n8n-ops-backend/alembic/versions/xxx_add_materialized_views.py` - Views
+- `app-front/src/pages/admin/UsagePage.tsx` - Use Recharts
+- `app-back/alembic/versions/xxx_add_materialized_views.py` - Views
 

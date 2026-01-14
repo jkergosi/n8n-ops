@@ -55,12 +55,12 @@ Port configuration is in `.env.local` (root) and should not be modified without 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Frontend: React + TanStack Query + Zustand + shadcn/ui         │
-│  n8n-ops-ui/ (port 3000)                                        │
+│  app-front/ (port 3000)                                        │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ REST API (axios)
 ┌──────────────────────────▼──────────────────────────────────────┐
 │  Backend: FastAPI + Pydantic + httpx                            │
-│  n8n-ops-backend/ (port 4000)                                   │
+│  app-back/ (port 4000)                                   │
 └──────┬─────────────────────┬─────────────────────┬──────────────┘
        │                     │                     │
 ┌──────▼──────┐    ┌─────────▼─────────┐   ┌──────▼──────┐
@@ -120,7 +120,7 @@ Auth0 is disabled for local development:
 n8n-ops/
 ├── CLAUDE.md                    # This file (overview)
 ├── .env.local                   # Port configuration
-├── n8n-ops-backend/             # FastAPI backend
+├── app-back/             # FastAPI backend
 │   ├── CLAUDE.md                # Backend-specific docs
 │   ├── app/
 │   │   ├── main.py              # App entry, router registration
@@ -131,7 +131,7 @@ n8n-ops/
 │   ├── alembic/                 # Alembic migrations
 │   ├── migrations/              # SQL migrations
 │   └── tests/                   # 49+ pytest test files
-├── n8n-ops-ui/                  # React frontend
+├── app-front/                  # React frontend
 │   ├── CLAUDE.md                # Frontend-specific docs
 │   └── src/
 │       ├── pages/               # 62+ pages (core + support + admin)
@@ -155,8 +155,8 @@ n8n-ops/
 | File | Purpose |
 |------|---------|
 | `.env.local` | Port configuration (root) |
-| `n8n-ops-backend/.env` | Backend secrets (Supabase, Stripe, GitHub) |
-| `n8n-ops-ui/.env` | Frontend config (`VITE_API_BASE_URL`) |
+| `app-back/.env` | Backend secrets (Supabase, Stripe, GitHub) |
+| `app-front/.env` | Frontend config (`VITE_API_BASE_URL`) |
 
 ## Adding New Features
 
@@ -178,20 +178,20 @@ n8n-ops/
 
 ```bash
 # Backend testing
-cd n8n-ops-backend && pytest                    # All tests
-cd n8n-ops-backend && pytest tests/test_file.py # Specific test
+cd app-back && pytest                    # All tests
+cd app-back && pytest tests/test_file.py # Specific test
 
 # Frontend testing
-cd n8n-ops-ui && npm test                       # Run tests
-cd n8n-ops-ui && npm test -- --coverage         # With coverage
-cd n8n-ops-ui && npm run build                  # Type check & build
-cd n8n-ops-ui && npm run lint                   # Lint check
+cd app-front && npm test                       # Run tests
+cd app-front && npm test -- --coverage         # With coverage
+cd app-front && npm run build                  # Type check & build
+cd app-front && npm run lint                   # Lint check
 ```
 
 ## Resources
 
-- Backend docs: `n8n-ops-backend/CLAUDE.md`
-- Frontend docs: `n8n-ops-ui/CLAUDE.md`
+- Backend docs: `app-back/CLAUDE.md`
+- Frontend docs: `app-front/CLAUDE.md`
 - API docs: `http://localhost:4000/docs`
 - [FastAPI](https://fastapi.tiangolo.com/) | [N8N API](https://docs.n8n.io/api/) | [Supabase](https://supabase.com/docs) | [TanStack Query](https://tanstack.com/query) | [shadcn/ui](https://ui.shadcn.com/)
 

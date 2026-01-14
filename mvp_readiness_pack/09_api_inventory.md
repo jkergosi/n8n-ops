@@ -2,11 +2,11 @@
 
 ## Summary Statistics
 
-**Evidence:** `n8n-ops-backend/app/api/endpoints/` directory contains 51 files (50 .py, 1 .md)
+**Evidence:** `app-back/app/api/endpoints/` directory contains 51 files (50 .py, 1 .md)
 
 - **Total Endpoints**: ~344 (estimated from router registrations + new endpoints: 8 alert rules + 6 bulk ops + 3 SSE)
-- **Endpoint Modules**: 51 files in `n8n-ops-backend/app/api/endpoints/`
-- **API Prefix**: `/api/v1` (from `n8n-ops-backend/app/core/config.py:25`)
+- **Endpoint Modules**: 51 files in `app-back/app/api/endpoints/`
+- **API Prefix**: `/api/v1` (from `app-back/app/core/config.py:25`)
 
 ---
 

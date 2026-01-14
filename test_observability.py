@@ -10,7 +10,7 @@ import os
 from datetime import datetime, timedelta
 
 # Add the app directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'n8n-ops-backend'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app-back'))
 
 from app.services.database import db_service
 from app.services.observability_service import observability_service

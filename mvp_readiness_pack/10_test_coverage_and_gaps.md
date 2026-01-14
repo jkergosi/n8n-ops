@@ -4,14 +4,14 @@
 
 ### Backend Tests
 
-**Location**: `n8n-ops-backend/tests/`
+**Location**: `app-back/tests/`
 
 **Runner**: pytest
 
 **Commands**:
 ```bash
 # Run all tests
-cd n8n-ops-backend
+cd app-back
 pytest
 
 # Run specific test file
@@ -24,22 +24,22 @@ pytest --cov=app --cov-report=html
 pytest tests/test_promotion_service.py::test_promotion_idempotency
 ```
 
-**Configuration**: `n8n-ops-backend/pytest.ini`
+**Configuration**: `app-back/pytest.ini`
 
-**Dependencies**: `n8n-ops-backend/requirements-test.txt`
+**Dependencies**: `app-back/requirements-test.txt`
 
 ### Frontend Tests
 
-**Evidence:** `n8n-ops-ui/package.json:12-14`
+**Evidence:** `app-front/package.json:12-14`
 
-**Location**: `n8n-ops-ui/src/` (component tests), `n8n-ops-ui/src/lib/__tests__/` (utility tests)
+**Location**: `app-front/src/` (component tests), `app-front/src/lib/__tests__/` (utility tests)
 
 **Runner**: Vitest 4.0.15
 
 **Commands**:
 ```bash
 # Run all tests
-cd n8n-ops-ui
+cd app-front
 npm run test
 
 # Watch mode
@@ -50,8 +50,8 @@ npm run test:coverage
 ```
 
 **Test Files Found:**
-- `n8n-ops-ui/src/lib/__tests__/sse-reconnect.test.ts` - SSE reconnect tests
-- `n8n-ops-ui/src/pages/**/*.test.tsx` - Page component tests (multiple files)
+- `app-front/src/lib/__tests__/sse-reconnect.test.ts` - SSE reconnect tests
+- `app-front/src/pages/**/*.test.tsx` - Page component tests (multiple files)
 
 **Configuration**: Vitest config in `package.json` scripts
 
@@ -84,9 +84,9 @@ npm run test:coverage
 
 ### Backend Tests
 
-**Evidence:** `n8n-ops-backend/tests/` directory contains 103 files (85 .py, 16 .json, 2 .md)
+**Evidence:** `app-back/tests/` directory contains 103 files (85 .py, 16 .json, 2 .md)
 
-**Core Services** (Evidence: `n8n-ops-backend/tests/` directory):
+**Core Services** (Evidence: `app-back/tests/` directory):
 - `test_promotion_service.py` - Promotion logic
 - `test_promotion_validation.py` - Pre-flight checks
 - `test_promotion_atomicity.py` - Atomic rollback (T003)
@@ -115,7 +115,7 @@ npm run test:coverage
 - `test_sse_pubsub_reconnect.py` - SSE reconnect (F)
 - `test_rbac_enforcement.py` - RBAC enforcement (B)
 
-**API Endpoints** (Evidence: `n8n-ops-backend/tests/` directory):
+**API Endpoints** (Evidence: `app-back/tests/` directory):
 - `test_auth_api.py` - Authentication
 - `test_auth_service.py` - Auth service
 - `test_environments_api.py` - Environments
@@ -137,11 +137,11 @@ npm run test:coverage
 - `test_retention_api.py` - Retention
 - `test_support_api.py` - Support tickets
 
-**Security Tests** (Evidence: `n8n-ops-backend/tests/security/`):
+**Security Tests** (Evidence: `app-back/tests/security/`):
 - `test_tenant_isolation.py` - Tenant isolation verification
 - `test_impersonation_audit.py` - Impersonation security and audit (includes platform admin blocking test)
 
-**E2E Tests** (Evidence: `n8n-ops-backend/tests/e2e/`):
+**E2E Tests** (Evidence: `app-back/tests/e2e/`):
 - `test_promotion_e2e.py` - Full promotion flow
 - `test_drift_e2e.py` - Drift detection flow
 - `test_canonical_e2e.py` - Canonical workflow flow
@@ -204,7 +204,7 @@ npm run test:coverage
 - ✅ Pipeline API (`test_pipelines_api.py`)
 
 **E2E Tests**:
-- ✅ Complete: Full end-to-end promotion flow ([`test_promotion_e2e.py`](../n8n-ops-backend/tests/e2e/test_promotion_e2e.py))
+- ✅ Complete: Full end-to-end promotion flow ([`test_promotion_e2e.py`](../app-back/tests/e2e/test_promotion_e2e.py))
 - ✅ Error scenarios: timeout, 404, rate limit, server errors
 - ✅ Frontend E2E: Playwright tests for UI flow
 
@@ -308,7 +308,7 @@ npm run test:coverage
 - ✅ Stripe webhooks (`test_billing_webhooks.py`)
 
 **E2E Tests**:
-- ✅ Complete: Downgrade flow with Stripe webhook testing ([`test_downgrade_e2e.py`](../n8n-ops-backend/tests/e2e/test_downgrade_e2e.py))
+- ✅ Complete: Downgrade flow with Stripe webhook testing ([`test_downgrade_e2e.py`](../app-back/tests/e2e/test_downgrade_e2e.py))
 
 **Gaps**:
 - ❌ Downgrade grace period expiry enforcement
@@ -411,23 +411,23 @@ npm run test:coverage
 ### Must Fix Before MVP Launch
 
 1. **✅ COMPLETED: Add E2E Tests**: 5 critical flows implemented:
-   - ✅ Full promotion flow (create pipeline → promote → verify) - [`test_promotion_e2e.py`](../n8n-ops-backend/tests/e2e/test_promotion_e2e.py)
-   - ✅ Drift detection → incident → reconcile - [`test_drift_e2e.py`](../n8n-ops-backend/tests/e2e/test_drift_e2e.py)
-   - ✅ Canonical onboarding flow - [`test_canonical_e2e.py`](../n8n-ops-backend/tests/e2e/test_canonical_e2e.py)
-   - ✅ Downgrade flow (Stripe webhook → enforcement) - [`test_downgrade_e2e.py`](../n8n-ops-backend/tests/e2e/test_downgrade_e2e.py)
-   - ✅ Impersonation flow - [`test_impersonation_e2e.py`](../n8n-ops-backend/tests/e2e/test_impersonation_e2e.py)
+   - ✅ Full promotion flow (create pipeline → promote → verify) - [`test_promotion_e2e.py`](../app-back/tests/e2e/test_promotion_e2e.py)
+   - ✅ Drift detection → incident → reconcile - [`test_drift_e2e.py`](../app-back/tests/e2e/test_drift_e2e.py)
+   - ✅ Canonical onboarding flow - [`test_canonical_e2e.py`](../app-back/tests/e2e/test_canonical_e2e.py)
+   - ✅ Downgrade flow (Stripe webhook → enforcement) - [`test_downgrade_e2e.py`](../app-back/tests/e2e/test_downgrade_e2e.py)
+   - ✅ Impersonation flow - [`test_impersonation_e2e.py`](../app-back/tests/e2e/test_impersonation_e2e.py)
    
    **Frontend E2E** (Playwright):
-   - ✅ Promotion UI flow - [`promotion-flow.spec.ts`](../n8n-ops-ui/tests/e2e/promotion-flow.spec.ts)
-   - ✅ Drift incident management UI - [`drift-flow.spec.ts`](../n8n-ops-ui/tests/e2e/drift-flow.spec.ts)
-   - ✅ Canonical onboarding wizard - [`canonical-onboarding.spec.ts`](../n8n-ops-ui/tests/e2e/canonical-onboarding.spec.ts)
-   - ✅ Impersonation UI flow - [`impersonation-flow.spec.ts`](../n8n-ops-ui/tests/e2e/impersonation-flow.spec.ts)
+   - ✅ Promotion UI flow - [`promotion-flow.spec.ts`](../app-front/tests/e2e/promotion-flow.spec.ts)
+   - ✅ Drift incident management UI - [`drift-flow.spec.ts`](../app-front/tests/e2e/drift-flow.spec.ts)
+   - ✅ Canonical onboarding wizard - [`canonical-onboarding.spec.ts`](../app-front/tests/e2e/canonical-onboarding.spec.ts)
+   - ✅ Impersonation UI flow - [`impersonation-flow.spec.ts`](../app-front/tests/e2e/impersonation-flow.spec.ts)
    
    **Test Infrastructure**:
    - ✅ HTTP-boundary mocking using `respx` (no real API calls)
-   - ✅ Testkit with factories and golden JSON fixtures ([`tests/testkit/`](../n8n-ops-backend/tests/testkit/))
+   - ✅ Testkit with factories and golden JSON fixtures ([`tests/testkit/`](../app-back/tests/testkit/))
    - ✅ GitHub Actions CI workflow ([`.github/workflows/e2e-tests.yml`](../.github/workflows/e2e-tests.yml))
-   - ✅ Comprehensive documentation ([Backend E2E](../n8n-ops-backend/tests/e2e/README.md), [Frontend E2E](../n8n-ops-ui/tests/e2e/README.md), [Testkit](../n8n-ops-backend/tests/testkit/README.md))
+   - ✅ Comprehensive documentation ([Backend E2E](../app-back/tests/e2e/README.md), [Frontend E2E](../app-front/tests/e2e/README.md), [Testkit](../app-back/tests/testkit/README.md))
 
 2. **Test Critical Gaps**:
    - Conflict flag enforcement

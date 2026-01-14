@@ -11,25 +11,25 @@
 
 ### ✅ Installation Requirements
 - [ ] Node.js and npm installed
-- [ ] Navigate to `n8n-ops-ui` directory
+- [ ] Navigate to `app-front` directory
 - [ ] Run `npm install` (if not already done)
 - [ ] Run `npx playwright install` (if browsers not installed)
 
 ### ✅ Files Created/Modified
 
 **Created:**
-- [x] `n8n-ops-ui/tests/verification/canonical-onboarding-verification.spec.ts` (465 lines)
-- [x] `n8n-ops-ui/tests/verification/CANONICAL_ONBOARDING_VERIFICATION.md` (484 lines)
-- [x] `n8n-ops-ui/tests/verification/CANONICAL_ONBOARDING_QUICK_START.md` (217 lines)
-- [x] `n8n-ops-ui/tests/verification/IMPLEMENTATION_NOTES.md` (390 lines)
-- [x] `n8n-ops-ui/tests/verification/run-canonical-verification.bat` (Windows)
-- [x] `n8n-ops-ui/tests/verification/run-canonical-verification.sh` (Linux/Mac)
+- [x] `app-front/tests/verification/canonical-onboarding-verification.spec.ts` (465 lines)
+- [x] `app-front/tests/verification/CANONICAL_ONBOARDING_VERIFICATION.md` (484 lines)
+- [x] `app-front/tests/verification/CANONICAL_ONBOARDING_QUICK_START.md` (217 lines)
+- [x] `app-front/tests/verification/IMPLEMENTATION_NOTES.md` (390 lines)
+- [x] `app-front/tests/verification/run-canonical-verification.bat` (Windows)
+- [x] `app-front/tests/verification/run-canonical-verification.sh` (Linux/Mac)
 - [x] `FEATURE_1767910795355_SUMMARY.md` (Comprehensive summary)
 - [x] `VERIFICATION_CHECKLIST_1767910795355.md` (This file)
 
 **Modified:**
-- [x] `n8n-ops-ui/tests/testkit/test-data.ts` (Added canonical test data)
-- [x] `n8n-ops-ui/tests/testkit/mock-api.ts` (Enhanced mockCanonicalFlow)
+- [x] `app-front/tests/testkit/test-data.ts` (Added canonical test data)
+- [x] `app-front/tests/testkit/mock-api.ts` (Enhanced mockCanonicalFlow)
 
 ---
 
@@ -38,7 +38,7 @@
 ### Step 1: Verify Test File Structure ✅
 
 ```bash
-cd n8n-ops-ui
+cd app-front
 npx playwright test tests/verification/canonical-onboarding-verification.spec.ts --list
 ```
 
@@ -379,7 +379,7 @@ Before marking feature as complete:
 To verify everything at once:
 
 ```bash
-cd n8n-ops-ui
+cd app-front
 npx playwright test tests/verification/canonical-onboarding-verification.spec.ts --reporter=html
 ```
 

@@ -4,7 +4,7 @@
 
 ### Pattern: Extract tenant_id from Authenticated User Context
 
-**File**: `n8n-ops-backend/app/services/auth_service.py:get_current_user()`
+**File**: `app-back/app/services/auth_service.py:get_current_user()`
 
 **Safe Pattern**:
 ```python
@@ -62,10 +62,10 @@ report = scanner.generate_report(results)
 - Backend uses SERVICE_KEY (bypasses RLS)
 - Frontend uses ANON_KEY (enforces RLS when enabled)
 
-**Documentation**: See [`n8n-ops-backend/docs/security/`](../n8n-ops-backend/docs/security/)
-- [RLS_POLICIES.md](../n8n-ops-backend/docs/security/RLS_POLICIES.md) - Complete inventory
-- [RLS_VERIFICATION.md](../n8n-ops-backend/docs/security/RLS_VERIFICATION.md) - Verification procedures
-- [RLS_CHANGE_CHECKLIST.md](../n8n-ops-backend/docs/security/RLS_CHANGE_CHECKLIST.md) - Developer guide
+**Documentation**: See [`app-back/docs/security/`](../app-back/docs/security/)
+- [RLS_POLICIES.md](../app-back/docs/security/RLS_POLICIES.md) - Complete inventory
+- [RLS_VERIFICATION.md](../app-back/docs/security/RLS_VERIFICATION.md) - Verification procedures
+- [RLS_CHANGE_CHECKLIST.md](../app-back/docs/security/RLS_CHANGE_CHECKLIST.md) - Developer guide
 
 **Gap**: Many critical tables lack RLS policies. See documentation for priority list.
 

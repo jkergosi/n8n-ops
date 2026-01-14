@@ -1,0 +1,237 @@
+
+> app-front@0.0.0 test
+> vitest run --run src/pages/support/GetHelpPage.test.tsx src/pages/support/ReportBugPage.test.tsx src/pages/support/RequestFeaturePage.test.tsx src/pages/support/SupportHomePage.test.tsx src/pages/admin/SupportConfigPage.test.tsx
+
+
+[1m[46m RUN [49m[22m [36mv4.0.15 [39m[90mF:/web/AllThings/_projects/n8n-ops-trees/main/app-front[39m
+
+ [32m✓[39m src/pages/support/SupportHomePage.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 720[2mms[22m[39m
+ [32m✓[39m src/pages/admin/SupportConfigPage.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 2243[2mms[22m[39m
+       [33m[2m✓[22m[39m should allow editing webhook URL [33m 809[2mms[22m[39m
+ [32m✓[39m src/pages/support/GetHelpPage.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 2337[2mms[22m[39m
+       [33m[2m✓[22m[39m should allow typing in title field [33m 511[2mms[22m[39m
+       [33m[2m✓[22m[39m should allow typing in details field [33m 766[2mms[22m[39m
+       [33m[2m✓[22m[39m should have submit button enabled after filling required fields [33m 553[2mms[22m[39m
+[90mstderr[2m | initAuth (F:\web\AllThings\_projects\n8n-ops-trees\main\app-front\src\lib\auth.tsx:93:25)
+[22m[39mFailed to fetch entitlements: AxiosError: Request aborted
+    at handleAbort [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4maxios[24m/lib/adapters/xhr.js:100:14[90m)[39m
+    at XMLHttpRequest.#callDispatchEventListeners [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:276:21[90m)[39m
+    at XMLHttpRequest.dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:100:41[90m)[39m
+    at XMLHttpRequest.#goThroughDispatchEventPhases [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:160:38[90m)[39m
+    at XMLHttpRequest.dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:96:47[90m)[39m
+    at XMLHttpRequest.#dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/xml-http-request/XMLHttpRequest.js:448:14[90m)[39m
+    at AbortSignal.<anonymous> [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/xml-http-request/XMLHttpRequest.js:300:32[90m)[39m
+    at AbortSignal.#callDispatchEventListeners [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:237:34[90m)[39m
+    at AbortSignal.dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:100:41[90m)[39m
+    at AbortSignal.#goThroughDispatchEventPhases [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:160:38[90m)[39m
+    at Axios.request [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4maxios[24m/lib/core/Axios.js:45:41[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at ApiClient.getAuthStatus (F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/src/lib/api-client.ts:176:22)
+    at initAuth (F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/src/lib/auth.tsx:88:46) {
+  code: [32m'ECONNABORTED'[39m,
+  config: {
+    transitional: {
+      silentJSONParsing: [33mtrue[39m,
+      forcedJSONParsing: [33mtrue[39m,
+      clarifyTimeoutError: [33mfalse[39m
+    },
+    adapter: [ [32m'xhr'[39m, [32m'http'[39m, [32m'fetch'[39m ],
+    transformRequest: [ [36m[Function: transformRequest][39m ],
+    transformResponse: [ [36m[Function: transformResponse][39m ],
+    timeout: [33m0[39m,
+    xsrfCookieName: [32m'XSRF-TOKEN'[39m,
+    xsrfHeaderName: [32m'X-XSRF-TOKEN'[39m,
+    maxContentLength: [33m-1[39m,
+    maxBodyLength: [33m-1[39m,
+    env: { FormData: [36m[Function][39m, Blob: [36m[class Blob][39m },
+    validateStatus: [36m[Function: validateStatus][39m,
+    headers: Object [AxiosHeaders] {
+      Accept: [32m'application/json, text/plain, */*'[39m,
+      [32m'Content-Type'[39m: [32m'application/json'[39m
+    },
+    baseURL: [32m'http://localhost:4000/api/v1'[39m,
+    method: [32m'get'[39m,
+    url: [32m'/auth/status'[39m,
+    allowAbsoluteUrls: [33mtrue[39m,
+    data: [90mundefined[39m
+  },
+  request: XMLHttpRequest [EventTarget] {
+    onloadstart: [1mnull[22m,
+    onprogress: [1mnull[22m,
+    onabort: [36m[Function: handleAbort][39m,
+    onerror: [36m[Function: handleError][39m,
+    onload: [1mnull[22m,
+    ontimeout: [36m[Function: handleTimeout][39m,
+    onloadend: [36m[Function: onloadend][39m,
+    upload: XMLHttpRequestUpload [EventTarget] {
+      onloadstart: [1mnull[22m,
+      onprogress: [1mnull[22m,
+      onabort: [1mnull[22m,
+      onerror: [1mnull[22m,
+      onload: [1mnull[22m,
+      ontimeout: [1mnull[22m,
+      onloadend: [1mnull[22m,
+      [[32mSymbol(listeners)[39m]: [36m[Object][39m,
+      [[32mSymbol(listenerOptions)[39m]: [36m[Object][39m
+    },
+    withCredentials: [33mfalse[39m,
+    timeout: [33m0[39m,
+    [[32mSymbol(listeners)[39m]: { capturing: Map(0) {}, bubbling: Map(0) {} },
+    [[32mSymbol(listenerOptions)[39m]: { capturing: Map(0) {}, bubbling: Map(0) {} }
+  }
+}
+
+ [32m✓[39m src/pages/support/RequestFeaturePage.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 3984[2mms[22m[39m
+       [33m[2m✓[22m[39m should allow typing in title field [33m 601[2mms[22m[39m
+       [33m[2m✓[22m[39m should allow typing in problem/goal field [33m 504[2mms[22m[39m
+       [33m[2m✓[22m[39m should allow typing in desired outcome field [33m 551[2mms[22m[39m
+       [33m[2m✓[22m[39m should have submit button enabled after filling required fields [33m 1408[2mms[22m[39m
+[90mstderr[2m | initAuth (F:\web\AllThings\_projects\n8n-ops-trees\main\app-front\src\lib\auth.tsx:93:25)
+[22m[39mFailed to fetch entitlements: AxiosError: Request aborted
+    at handleAbort [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4maxios[24m/lib/adapters/xhr.js:100:14[90m)[39m
+    at XMLHttpRequest.#callDispatchEventListeners [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:276:21[90m)[39m
+    at XMLHttpRequest.dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:100:41[90m)[39m
+    at XMLHttpRequest.#goThroughDispatchEventPhases [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:160:38[90m)[39m
+    at XMLHttpRequest.dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:96:47[90m)[39m
+    at XMLHttpRequest.#dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/xml-http-request/XMLHttpRequest.js:448:14[90m)[39m
+    at AbortSignal.<anonymous> [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/xml-http-request/XMLHttpRequest.js:300:32[90m)[39m
+    at AbortSignal.#callDispatchEventListeners [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:237:34[90m)[39m
+    at AbortSignal.dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:100:41[90m)[39m
+    at AbortSignal.#goThroughDispatchEventPhases [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:160:38[90m)[39m
+    at Axios.request [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4maxios[24m/lib/core/Axios.js:45:41[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at ApiClient.getAuthStatus (F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/src/lib/api-client.ts:176:22)
+    at initAuth (F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/src/lib/auth.tsx:88:46) {
+  code: [32m'ECONNABORTED'[39m,
+  config: {
+    transitional: {
+      silentJSONParsing: [33mtrue[39m,
+      forcedJSONParsing: [33mtrue[39m,
+      clarifyTimeoutError: [33mfalse[39m
+    },
+    adapter: [ [32m'xhr'[39m, [32m'http'[39m, [32m'fetch'[39m ],
+    transformRequest: [ [36m[Function: transformRequest][39m ],
+    transformResponse: [ [36m[Function: transformResponse][39m ],
+    timeout: [33m0[39m,
+    xsrfCookieName: [32m'XSRF-TOKEN'[39m,
+    xsrfHeaderName: [32m'X-XSRF-TOKEN'[39m,
+    maxContentLength: [33m-1[39m,
+    maxBodyLength: [33m-1[39m,
+    env: { FormData: [36m[Function][39m, Blob: [36m[class Blob][39m },
+    validateStatus: [36m[Function: validateStatus][39m,
+    headers: Object [AxiosHeaders] {
+      Accept: [32m'application/json, text/plain, */*'[39m,
+      [32m'Content-Type'[39m: [32m'application/json'[39m
+    },
+    baseURL: [32m'http://localhost:4000/api/v1'[39m,
+    method: [32m'get'[39m,
+    url: [32m'/auth/status'[39m,
+    allowAbsoluteUrls: [33mtrue[39m,
+    data: [90mundefined[39m
+  },
+  request: XMLHttpRequest [EventTarget] {
+    onloadstart: [1mnull[22m,
+    onprogress: [1mnull[22m,
+    onabort: [36m[Function: handleAbort][39m,
+    onerror: [36m[Function: handleError][39m,
+    onload: [1mnull[22m,
+    ontimeout: [36m[Function: handleTimeout][39m,
+    onloadend: [36m[Function: onloadend][39m,
+    upload: XMLHttpRequestUpload [EventTarget] {
+      onloadstart: [1mnull[22m,
+      onprogress: [1mnull[22m,
+      onabort: [1mnull[22m,
+      onerror: [1mnull[22m,
+      onload: [1mnull[22m,
+      ontimeout: [1mnull[22m,
+      onloadend: [1mnull[22m,
+      [[32mSymbol(listeners)[39m]: [36m[Object][39m,
+      [[32mSymbol(listenerOptions)[39m]: [36m[Object][39m
+    },
+    withCredentials: [33mfalse[39m,
+    timeout: [33m0[39m,
+    [[32mSymbol(listeners)[39m]: { capturing: Map(0) {}, bubbling: Map(0) {} },
+    [[32mSymbol(listenerOptions)[39m]: { capturing: Map(0) {}, bubbling: Map(0) {} }
+  }
+}
+
+ [32m✓[39m src/pages/support/ReportBugPage.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[33m 4513[2mms[22m[39m
+       [33m[2m✓[22m[39m should allow typing in title field [33m 626[2mms[22m[39m
+       [33m[2m✓[22m[39m should allow typing in what happened field [33m 756[2mms[22m[39m
+       [33m[2m✓[22m[39m should allow typing in expected behavior field [33m 666[2mms[22m[39m
+       [33m[2m✓[22m[39m should have submit button enabled after filling required fields [33m 1321[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m5 passed[39m[22m[90m (5)[39m
+[2m      Tests [22m [1m[32m60 passed[39m[22m[90m (60)[39m
+[2m   Start at [22m 19:26:20
+[2m   Duration [22m 7.51s[2m (transform 1.53s, setup 3.42s, import 4.92s, tests 13.80s, environment 4.00s)[22m
+
+[90mstderr[2m | initAuth (F:\web\AllThings\_projects\n8n-ops-trees\main\app-front\src\lib\auth.tsx:93:25)
+[22m[39mFailed to fetch entitlements: AxiosError: Request aborted
+    at handleAbort [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4maxios[24m/lib/adapters/xhr.js:100:14[90m)[39m
+    at XMLHttpRequest.#callDispatchEventListeners [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:276:21[90m)[39m
+    at XMLHttpRequest.dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:100:41[90m)[39m
+    at XMLHttpRequest.#goThroughDispatchEventPhases [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:160:38[90m)[39m
+    at XMLHttpRequest.dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:96:47[90m)[39m
+    at XMLHttpRequest.#dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/xml-http-request/XMLHttpRequest.js:448:14[90m)[39m
+    at AbortSignal.<anonymous> [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/xml-http-request/XMLHttpRequest.js:300:32[90m)[39m
+    at AbortSignal.#callDispatchEventListeners [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:237:34[90m)[39m
+    at AbortSignal.dispatchEvent [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:100:41[90m)[39m
+    at AbortSignal.#goThroughDispatchEventPhases [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4mhappy-dom[24m/lib/event/EventTarget.js:160:38[90m)[39m
+    at Axios.request [90m(file:///F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/[39mnode_modules/[4maxios[24m/lib/core/Axios.js:45:41[90m)[39m
+[90m    at processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at ApiClient.getAuthStatus (F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/src/lib/api-client.ts:176:22)
+    at initAuth (F:/web/AllThings/_projects/n8n-ops-trees/main/app-front/src/lib/auth.tsx:88:46) {
+  code: [32m'ECONNABORTED'[39m,
+  config: {
+    transitional: {
+      silentJSONParsing: [33mtrue[39m,
+      forcedJSONParsing: [33mtrue[39m,
+      clarifyTimeoutError: [33mfalse[39m
+    },
+    adapter: [ [32m'xhr'[39m, [32m'http'[39m, [32m'fetch'[39m ],
+    transformRequest: [ [36m[Function: transformRequest][39m ],
+    transformResponse: [ [36m[Function: transformResponse][39m ],
+    timeout: [33m0[39m,
+    xsrfCookieName: [32m'XSRF-TOKEN'[39m,
+    xsrfHeaderName: [32m'X-XSRF-TOKEN'[39m,
+    maxContentLength: [33m-1[39m,
+    maxBodyLength: [33m-1[39m,
+    env: { FormData: [36m[Function][39m, Blob: [36m[class Blob][39m },
+    validateStatus: [36m[Function: validateStatus][39m,
+    headers: Object [AxiosHeaders] {
+      Accept: [32m'application/json, text/plain, */*'[39m,
+      [32m'Content-Type'[39m: [32m'application/json'[39m
+    },
+    baseURL: [32m'http://localhost:4000/api/v1'[39m,
+    method: [32m'get'[39m,
+    url: [32m'/auth/status'[39m,
+    allowAbsoluteUrls: [33mtrue[39m,
+    data: [90mundefined[39m
+  },
+  request: XMLHttpRequest [EventTarget] {
+    onloadstart: [1mnull[22m,
+    onprogress: [1mnull[22m,
+    onabort: [36m[Function: handleAbort][39m,
+    onerror: [36m[Function: handleError][39m,
+    onload: [1mnull[22m,
+    ontimeout: [36m[Function: handleTimeout][39m,
+    onloadend: [36m[Function: onloadend][39m,
+    upload: XMLHttpRequestUpload [EventTarget] {
+      onloadstart: [1mnull[22m,
+      onprogress: [1mnull[22m,
+      onabort: [1mnull[22m,
+      onerror: [1mnull[22m,
+      onload: [1mnull[22m,
+      ontimeout: [1mnull[22m,
+      onloadend: [1mnull[22m,
+      [[32mSymbol(listeners)[39m]: [36m[Object][39m,
+      [[32mSymbol(listenerOptions)[39m]: [36m[Object][39m
+    },
+    withCredentials: [33mfalse[39m,
+    timeout: [33m0[39m,
+    [[32mSymbol(listeners)[39m]: { capturing: Map(0) {}, bubbling: Map(0) {} },
+    [[32mSymbol(listenerOptions)[39m]: { capturing: Map(0) {}, bubbling: Map(0) {} }
+  }
+}
+

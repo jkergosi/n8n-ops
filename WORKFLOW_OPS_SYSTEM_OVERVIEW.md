@@ -58,10 +58,10 @@ This comprehensive report consolidates findings from 11 completed analysis tasks
    - Changes flow: dev → Git → staging → prod
 
 2. **Key files to read first**:
-   - `n8n-ops-backend/app/main.py` - Application entrypoint
-   - `n8n-ops-backend/app/services/sync_orchestrator_service.py` - Sync logic
-   - `n8n-ops-backend/app/services/promotion_service.py` - Promotion logic
-   - `n8n-ops-backend/app/services/drift_detection_service.py` - Drift detection
+   - `app-back/app/main.py` - Application entrypoint
+   - `app-back/app/services/sync_orchestrator_service.py` - Sync logic
+   - `app-back/app/services/promotion_service.py` - Promotion logic
+   - `app-back/app/services/drift_detection_service.py` - Drift detection
 
 3. **Essential concepts**:
    - **Canonical ID**: Stable UUID for workflows across environments
@@ -220,7 +220,7 @@ WorkflowOps is a **GitOps-inspired control plane** for managing n8n workflow aut
 
 ```
 n8n-ops-trees/
-├── n8n-ops-backend/          # FastAPI backend (Python)
+├── app-back/          # FastAPI backend (Python)
 │   ├── app/
 │   │   ├── main.py           # Entrypoint, scheduler startup
 │   │   ├── api/endpoints/    # 51 REST API endpoints
@@ -230,7 +230,7 @@ n8n-ops-trees/
 │   ├── alembic/              # 63 database migrations
 │   └── tests/                # 103 test files
 │
-├── n8n-ops-ui/               # React frontend (TypeScript)
+├── app-front/               # React frontend (TypeScript)
 │   └── src/
 │       ├── components/       # Reusable UI components
 │       ├── pages/            # Page-level components
@@ -255,7 +255,7 @@ n8n-ops-trees/
 ## 2.3 External Integrations
 
 ### Supabase (Database & Auth)
-**File:** `n8n-ops-backend/app/core/config.py`
+**File:** `app-back/app/core/config.py`
 
 - **Database:** PostgreSQL via Supabase
 - **URL:** `SUPABASE_URL` (from env)
@@ -266,7 +266,7 @@ n8n-ops-trees/
 - **RLS Status:** 12 of 76 tables have RLS enabled (15.8%)
 
 ### GitHub (Version Control)
-**File:** `n8n-ops-backend/app/services/github_service.py`
+**File:** `app-back/app/services/github_service.py`
 
 - **Token:** `GITHUB_TOKEN` (Personal Access Token per environment)
 - **Repo:** `GITHUB_REPO_OWNER` / `GITHUB_REPO_NAME`
@@ -274,7 +274,7 @@ n8n-ops-trees/
 - **Webhook Handler:** `app/api/endpoints/github_webhooks.py`
 
 ### Stripe (Billing)
-**File:** `n8n-ops-backend/app/services/stripe_service.py`
+**File:** `app-back/app/services/stripe_service.py`
 
 - **Secret Key:** `STRIPE_SECRET_KEY`
 - **Publishable Key:** `STRIPE_PUBLISHABLE_KEY`
@@ -283,7 +283,7 @@ n8n-ops-trees/
 - **Webhook Handler:** `app/api/endpoints/billing.py:stripe_webhook()`
 
 ### n8n Provider APIs
-**File:** `n8n-ops-backend/app/services/n8n_client.py`
+**File:** `app-back/app/services/n8n_client.py`
 
 - **Adapter Pattern:** `app/services/adapters/n8n_adapter.py`
 - **Provider Registry:** `app/services/provider_registry.py`
@@ -291,7 +291,7 @@ n8n-ops-trees/
 
 ## 2.4 Middleware & Global Handlers
 
-**File:** `n8n-ops-backend/app/main.py`
+**File:** `app-back/app/main.py`
 
 1. **Impersonation Write Audit Middleware** (lines 22-82)
    - Logs all write operations during impersonation
@@ -595,7 +595,7 @@ Promotion             Env A → Env B     Manual/Scheduled Source environment
 
 ## 4.2 Environment Sync Flow
 
-**Service:** `n8n-ops-backend/app/services/canonical_env_sync_service.py`
+**Service:** `app-back/app/services/canonical_env_sync_service.py`
 **API:** `POST /api/v1/canonical/sync/request`
 **Trigger:** Manual or scheduler
 
@@ -640,7 +640,7 @@ Promotion             Env A → Env B     Manual/Scheduled Source environment
 
 ## 4.3 Repository Sync Flow
 
-**Service:** `n8n-ops-backend/app/services/canonical_repo_sync_service.py`
+**Service:** `app-back/app/services/canonical_repo_sync_service.py`
 **API:** `POST /api/v1/canonical/sync-repo`
 **Trigger:** Manual or scheduler
 
@@ -673,7 +673,7 @@ Promotion             Env A → Env B     Manual/Scheduled Source environment
 
 ## 4.4 Reconciliation Flow
 
-**Service:** `n8n-ops-backend/app/services/canonical_reconciliation_service.py`
+**Service:** `app-back/app/services/canonical_reconciliation_service.py`
 **Trigger:** After environment or repository sync
 
 ### Purpose
@@ -725,7 +725,7 @@ Compare workflow states between:
 
 **Standard Flow:** `dev → staging → prod`
 
-**Service:** `n8n-ops-backend/app/services/promotion_service.py`
+**Service:** `app-back/app/services/promotion_service.py`
 **API:** `POST /api/v1/promotions`
 
 ### Promotion Phases
@@ -917,7 +917,7 @@ async def _scheduler_loop():
 
 ## 6.1 Drift Detection Logic
 
-**Service:** `n8n-ops-backend/app/services/drift_detection_service.py`
+**Service:** `app-back/app/services/drift_detection_service.py`
 **Scheduler:** `drift_scheduler.py`
 **Frequency:** Every 5 minutes (configurable)
 

@@ -44,7 +44,7 @@ eggs/
 # Python lib folders only (not frontend src/lib source code)
 **/venv/lib/
 **/env/lib/
-n8n-ops-backend/lib/
+app-back/lib/
 lib64/
 parts/
 sdist/
@@ -294,7 +294,7 @@ coverage/
 # ============================================================================
 .claude/
 .automaker/
-n8n-ops-backend/.env
+app-back/.env
 nul
 
 # Claude Code temporary working directories
@@ -331,24 +331,24 @@ test-verification-output.txt
 *_VERIFICATION*.md
 
 # Implementation status and review documents (backend)
-n8n-ops-backend/*_REVIEW*.md
-n8n-ops-backend/*_STATUS*.md
-n8n-ops-backend/*_COMPLETE*.md
-n8n-ops-backend/*_IMPLEMENTATION*.md
-n8n-ops-backend/*_SUMMARY*.md
-n8n-ops-backend/*_RESULTS*.md
-n8n-ops-backend/*_PLAN*.md
-n8n-ops-backend/*_CHECKLIST*.md
-n8n-ops-backend/*_TESTING*.md
-n8n-ops-backend/COMPLETE.md
-n8n-ops-backend/QUICK_TEST_GUIDE.md
-n8n-ops-backend/SECURITY_FIX_*.md
+app-back/*_REVIEW*.md
+app-back/*_STATUS*.md
+app-back/*_COMPLETE*.md
+app-back/*_IMPLEMENTATION*.md
+app-back/*_SUMMARY*.md
+app-back/*_RESULTS*.md
+app-back/*_PLAN*.md
+app-back/*_CHECKLIST*.md
+app-back/*_TESTING*.md
+app-back/COMPLETE.md
+app-back/QUICK_TEST_GUIDE.md
+app-back/SECURITY_FIX_*.md
 
 # Test scripts for development
-n8n-ops-backend/test_dev_*.py
+app-back/test_dev_*.py
 
 # Frontend test artifacts
-n8n-ops-ui/src/pages/__tests__/
+app-front/src/pages/__tests__/
 
 # Requirements directory (if temporary)
 reqs/

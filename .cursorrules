@@ -32,7 +32,7 @@ If tests fail, fix the issues before reporting completion. Do not hand off broke
   
   The backend server is not running. Please start it:
   
-  cd n8n-ops-backend
+  cd app-back
   python scripts/start_with_migrations.py
   ```
   
@@ -51,7 +51,7 @@ If tests fail, fix the issues before reporting completion. Do not hand off broke
   
   The frontend server is not running. Please start it:
   
-  cd n8n-ops-ui
+  cd app-front
   npm run dev
   ```
 
@@ -77,7 +77,7 @@ If tests fail, fix the issues before reporting completion. Do not hand off broke
 
 1. **Create an Alembic migration file** using the helper script:
    ```bash
-   python n8n-ops-backend/scripts/create_migration.py "descriptive_name" --sql "YOUR_SQL_HERE"
+   python app-back/scripts/create_migration.py "descriptive_name" --sql "YOUR_SQL_HERE"
    ```
 
 2. The migration must include:
@@ -116,7 +116,7 @@ If tests fail, fix the issues before reporting completion. Do not hand off broke
 **Example workflow:**
 User: "Add a provider column to environments table"
 You should:
-1. Create migration: `python n8n-ops-backend/scripts/create_migration.py "add_provider_to_environments" --sql "ALTER TABLE environments ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'n8n';"`
+1. Create migration: `python app-back/scripts/create_migration.py "add_provider_to_environments" --sql "ALTER TABLE environments ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'n8n';"`
 2. Add comment in relevant code file: `# Migration: <revision_id> - Added provider column to environments`
 3. Tell user: "Created migration. Run: alembic upgrade head"
 
@@ -136,8 +136,8 @@ You should:
 
 ## Project Structure
 
-- Backend: `n8n-ops-backend/`
-- Frontend: `n8n-ops-ui/`
-- Database migrations: `n8n-ops-backend/alembic/versions/`
-- Scripts: `n8n-ops-backend/scripts/`
+- Backend: `app-back/`
+- Frontend: `app-front/`
+- Database migrations: `app-back/alembic/versions/`
+- Scripts: `app-back/scripts/`
 

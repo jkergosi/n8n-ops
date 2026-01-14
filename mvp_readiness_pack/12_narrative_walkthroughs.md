@@ -33,7 +33,7 @@ POST /api/v1/canonical/sync/request
 }
 ```
 
-**File:** `n8n-ops-backend/app/api/endpoints/canonical_workflows.py:request_sync()`
+**File:** `app-back/app/api/endpoints/canonical_workflows.py:request_sync()`
 
 **Code Path:**
 ```python
@@ -51,7 +51,7 @@ async def request_sync(request: SyncRequest, ...):
 
 #### 2. Sync Orchestrator Creates Background Job
 
-**File:** `n8n-ops-backend/app/services/sync_orchestrator_service.py:request_sync()`
+**File:** `app-back/app/services/sync_orchestrator_service.py:request_sync()`
 **Lines:** 83-149
 
 **Logic:**
@@ -99,7 +99,7 @@ INSERT INTO background_jobs (
 
 #### 3. Background Worker Picks Up Job
 
-**File:** `n8n-ops-backend/app/services/background_job_service.py:_process_job()`
+**File:** `app-back/app/services/background_job_service.py:_process_job()`
 
 **Worker Logic:**
 1. Poll `background_jobs` table for `PENDING` jobs
@@ -108,7 +108,7 @@ INSERT INTO background_jobs (
 
 **For `CANONICAL_ENV_SYNC`:**
 
-**File:** `n8n-ops-backend/app/services/canonical_env_sync_service.py:sync_environment()`
+**File:** `app-back/app/services/canonical_env_sync_service.py:sync_environment()`
 **Lines:** 92-300+
 
 ---
@@ -537,7 +537,7 @@ POST /api/v1/promotions/preview
 }
 ```
 
-**File:** `n8n-ops-backend/app/api/endpoints/promotions.py:preview_promotion()`
+**File:** `app-back/app/api/endpoints/promotions.py:preview_promotion()`
 
 ---
 

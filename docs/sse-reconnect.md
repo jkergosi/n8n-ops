@@ -5,5 +5,5 @@
 - Background jobs stream reconnects with auth token in the query string and keeps credentials attached via `withCredentials`.
 - UI pages handle SSE payloads through `useBackgroundJobsSSE`/`useDeploymentsSSE`; no manual refresh is required after a backend restart.
 - Backend logs reconnection hints when `Last-Event-ID` is present to aid debugging restart recovery.
-- Tests: `n8n-ops-ui/src/lib/__tests__/sse-reconnect.test.ts` (simulated disconnect/reconnect) and `n8n-ops-backend/tests/test_sse_pubsub_reconnect.py` (pub/sub resubscribe). Run `npm run build` and `pytest n8n-ops-backend/tests/test_sse_pubsub_reconnect.py`.
+- Tests: `app-front/src/lib/__tests__/sse-reconnect.test.ts` (simulated disconnect/reconnect) and `app-back/tests/test_sse_pubsub_reconnect.py` (pub/sub resubscribe). Run `npm run build` and `pytest app-back/tests/test_sse_pubsub_reconnect.py`.
 

@@ -11,7 +11,7 @@
 ### 1. ✅ Playwright Installation Verified
 - Playwright version: 1.57.0
 - Browser support: Chromium configured and installed
-- Configuration file: `n8n-ops-ui/playwright.config.ts`
+- Configuration file: `app-front/playwright.config.ts`
 
 ### 2. ✅ Test Structure Validated
 The test suite includes 9 comprehensive test cases covering:
@@ -72,11 +72,11 @@ The tests use mock API responses and only require the frontend dev server:
 
 ```bash
 # Terminal 1: Start frontend
-cd n8n-ops-ui
+cd app-front
 npm run dev
 
 # Terminal 2: Run Playwright tests
-cd n8n-ops-ui
+cd app-front
 npx playwright test tests/verification/approval-flow.spec.ts --headed
 ```
 

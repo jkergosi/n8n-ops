@@ -563,7 +563,7 @@
 
 **Coverage**: 12 of 76 tables have RLS enabled (15.8%)
 
-**Documentation**: [`n8n-ops-backend/docs/security/RLS_POLICIES.md`](../n8n-ops-backend/docs/security/RLS_POLICIES.md)
+**Documentation**: [`app-back/docs/security/RLS_POLICIES.md`](../app-back/docs/security/RLS_POLICIES.md)
 
 **Pattern**: Standard tenant isolation uses `tenant_id = current_setting('app.tenant_id', true)::uuid`
 

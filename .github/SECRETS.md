@@ -68,12 +68,12 @@ The deployment workflows expect the following on your VPS:
 ├── staging/
 │   ├── backend/           # Git clone of repo
 │   │   ├── .venv/         # Python virtual environment
-│   │   └── n8n-ops-backend/
+│   │   └── app-back/
 │   └── frontend/          # Built frontend files
 └── prod/
     ├── backend/
     │   ├── .venv/
-    │   └── n8n-ops-backend/
+    │   └── app-back/
     └── frontend/
 ```
 
@@ -89,7 +89,7 @@ After=network.target
 [Service]
 Type=simple
 User=deploy
-WorkingDirectory=/var/www/staging/backend/n8n-ops-backend
+WorkingDirectory=/var/www/staging/backend/app-back
 Environment="PATH=/var/www/staging/backend/.venv/bin"
 EnvironmentFile=/var/www/staging/backend/.env
 ExecStart=/var/www/staging/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 4001
@@ -108,7 +108,7 @@ After=network.target
 [Service]
 Type=simple
 User=deploy
-WorkingDirectory=/var/www/prod/backend/n8n-ops-backend
+WorkingDirectory=/var/www/prod/backend/app-back
 Environment="PATH=/var/www/prod/backend/.venv/bin"
 EnvironmentFile=/var/www/prod/backend/.env
 ExecStart=/var/www/prod/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 4000 --workers 4

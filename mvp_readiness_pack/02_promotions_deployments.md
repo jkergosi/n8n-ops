@@ -4,7 +4,7 @@
 
 ### Promotion State Machine
 
-**File**: `n8n-ops-backend/app/schemas/promotion.py:PromotionStatus`
+**File**: `app-back/app/schemas/promotion.py:PromotionStatus`
 
 ```
 PENDING → PENDING_APPROVAL → APPROVED → RUNNING → COMPLETED
@@ -22,13 +22,13 @@ CANCELLED   REJECTED                   FAILED
 - `RUNNING → FAILED`: Any workflow fails, triggers rollback
 - `PENDING → CANCELLED`: User cancels before execution
 
-**Code**: `n8n-ops-backend/app/services/promotion_service.py:PromotionService`
+**Code**: `app-back/app/services/promotion_service.py:PromotionService`
 - Lines 194-2469: Full promotion service implementation
 - Lines 1-50: Critical invariants documentation
 
 ### Deployment State Machine
 
-**File**: `n8n-ops-backend/app/schemas/deployment.py:DeploymentStatus`
+**File**: `app-back/app/schemas/deployment.py:DeploymentStatus`
 
 ```
 PENDING → SCHEDULED → RUNNING → COMPLETED
@@ -45,9 +45,9 @@ CANCELLED  CANCELLED  FAILED
 - `PENDING/SCHEDULED → CANCELLED`: User cancels
 - Stale detection: `RUNNING` for >1hr → `FAILED` (on startup)
 
-**Code**: `n8n-ops-backend/app/services/deployment_scheduler.py`
+**Code**: `app-back/app/services/deployment_scheduler.py`
 - `start_scheduler()`: Background task polling
-- `n8n-ops-backend/app/main.py` lines 448-481: Stale cleanup
+- `app-back/app/main.py` lines 448-481: Stale cleanup
 
 ---
 
@@ -145,7 +145,7 @@ if source_normalized == target_normalized:
 
 ### allowOverwritingHotfixes
 
-**Schema**: `n8n-ops-backend/app/schemas/pipeline.py:PipelineStageGates`
+**Schema**: `app-back/app/schemas/pipeline.py:PipelineStageGates`
 
 **Meaning**: Allow overwriting workflows in target that are newer than source (hotfixes)
 

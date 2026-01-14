@@ -3,7 +3,7 @@
 ## Drift Detection Triggers
 
 ### Scheduled Detection
-- **File**: `n8n-ops-backend/app/services/drift_scheduler.py`
+- **File**: `app-back/app/services/drift_scheduler.py`
 - **Function**: `start_all_drift_schedulers()`
 - **Schedule**: Configurable per environment (default: daily)
 - **Scope**: All non-DEV environments
@@ -46,7 +46,7 @@ DETECTED → ACKNOWLEDGED → STABILIZED → RECONCILED → CLOSED
 
 ### Transition Rules
 
-**Evidence:** `n8n-ops-backend/app/services/drift_incident_service.py:VALID_TRANSITIONS` (lines 24-30)
+**Evidence:** `app-back/app/services/drift_incident_service.py:VALID_TRANSITIONS` (lines 24-30)
 
 **Valid Transitions:**
 ```python
@@ -63,7 +63,7 @@ VALID_TRANSITIONS = {
 - Admin override allows any transition except FROM closed state
 - Closed is terminal even for admins
 
-**File**: `n8n-ops-backend/app/services/drift_incident_service.py`
+**File**: `app-back/app/services/drift_incident_service.py`
 
 | From | To | Requirements | API Endpoint |
 |------|-----|--------------|--------------|

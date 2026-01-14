@@ -4,12 +4,12 @@
 **Status:** ✅ Completed
 **Created:** 2024-01-14
 **Primary Files:**
-- `n8n-ops-backend/app/schemas/canonical_workflow.py`
-- `n8n-ops-backend/app/schemas/drift_incident.py`
-- `n8n-ops-backend/app/schemas/promotion.py`
-- `n8n-ops-backend/app/schemas/deployment.py`
-- `n8n-ops-backend/app/schemas/environment.py`
-- `n8n-ops-backend/app/services/drift_incident_service.py`
+- `app-back/app/schemas/canonical_workflow.py`
+- `app-back/app/schemas/drift_incident.py`
+- `app-back/app/schemas/promotion.py`
+- `app-back/app/schemas/deployment.py`
+- `app-back/app/schemas/environment.py`
+- `app-back/app/services/drift_incident_service.py`
 
 ---
 
@@ -31,7 +31,7 @@ Each state machine has explicit transition rules, validation logic, and enforcem
 
 ### 1.1 State Definitions
 
-**File:** `n8n-ops-backend/app/schemas/canonical_workflow.py` (Lines 7-80)
+**File:** `app-back/app/schemas/canonical_workflow.py` (Lines 7-80)
 
 ```python
 class WorkflowMappingStatus(str, Enum):
@@ -122,7 +122,7 @@ else:
 
 ### 2.1 State Definitions
 
-**File:** `n8n-ops-backend/app/schemas/drift_incident.py` (Lines 8-14)
+**File:** `app-back/app/schemas/drift_incident.py` (Lines 8-14)
 
 ```python
 class DriftIncidentStatus(str, Enum):
@@ -145,7 +145,7 @@ class DriftIncidentStatus(str, Enum):
 
 ### 2.2 State Transition Rules
 
-**File:** `n8n-ops-backend/app/services/drift_incident_service.py` (Lines 29-36)
+**File:** `app-back/app/services/drift_incident_service.py` (Lines 29-36)
 
 ```python
 VALID_TRANSITIONS = {
@@ -358,7 +358,7 @@ Admin override is supported on all transition operations via `admin_override: bo
 
 ### 3.1 State Definitions
 
-**File:** `n8n-ops-backend/app/schemas/promotion.py` (Lines 7-15)
+**File:** `app-back/app/schemas/promotion.py` (Lines 7-15)
 
 ```python
 class PromotionStatus(str, Enum):
@@ -469,7 +469,7 @@ class GateResult(BaseModel):
 
 ### 4.1 State Definitions
 
-**File:** `n8n-ops-backend/app/schemas/deployment.py` (Lines 7-13)
+**File:** `app-back/app/schemas/deployment.py` (Lines 7-13)
 
 ```python
 class DeploymentStatus(str, Enum):
@@ -551,7 +551,7 @@ class WorkflowStatus(str, Enum):
 
 ### 5.1 State Definitions
 
-**File:** `n8n-ops-backend/app/schemas/environment.py` (Lines 81)
+**File:** `app-back/app/schemas/environment.py` (Lines 81)
 
 Environment-level drift status (stored as string, not enum):
 
@@ -610,7 +610,7 @@ environment_update = {
 
 ### 6.1 Environment Class Enum
 
-**File:** `n8n-ops-backend/app/schemas/environment.py` (Lines 17-20)
+**File:** `app-back/app/schemas/environment.py` (Lines 17-20)
 
 ```python
 class EnvironmentClass(str, Enum):
@@ -647,7 +647,7 @@ class EnvironmentType(str, Enum):
 
 ### 7.1 State Definitions
 
-**File:** `n8n-ops-backend/app/schemas/canonical_workflow.py` (Lines 82-87)
+**File:** `app-back/app/schemas/canonical_workflow.py` (Lines 82-87)
 
 ```python
 class LinkSuggestionStatus(str, Enum):
@@ -693,7 +693,7 @@ class LinkSuggestionStatus(str, Enum):
 
 ### 8.1 State Definitions
 
-**File:** `n8n-ops-backend/app/schemas/canonical_workflow.py` (Lines 90-97)
+**File:** `app-back/app/schemas/canonical_workflow.py` (Lines 90-97)
 
 ```python
 class WorkflowDiffStatus(str, Enum):
@@ -709,7 +709,7 @@ class WorkflowDiffStatus(str, Enum):
 
 ### 8.2 New Authoritative Diff Status
 
-**File:** `n8n-ops-backend/app/schemas/promotion.py` (Lines 22-31)
+**File:** `app-back/app/schemas/promotion.py` (Lines 22-31)
 
 ```python
 class DiffStatus(str, Enum):
@@ -734,7 +734,7 @@ class DiffStatus(str, Enum):
 
 ### 9.1 State Definitions
 
-**File:** `n8n-ops-backend/app/schemas/drift_incident.py` (Lines 187-192)
+**File:** `app-back/app/schemas/drift_incident.py` (Lines 187-192)
 
 ```python
 class ReconciliationStatus(str, Enum):

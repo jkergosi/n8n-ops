@@ -4,7 +4,7 @@ This directory contains **one-time verification tests** that are meant to be run
 
 ## Purpose
 
-Unlike regular E2E tests in `n8n-ops-ui/tests/e2e/`, these tests are **temporary verification tests** used during feature development to:
+Unlike regular E2E tests in `app-front/tests/e2e/`, these tests are **temporary verification tests** used during feature development to:
 
 1. Verify the complete feature works end-to-end in the browser
 2. Test UI interactions that backend/unit tests can't cover
@@ -19,25 +19,25 @@ Make sure both backend and frontend are running:
 
 ```bash
 # Terminal 1: Start backend
-cd n8n-ops-backend
+cd app-back
 python -m uvicorn app.main:app --reload
 
 # Terminal 2: Start frontend
-cd n8n-ops-ui
+cd app-front
 npm run dev
 ```
 
 ### Run the verification test
 
 ```bash
-cd n8n-ops-ui
+cd app-front
 npx playwright test ../playwright-tests/approval-flow.spec.ts --headed
 ```
 
 Or run in UI mode for debugging:
 
 ```bash
-cd n8n-ops-ui
+cd app-front
 npx playwright test ../playwright-tests/approval-flow.spec.ts --ui
 ```
 
@@ -85,4 +85,4 @@ Once the feature is verified to work correctly:
 - These tests use mock API responses to simulate backend behavior
 - Tests are designed to be resilient to UI changes (using multiple selectors)
 - Focus is on critical user journeys, not exhaustive coverage
-- Regular E2E tests should be added to `n8n-ops-ui/tests/e2e/` for permanent test coverage
+- Regular E2E tests should be added to `app-front/tests/e2e/` for permanent test coverage

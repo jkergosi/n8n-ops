@@ -9,19 +9,19 @@
 
 ```
 n8n-ops-trees/
-├── n8n-ops-backend/          # FastAPI backend application
-├── n8n-ops-ui/                # React frontend application
+├── app-back/          # FastAPI backend application
+├── app-front/                # React frontend application
 ├── mvp_readiness_pack/        # This documentation pack
 ├── scripts/                   # Utility scripts (port management)
 └── docs/                      # Root-level documentation
 ```
 
-### Backend Structure (`n8n-ops-backend/`)
+### Backend Structure (`app-back/`)
 
-**Evidence:** `n8n-ops-backend/app/` directory structure
+**Evidence:** `app-back/app/` directory structure
 
 ```
-n8n-ops-backend/
+app-back/
 ├── app/
 │   ├── main.py                # FastAPI app entrypoint, router registration, startup/shutdown
 │   ├── api/
@@ -37,12 +37,12 @@ n8n-ops-backend/
 └── scripts/                   # Utility scripts (19 files)
 ```
 
-### Frontend Structure (`n8n-ops-ui/`)
+### Frontend Structure (`app-front/`)
 
-**Evidence:** `n8n-ops-ui/src/` directory structure
+**Evidence:** `app-front/src/` directory structure
 
 ```
-n8n-ops-ui/
+app-front/
 ├── src/
 │   ├── App.tsx                # Root component
 │   ├── main.tsx               # Entry point
@@ -59,7 +59,7 @@ n8n-ops-ui/
 
 ### Main Application
 
-**File:** `n8n-ops-backend/app/main.py`  
+**File:** `app-back/app/main.py`  
 **Evidence:** Lines 16-20, 586-588
 
 - **Entrypoint:** `app.main:app` (FastAPI instance)
@@ -68,7 +68,7 @@ n8n-ops-ui/
 
 ### Background Job Runners
 
-**Evidence:** `n8n-ops-backend/app/main.py:startup_event()` (lines 403-451)
+**Evidence:** `app-back/app/main.py:startup_event()` (lines 403-451)
 
 All schedulers start on application startup:
 
@@ -117,7 +117,7 @@ All schedulers start on application startup:
 
 ### SSE Entrypoints
 
-**Evidence:** `n8n-ops-backend/app/api/endpoints/sse.py`
+**Evidence:** `app-back/app/api/endpoints/sse.py`
 
 1. **Deployments SSE Stream**
    - **Path:** `/api/v1/sse/deployments` or `/api/v1/sse/deployments/{deployment_id}`
@@ -133,7 +133,7 @@ All schedulers start on application startup:
 
 ### Main Application
 
-**File:** `n8n-ops-ui/src/main.tsx`  
+**File:** `app-front/src/main.tsx`  
 **Evidence:** Standard React entrypoint
 
 - **Framework:** React 19.2.0 (from `package.json`)
@@ -142,7 +142,7 @@ All schedulers start on application startup:
 
 ### Key Routes (High-Level)
 
-**Evidence:** `n8n-ops-ui/src/pages/` directory structure
+**Evidence:** `app-front/src/pages/` directory structure
 
 **Core Pages:**
 - `/environments` - `EnvironmentsPage.tsx`
@@ -156,13 +156,13 @@ All schedulers start on application startup:
 - `/observability` - `ObservabilityPage.tsx`
 - `/executions` - `ExecutionsPage.tsx`
 
-**Admin Pages:** `n8n-ops-ui/src/pages/admin/` (39 files)
+**Admin Pages:** `app-front/src/pages/admin/` (39 files)
 
-**Platform Pages:** `n8n-ops-ui/src/pages/platform/` (4 files)
+**Platform Pages:** `app-front/src/pages/platform/` (4 files)
 
 ### SSE Hooks
 
-**Evidence:** `n8n-ops-ui/src/lib/`
+**Evidence:** `app-front/src/lib/`
 
 1. **Deployments SSE**
    - **File:** `use-deployments-sse.ts`
@@ -178,7 +178,7 @@ All schedulers start on application startup:
 
 ### Supabase
 
-**Evidence:** `n8n-ops-backend/app/core/config.py` (lines 11-13)
+**Evidence:** `app-back/app/core/config.py` (lines 11-13)
 
 - **URL:** `SUPABASE_URL` (from env)
 - **Keys:** `SUPABASE_KEY` (anon), `SUPABASE_SERVICE_KEY` (service role)
@@ -189,11 +189,11 @@ All schedulers start on application startup:
 - **Auth:** JWT-based authentication via Supabase Auth
 
 **RLS Status:** 12 of 76 tables have RLS enabled (15.8%)  
-**Evidence:** `n8n-ops-backend/docs/security/RLS_POLICIES.md` (line 5)
+**Evidence:** `app-back/docs/security/RLS_POLICIES.md` (line 5)
 
 ### Stripe
 
-**Evidence:** `n8n-ops-backend/app/core/config.py` (lines 46-51)
+**Evidence:** `app-back/app/core/config.py` (lines 46-51)
 
 - **Secret Key:** `STRIPE_SECRET_KEY`
 - **Publishable Key:** `STRIPE_PUBLISHABLE_KEY`
@@ -204,7 +204,7 @@ All schedulers start on application startup:
 
 ### GitHub
 
-**Evidence:** `n8n-ops-backend/app/core/config.py` (lines 18-22)
+**Evidence:** `app-back/app/core/config.py` (lines 18-22)
 
 - **Token:** `GITHUB_TOKEN`
 - **Repo:** `GITHUB_REPO_OWNER` / `GITHUB_REPO_NAME`
@@ -214,7 +214,7 @@ All schedulers start on application startup:
 
 ### N8N Provider APIs
 
-**Evidence:** `n8n-ops-backend/app/services/n8n_client.py`
+**Evidence:** `app-back/app/services/n8n_client.py`
 
 - **Adapter Pattern:** `app/services/adapters/n8n_adapter.py`
 - **Provider Registry:** `app/services/provider_registry.py`
@@ -222,7 +222,7 @@ All schedulers start on application startup:
 
 ### Notifications
 
-**Evidence:** `n8n-ops-backend/app/services/notification_service.py`
+**Evidence:** `app-back/app/services/notification_service.py`
 
 - **Service:** `app/services/notification_service.py`
 - **Email:** SMTP via `app/services/email_service.py`
@@ -230,7 +230,7 @@ All schedulers start on application startup:
 
 ## API Router Registration
 
-**Evidence:** `n8n-ops-backend/app/main.py` (lines 94-380)
+**Evidence:** `app-back/app/main.py` (lines 94-380)
 
 All routers registered with prefix `/api/v1`:
 
@@ -253,7 +253,7 @@ All routers registered with prefix `/api/v1`:
 
 ## Middleware
 
-**Evidence:** `n8n-ops-backend/app/main.py`
+**Evidence:** `app-back/app/main.py`
 
 1. **Impersonation Write Audit Middleware** (lines 22-82)
    - Logs all write operations during impersonation
@@ -270,7 +270,7 @@ All routers registered with prefix `/api/v1`:
 
 ## Startup Cleanup
 
-**Evidence:** `n8n-ops-backend/app/main.py:startup_event()` (lines 410-487)
+**Evidence:** `app-back/app/main.py:startup_event()` (lines 410-487)
 
 - **Stale Job Cleanup:** `background_job_service.cleanup_stale_jobs(max_runtime_hours=24)` (line 412)
 - **Stale Deployment Cleanup:** Marks `RUNNING` deployments >1hr old as `FAILED` (lines 454-487)

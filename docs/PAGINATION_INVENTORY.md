@@ -33,7 +33,7 @@ This document provides a comprehensive inventory of all list/collection endpoint
 
 - [PAGINATION_STANDARD.md](./PAGINATION_STANDARD.md) - Implementation standards and patterns
 - Backend pagination schemas: `app/schemas/pagination.py`
-- Frontend pagination component: `n8n-ops-ui/src/components/ui/pagination-controls.tsx`
+- Frontend pagination component: `app-front/src/components/ui/pagination-controls.tsx`
 
 ---
 
@@ -216,7 +216,7 @@ The following endpoints were recently updated to include pagination (completed i
 
 ### ✅ T002: Canonical Workflows
 - **Endpoint:** `GET /api/v1/canonical/canonical-workflows`
-- **File:** `n8n-ops-backend/app/api/endpoints/canonical_workflows.py` (lines 189-311)
+- **File:** `app-back/app/api/endpoints/canonical_workflows.py` (lines 189-311)
 - **Implementation:**
   - Query params: `page` (default 1), `page_size` (default 50, max 100), `include_deleted` (bool)
   - Response model: `PaginatedResponse[CanonicalWorkflowResponse]`
@@ -226,7 +226,7 @@ The following endpoints were recently updated to include pagination (completed i
 
 ### ✅ T003: Workflow Mappings
 - **Endpoint:** `GET /api/v1/canonical/workflow-mappings`
-- **File:** `n8n-ops-backend/app/api/endpoints/canonical_workflows.py` (lines 379-467)
+- **File:** `app-back/app/api/endpoints/canonical_workflows.py` (lines 379-467)
 - **Implementation:**
   - Query params: `page`, `page_size`, `environment_id`, `canonical_id`, `status`
   - Response model: `PaginatedResponse[WorkflowEnvMapResponse]`
@@ -236,7 +236,7 @@ The following endpoints were recently updated to include pagination (completed i
 
 ### ✅ T004: Diff States
 - **Endpoint:** `GET /api/v1/canonical/diff-states`
-- **File:** `n8n-ops-backend/app/api/endpoints/canonical_workflows.py` (lines 1580-1667)
+- **File:** `app-back/app/api/endpoints/canonical_workflows.py` (lines 1580-1667)
 - **Implementation:**
   - Query params: `page`, `page_size`, `source_env_id`, `target_env_id`, `canonical_id`
   - Response model: `PaginatedResponse[WorkflowDiffStateResponse]`
@@ -246,7 +246,7 @@ The following endpoints were recently updated to include pagination (completed i
 
 ### ✅ T005: Workflow Snapshots
 - **Endpoint:** `GET /api/v1/restore/snapshots/{workflow_id}`
-- **File:** `n8n-ops-backend/app/api/endpoints/restore.py` (lines 431-519)
+- **File:** `app-back/app/api/endpoints/restore.py` (lines 431-519)
 - **Implementation:**
   - Path param: `workflow_id`
   - Query params: `page` (default 1), `page_size` (default 50, max 100)
@@ -257,7 +257,7 @@ The following endpoints were recently updated to include pagination (completed i
 
 ### ✅ T006: Billing Invoices
 - **Endpoint:** `GET /api/v1/billing/invoices`
-- **File:** `n8n-ops-backend/app/api/endpoints/billing.py` (lines 539-637)
+- **File:** `app-back/app/api/endpoints/billing.py` (lines 539-637)
 - **Implementation:**
   - Query params: `page` (default 1), `page_size` (default 50, max 100)
   - Response model: `PaginatedResponse[InvoiceResponse]`
@@ -267,7 +267,7 @@ The following endpoints were recently updated to include pagination (completed i
 
 ### ✅ T007: Payment History
 - **Endpoint:** `GET /api/v1/billing/payment-history`
-- **File:** `n8n-ops-backend/app/api/endpoints/billing.py` (lines 679-733)
+- **File:** `app-back/app/api/endpoints/billing.py` (lines 679-733)
 - **Implementation:**
   - Query params: `page` (default 1), `page_size` (default 50, max 100)
   - Response model: `PaginatedResponse[PaymentHistoryResponse]`
@@ -299,7 +299,7 @@ When creating a new list/collection endpoint, follow these steps:
    - Document any special considerations (filters, ordering, etc.)
 
 4. **Frontend Integration:**
-   - Use the `PaginationControls` component from `n8n-ops-ui/src/components/ui/pagination-controls.tsx`
+   - Use the `PaginationControls` component from `app-front/src/components/ui/pagination-controls.tsx`
    - Reset to page 1 when filters change
    - Handle loading and empty states
 
@@ -333,15 +333,15 @@ Conduct a quarterly audit to ensure this inventory remains accurate:
 These endpoints serve as reference implementations for pagination:
 
 1. **Admin Audit Logs** (`/api/v1/admin/audit-logs`)
-   - File: `n8n-ops-backend/app/api/endpoints/admin_audit.py`
+   - File: `app-back/app/api/endpoints/admin_audit.py`
    - Features: Full pagination, filters, date-based ordering
 
 2. **Canonical Workflows** (`/api/v1/canonical/canonical-workflows`)
-   - File: `n8n-ops-backend/app/api/endpoints/canonical_workflows.py` (lines 189-311)
+   - File: `app-back/app/api/endpoints/canonical_workflows.py` (lines 189-311)
    - Features: Pagination, filters, deterministic ordering, enrichment
 
 3. **Billing Invoices** (`/api/v1/billing/invoices`)
-   - File: `n8n-ops-backend/app/api/endpoints/billing.py` (lines 539-637)
+   - File: `app-back/app/api/endpoints/billing.py` (lines 539-637)
    - Features: Stripe cursor pagination, page number conversion
 
 ### Backend Pattern

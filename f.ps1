@@ -13,8 +13,8 @@ $PortMap = @{
 
 # .env files to copy from main (relative paths)
 $EnvFiles = @(
-    "n8n-ops-backend\.env"
-    "n8n-ops-ui\.env"
+    "app-back\.env"
+    "app-front\.env"
 )
 
 function Show-Menu {
@@ -61,7 +61,7 @@ function Install-Dependencies {
     param([string]$FeaturePath)
     
     # Install Python dependencies
-    $backendPath = Join-Path $FeaturePath "n8n-ops-backend"
+    $backendPath = Join-Path $FeaturePath "app-back"
     if (Test-Path "$backendPath\requirements.txt") {
         Write-Host "Installing Python dependencies..." -ForegroundColor Cyan
         Push-Location $backendPath
@@ -71,7 +71,7 @@ function Install-Dependencies {
     }
     
     # Install Node dependencies
-    $frontendPath = Join-Path $FeaturePath "n8n-ops-ui"
+    $frontendPath = Join-Path $FeaturePath "app-front"
     if (Test-Path "$frontendPath\package.json") {
         Write-Host "Installing Node dependencies..." -ForegroundColor Cyan
         Push-Location $frontendPath

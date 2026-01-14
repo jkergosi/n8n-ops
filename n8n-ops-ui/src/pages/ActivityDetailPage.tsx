@@ -157,6 +157,8 @@ export function ActivityDetailPage() {
         return 'Deployment';
       case 'restore_execute':
         return 'Restore';
+      case 'snapshot_create':
+        return 'Snapshot Creation';
       case 'snapshot_restore':
         return 'Snapshot Restore';
       case 'canonical_env_sync':
@@ -649,6 +651,7 @@ export function ActivityDetailPage() {
         job.job_type === 'github_sync_from' ||
         job.job_type === 'promotion_execute' ||
         job.job_type === 'restore_execute' ||
+        job.job_type === 'snapshot_create' ||
         job.job_type === 'snapshot_restore' ||
         job.job_type === 'dev_git_sync') && (
         <Card>

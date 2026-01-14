@@ -69,26 +69,14 @@ export function DeploymentsPage() {
   const activeTab = searchParams.get('tab') || 'deployments';
   
   // Get plan and features for access control
-  const { planName, canUseFeature } = useFeatures();
+  const { planName, canUseFeature, isLoading: featuresLoading } = useFeatures();
   const planLower = planName?.toLowerCase() || 'free';
   const canSeePipelines = planLower !== 'free'; // Free cannot see, Pro+ can see
-  
+
   // Feature-based access control: deployments require workflow_ci_cd feature
-  const hasDeploymentsAccess = canUseFeature('workflow_ci_cd') || canUseFeature('deployments');
-  
-  // Redirect if user doesn't have access (backup protection in case route protection fails)
-  useEffect(() => {
-    if (!hasDeploymentsAccess) {
-      console.warn('[DeploymentsPage] User does not have access to deployments, redirecting to dashboard');
-      navigate('/', { replace: true });
-    }
-  }, [hasDeploymentsAccess, navigate]);
-  
-  // Don't render if no access
-  if (!hasDeploymentsAccess) {
-    return null;
-  }
-  
+  // Only check access after features have loaded to avoid race condition
+  const hasDeploymentsAccess = featuresLoading || canUseFeature('workflow_ci_cd') || canUseFeature('deployments');
+
   // Redirect free users away from pipelines tab
   useEffect(() => {
     if (activeTab === 'pipelines' && !canSeePipelines) {
@@ -107,6 +95,15 @@ export function DeploymentsPage() {
       document.title = 'WorkflowOps';
     };
   }, []);
+
+  // Redirect if user doesn't have access (backup protection in case route protection fails)
+  // Wait for features to load before redirecting
+  useEffect(() => {
+    if (!featuresLoading && !canUseFeature('workflow_ci_cd') && !canUseFeature('deployments')) {
+      console.warn('[DeploymentsPage] User does not have access to deployments, redirecting to dashboard');
+      navigate('/', { replace: true });
+    }
+  }, [featuresLoading, canUseFeature, navigate]);
 
   const { data: deploymentsData, isLoading, isFetching, error, refetch } = useQuery({
     queryKey: ['deployments', currentPage, pageSize],
@@ -417,6 +414,15 @@ export function DeploymentsPage() {
       toast.error('Failed to duplicate pipeline');
     },
   });
+
+  // Early returns for access control - MUST be after all hooks
+  if (featuresLoading) {
+    return <div className="text-center py-8">Loading...</div>;
+  }
+
+  if (!canUseFeature('workflow_ci_cd') && !canUseFeature('deployments')) {
+    return null;
+  }
 
   const getEnvironmentPath = (pipeline: Pipeline): string => {
     if (!environments?.data || !pipeline.environmentIds || pipeline.environmentIds.length === 0) return 'N/A';

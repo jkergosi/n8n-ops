@@ -1,7 +1,69 @@
 # WorkflowOps Drift Detection: Complete Introspection Report
 
 **Generated:** 2026-01-13
+**Last Updated:** 2026-01-14 (Enhanced with comprehensive truth tables - Task T006)
 **Scope:** UNTRACKED vs DRIFT_DETECTED status assignment, matching logic, and scheduler behavior
+
+---
+
+## 📋 Quick Navigation
+
+### Core Documentation
+1. **[Status Definitions](#1-where-statuses-are-defined-source-of-truth)** - Enum definitions and source of truth
+2. **[Exact Assignment Rules](#2-exact-rules-that-set-untracked-vs-drift_detected)** - Code-backed logic for status assignment
+3. **[Original Truth Table](#3-truth-table-untracked-vs-drift_detected-assignment)** - High-level status scenarios
+
+### 🆕 Enhanced Documentation (Task T006)
+- **[Section 3.1: Extended Truth Tables](#31-extended-truth-tables-with-semantic-clarifications)** - Comprehensive per-workflow and environment-level tables
+  - Per-Workflow Status Truth Table (11 scenarios)
+  - Environment-Level Drift Status Truth Table (7 scenarios)
+  - Combined Scenario Truth Table (11 real-world cases)
+  - **Two Meanings of "UNTRACKED"** - Critical semantic distinction
+  - Common Confusion Scenarios - FAQ-style troubleshooting
+
+- **[Section 3.2: Visual Decision Trees](#32-visual-decision-trees)** - ASCII flowcharts for status determination
+  - Environment-Level Status Decision Tree
+  - Per-Workflow Status Decision Tree
+  - Auto-Link Decision Tree (During Sync)
+
+- **[Section 10: Quick Reference](#10-quick-reference-status-cheat-sheets)** - Practical cheat sheets
+  - Status Quick Lookup Tables
+  - Status Transition Matrix
+  - Diagnostic SQL Queries
+  - Common Troubleshooting Scenarios
+
+### Additional Sections
+4. **[Matching/Identity Logic](#4-matching--identity-how-runtime-workflows-are-paired-to-canonical)** - How workflows are paired to canonical
+5. **[Normalization](#5-normalization-and-ignored-fields)** - Ignored fields and hash computation
+6. **[Scheduler Logic](#6-scheduler--selection-logic)** - When drift detection runs
+7. **[Known Issues](#7-observed-weirdness-candidates-code-backed)** - Code-backed weirdness scenarios
+8. **[Reproduction Guide](#8-minimal-reproduction-guide-repo-only)** - Step-by-step debugging
+9. **[Summary](#9-summary-of-key-findings)** - Key findings and decision trees
+
+---
+
+## 🎯 Key Insights (Task T006 Additions)
+
+### Critical Understanding: Two Meanings of "UNTRACKED"
+
+1. **Per-Workflow UNTRACKED** (`workflow_env_map.status = 'untracked'`)
+   - Workflow exists in n8n but has no canonical identity (`canonical_id` = NULL)
+   - Appears in UI with orange badge
+   - Requires linking action
+
+2. **Environment-Level UNTRACKED** (`environments.drift_status = 'UNTRACKED'`)
+   - **ZERO workflows are tracked/linked in the entire environment**
+   - NOT "some workflows are untracked"
+   - Common source of confusion!
+
+### Most Common Confusion
+> "My environment shows DRIFT_DETECTED but I have 99 untracked workflows!"
+
+**Explanation:** If even ONE workflow is tracked/linked, the environment status will be:
+- `DRIFT_DETECTED` (if that 1 workflow has drift OR if other workflows aren't in Git)
+- `IN_SYNC` (if that 1 workflow matches Git perfectly and no other workflows exist)
+
+The environment only shows `UNTRACKED` when the tracked count is **exactly zero**.
 
 ---
 
@@ -297,6 +359,350 @@ else:
 | N/A | N/A | N/A | N/A | N/A | `ERROR` | Sync/detection failed |
 
 **Key Insight:** `DRIFT_DETECTED` at environment level means "at least one workflow has drift OR is not in Git", NOT "some workflows are untracked". Environment-level `UNTRACKED` only occurs when **zero workflows are tracked/linked**.
+
+---
+
+## 3.1) Extended Truth Tables with Semantic Clarifications
+
+### A. Comprehensive Per-Workflow Status Truth Table
+
+This table shows how **individual workflow status** is determined in `workflow_env_map.status`:
+
+| # | Canonical ID | n8n Workflow ID | Present in n8n | Is Deleted | Is Ignored | Computed Status | Rationale |
+|---|--------------|-----------------|----------------|------------|------------|-----------------|-----------|
+| 1 | NULL | NULL | ❌ No | ❌ No | ❌ No | (No row exists) | Workflow doesn't exist in system |
+| 2 | NULL | `wf_123` | ✅ Yes | ❌ No | ❌ No | **UNTRACKED** | Exists in n8n but not linked to canonical |
+| 3 | NULL | `wf_123` | ❌ No | ❌ No | ❌ No | (Ephemeral) | Edge case: mapping exists but workflow gone |
+| 4 | `can_abc` | NULL | ❌ No | ❌ No | ❌ No | (Inconsistent) | Edge case: canonical exists but no n8n ID |
+| 5 | `can_abc` | `wf_123` | ✅ Yes | ❌ No | ❌ No | **LINKED** | Normal operational state |
+| 6 | `can_abc` | `wf_123` | ❌ No | ❌ No | ❌ No | **MISSING** | Was mapped but disappeared from n8n |
+| 7 | `can_abc` | `wf_123` | ✅ Yes | ❌ No | ✅ Yes | **IGNORED** | User explicitly ignored (overrides LINKED) |
+| 8 | `can_abc` | `wf_123` | ❌ No | ❌ No | ✅ Yes | **IGNORED** | User explicitly ignored (overrides MISSING) |
+| 9 | `can_abc` | `wf_123` | ✅ Yes | ✅ Yes | ❌ No | **DELETED** | Soft-deleted (highest precedence) |
+| 10 | NULL | `wf_123` | ✅ Yes | ❌ No | ✅ Yes | **IGNORED** | Untracked but ignored |
+| 11 | NULL | `wf_123` | ✅ Yes | ✅ Yes | ❌ No | **DELETED** | Deleted untracked workflow |
+
+**Code Reference:** `app/services/canonical_workflow_service.py` lines 200-230 (`compute_workflow_mapping_status()`)
+
+**Precedence Order (Highest to Lowest):**
+1. DELETED - Soft-deleted flag overrides everything
+2. IGNORED - User choice overrides operational states
+3. MISSING - Was mapped (`n8n_workflow_id` exists) but disappeared from n8n
+4. UNTRACKED - No `canonical_id` but exists in n8n
+5. LINKED - Normal operational state
+
+---
+
+### B. Environment-Level Drift Status Truth Table
+
+This table shows how **environment-level drift status** is determined in `environments.drift_status`:
+
+| # | Git Configured | Tracked Workflows Count | Workflows with Drift | Not in Git Count | Computed Status | Displayed Meaning |
+|---|----------------|------------------------|---------------------|------------------|-----------------|-------------------|
+| 1 | ❌ No | N/A | N/A | N/A | **UNKNOWN** | Git not configured or PAT missing |
+| 2 | ✅ Yes | 0 | N/A | N/A | **UNTRACKED** | Zero workflows are linked to canonical |
+| 3 | ✅ Yes | > 0 | 0 | 0 | **IN_SYNC** | All tracked workflows match Git exactly |
+| 4 | ✅ Yes | > 0 | > 0 | 0 | **DRIFT_DETECTED** | Some tracked workflows differ from Git |
+| 5 | ✅ Yes | > 0 | 0 | > 0 | **DRIFT_DETECTED** | Some workflows not found in Git |
+| 6 | ✅ Yes | > 0 | > 0 | > 0 | **DRIFT_DETECTED** | Both drift and missing workflows |
+| 7 | ✅ Yes (error) | N/A | N/A | N/A | **ERROR** | Sync or detection failed |
+
+**Code Reference:** `app/services/drift_detection_service.py` lines 282-296 (`detect_drift()`)
+
+**Critical Logic (Lines 290-296):**
+```python
+# If no workflows are tracked, set status to untracked
+if len(tracked_workflows) == 0:
+    drift_status = DriftStatus.UNTRACKED
+else:
+    # Determine overall status based on drift detection
+    has_drift = with_drift_count > 0 or not_in_git_count > 0
+    drift_status = DriftStatus.DRIFT_DETECTED if has_drift else DriftStatus.IN_SYNC
+```
+
+**Key Insight:** Environment status `UNTRACKED` means **"zero workflows are tracked/linked"**, NOT "some workflows are untracked". This is a common source of confusion.
+
+---
+
+### C. Combined Scenario Truth Table (Per-Workflow + Environment)
+
+This table shows realistic scenarios combining both levels:
+
+| Scenario | Canonical in Git | Runtime in n8n | Content Match | Canonical Mapping | Per-Workflow Status | Env Status | Notes |
+|----------|------------------|----------------|---------------|-------------------|---------------------|------------|-------|
+| Fresh environment | ❌ No | ✅ Yes (100 workflows) | N/A | ❌ NULL | `UNTRACKED` (all) | `UNTRACKED` | Zero workflows linked yet |
+| After first link | ✅ Yes | ✅ Yes | ✅ Match | ✅ Linked (1 wf) | `LINKED` (1), `UNTRACKED` (99) | `DRIFT_DETECTED` | 1 tracked, 99 not in Git |
+| All synced, in sync | ✅ Yes (all) | ✅ Yes (all) | ✅ Match (all) | ✅ Linked (all) | `LINKED` (all) | `IN_SYNC` | Normal operational state |
+| Developer made changes | ✅ Yes | ✅ Yes | ❌ Differ | ✅ Linked | `LINKED` | `DRIFT_DETECTED` | Runtime ahead of Git |
+| Workflow renamed in n8n | ✅ Yes (old name) | ✅ Yes (new name) | ❌ Name differs | ✅ Linked (by mapping) | `LINKED` | `DRIFT_DETECTED`* | *False positive in drift report |
+| Promotion creates new ID | ✅ Yes (Git) | ✅ Yes (new ID) | ✅ Match | ❌ NULL (new row) | `UNTRACKED` (new), `MISSING` (old) | `DRIFT_DETECTED` | Auto-link conflict (#1) |
+| Workflow deleted | ✅ Yes (Git) | ❌ Missing | N/A | ✅ Was Linked | `MISSING` | `DRIFT_DETECTED` | Disappeared from n8n |
+| User ignores workflow | ✅ Yes | ✅ Yes | N/A | ✅ Linked + Ignored | `IGNORED` | N/A (excluded from counts) | Explicitly ignored |
+| Soft-deleted | ✅ Yes | ✅ Yes | N/A | ✅ Linked + Deleted | `DELETED` | N/A (excluded from counts) | Soft-deleted |
+| Git not configured | N/A | ✅ Yes | N/A | ❌ NULL | `UNTRACKED` | `UNKNOWN` | Cannot determine drift |
+| Sync error | ✅ Yes | ✅ Yes | N/A | ✅ Linked | `LINKED` | `ERROR` | Detection failed |
+
+---
+
+### D. Semantic Clarifications: Two Meanings of "UNTRACKED"
+
+#### Per-Workflow UNTRACKED (`workflow_env_map.status = 'untracked'`)
+**Meaning:** Workflow exists in n8n runtime but has no canonical identity mapping.
+
+**Characteristics:**
+- `canonical_id` column is NULL
+- `n8n_workflow_id` column is populated
+- Workflow is physically present in n8n environment
+- Can be auto-linked if hash matches exactly one canonical workflow
+- Requires manual linking if auto-link fails
+
+**User Impact:**
+- Workflow appears in workflow matrix with orange "untracked" badge
+- Cannot be promoted to other environments
+- Not included in drift detection comparisons
+- Considered a "warning" state requiring attention
+
+**Resolution Actions:**
+1. Auto-link by hash (if exact match found)
+2. Manual link via API/UI
+3. Mark as ignored (if intentional)
+4. Delete if no longer needed
+
+---
+
+#### Environment-Level UNTRACKED (`environments.drift_status = 'UNTRACKED'`)
+**Meaning:** Environment has ZERO workflows linked to canonical identity.
+
+**Characteristics:**
+- Count of tracked workflows (`canonical_id IS NOT NULL`) equals zero
+- Environment may have many workflows, but all are untracked
+- Git is configured (otherwise status would be `UNKNOWN`)
+- This is typically an onboarding or initial state
+
+**User Impact:**
+- Environment badge shows "untracked" status
+- Indicates environment hasn't been fully onboarded yet
+- Drift detection cannot run (no canonical baseline)
+- Promotions from this environment will fail
+
+**Resolution Actions:**
+1. Run canonical sync to auto-link workflows by hash
+2. Manually link at least one workflow
+3. Once any workflow is linked, status changes to `IN_SYNC` or `DRIFT_DETECTED`
+
+---
+
+### E. Common Confusion Scenarios
+
+#### Confusion #1: "Environment shows DRIFT_DETECTED but I see mostly untracked workflows"
+**Explanation:** Environment-level `DRIFT_DETECTED` is set when:
+- At least ONE workflow is tracked/linked (not zero)
+- That tracked workflow has drift OR workflows exist that aren't in Git
+
+**Example:**
+- 100 workflows in n8n
+- 1 workflow linked to canonical (tracked)
+- 99 workflows untracked
+- Environment status: `DRIFT_DETECTED` (because 1 tracked exists and 99 "not in Git")
+
+---
+
+#### Confusion #2: "I have untracked workflows but environment shows IN_SYNC"
+**This scenario is IMPOSSIBLE.**
+
+**Why:** Untracked workflows (per-workflow status) don't affect environment drift status because:
+- They have `canonical_id IS NULL`
+- Drift detection only considers tracked workflows (lines 283-288)
+- Untracked workflows are excluded from `tracked_workflows` count
+
+**What you're probably seeing:**
+- Workflows marked as `IGNORED` or `DELETED` (excluded from drift)
+- Workflows that haven't been synced yet (no mapping row)
+- UI caching issue
+
+---
+
+#### Confusion #3: "Environment shows UNTRACKED but I have linked workflows"
+**This scenario should NOT happen but can occur due to:**
+1. Database inconsistency (mapping row exists but `canonical_id` is NULL)
+2. Scheduler hasn't run yet after recent linking
+3. Race condition during concurrent sync operations
+
+**Resolution:**
+- Trigger manual drift detection: `POST /api/environments/{id}/drift/detect`
+- Check database: `SELECT COUNT(*) FROM workflow_env_map WHERE canonical_id IS NOT NULL`
+- If count > 0 but status is `UNTRACKED`, this is a bug
+
+---
+
+## 3.2) Visual Decision Trees
+
+### A. Environment-Level Status Decision Tree
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ START: Determine Environment Drift Status                      │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+            ┌────────────────────────┐
+            │ Is Git configured?     │
+            │ (git_repo_url + PAT)   │
+            └──┬─────────────────┬───┘
+               │ No              │ Yes
+               ▼                 ▼
+        ┌──────────┐    ┌────────────────────────────┐
+        │ UNKNOWN  │    │ Count tracked workflows:   │
+        └──────────┘    │ SELECT COUNT(*) WHERE      │
+                        │ canonical_id IS NOT NULL   │
+                        │ AND status NOT IN          │
+                        │ ('deleted', 'ignored')     │
+                        └──┬─────────────────────┬───┘
+                           │ Count = 0           │ Count > 0
+                           ▼                     ▼
+                    ┌─────────────┐    ┌────────────────────────┐
+                    │  UNTRACKED  │    │ Compare Git vs Runtime │
+                    │             │    │ for tracked workflows  │
+                    │ (Zero       │    └──┬────────────────┬────┘
+                    │  workflows  │       │                │
+                    │  linked)    │       │                │
+                    └─────────────┘       ▼                ▼
+                                   ┌────────────┐  ┌──────────────┐
+                                   │ with_drift │  │ not_in_git   │
+                                   │ count > 0? │  │ count > 0?   │
+                                   └──┬─────┬───┘  └──┬───────┬───┘
+                                      │ Yes │         │ Yes   │ No
+                                      ▼     │         ▼       │
+                            ┌────────────────▼─────────┐      │
+                            │  DRIFT_DETECTED          │      │
+                            │                          │      │
+                            │ (At least one tracked    │      │
+                            │  workflow differs from   │      │
+                            │  Git OR not in Git)      │      │
+                            └──────────────────────────┘      │
+                                                               ▼
+                                                        ┌─────────┐
+                                                        │ IN_SYNC │
+                                                        │         │
+                                                        │ (All    │
+                                                        │  tracked│
+                                                        │  match) │
+                                                        └─────────┘
+```
+
+**Code Reference:** `app/services/drift_detection_service.py` lines 282-296
+
+---
+
+### B. Per-Workflow Status Decision Tree
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ START: Compute Workflow Mapping Status                         │
+│ Input: canonical_id, n8n_workflow_id, is_present_in_n8n,      │
+│        is_deleted, is_ignored                                  │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+            ┌────────────────────────┐
+            │ Precedence 1:          │
+            │ is_deleted == true?    │
+            └──┬─────────────────┬───┘
+               │ Yes             │ No
+               ▼                 ▼
+        ┌──────────┐    ┌────────────────────┐
+        │ DELETED  │    │ Precedence 2:      │
+        │          │    │ is_ignored == true?│
+        │ (Highest │    └──┬──────────────┬──┘
+        │  priority)│       │ Yes         │ No
+        └──────────┘       ▼              ▼
+                    ┌──────────┐    ┌───────────────────────────┐
+                    │ IGNORED  │    │ Precedence 3:             │
+                    │          │    │ !is_present_in_n8n AND    │
+                    │          │    │ n8n_workflow_id exists?   │
+                    └──────────┘    └──┬────────────────────┬───┘
+                                       │ Yes                │ No
+                                       ▼                    ▼
+                                ┌──────────┐    ┌──────────────────────┐
+                                │ MISSING  │    │ Precedence 4:        │
+                                │          │    │ !canonical_id AND    │
+                                │ (Was     │    │ is_present_in_n8n?   │
+                                │  mapped  │    └──┬────────────────┬──┘
+                                │  but     │       │ Yes            │ No
+                                │  gone)   │       ▼                ▼
+                                └──────────┘  ┌──────────┐  ┌──────────────┐
+                                              │UNTRACKED │  │ Precedence 5:│
+                                              │          │  │ canonical_id │
+                                              │ (No      │  │ AND present? │
+                                              │  mapping)│  └──┬───────┬───┘
+                                              └──────────┘     │ Yes   │ No
+                                                               ▼       ▼
+                                                        ┌──────────┐ ┌────────┐
+                                                        │ LINKED   │ │ Edge   │
+                                                        │          │ │ case:  │
+                                                        │ (Normal  │ │ return │
+                                                        │  state)  │ │UNTRACK │
+                                                        └──────────┘ └────────┘
+```
+
+**Code Reference:** `app/services/canonical_workflow_service.py` lines 200-230
+
+---
+
+### C. Auto-Link Decision Tree (During Sync)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ START: New workflow found in n8n during sync                   │
+│ Input: n8n_workflow_id, workflow content                       │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+            ┌────────────────────────────────┐
+            │ Check existing mapping:        │
+            │ workflow_env_map WHERE         │
+            │ n8n_workflow_id = ?            │
+            └──┬────────────────────────┬────┘
+               │ Found                  │ Not Found
+               ▼                        ▼
+        ┌──────────────┐    ┌──────────────────────────┐
+        │ Update       │    │ Compute content_hash     │
+        │ existing     │    │ from normalized workflow │
+        │ mapping      │    └──┬───────────────────────┘
+        └──────────────┘       │
+                               ▼
+                    ┌──────────────────────────────┐
+                    │ Try auto-link by hash:       │
+                    │ Find canonical workflows     │
+                    │ WHERE git_content_hash = ?   │
+                    └──┬────────────────────────┬──┘
+                       │ Exactly 1 match        │ 0 or 2+ matches
+                       ▼                        ▼
+            ┌──────────────────────┐    ┌─────────────────┐
+            │ Check conflict:      │    │ Cannot auto-link│
+            │ Is this canonical_id │    │ (no unique      │
+            │ already linked to    │    │  match)         │
+            │ different n8n ID?    │    │                 │
+            └──┬────────────────┬──┘    │ ▼               │
+               │ No conflict    │ Has   │ Create UNTRACKED│
+               │                │ conflict mapping       │
+               ▼                ▼       │                 │
+        ┌──────────┐    ┌──────────────▼─────────────────┴──┐
+        │ Create   │    │ Create UNTRACKED mapping:          │
+        │ LINKED   │    │ - canonical_id = NULL              │
+        │ mapping  │    │ - n8n_workflow_id = new ID         │
+        │          │    │ - status = 'untracked'             │
+        │          │    │ - env_content_hash = computed hash │
+        └──────────┘    └────────────────────────────────────┘
+```
+
+**Code Reference:** `app/services/canonical_env_sync_service.py` lines 356-464
+
+**Key Points:**
+1. **Existing mapping takes precedence** - Database lookup happens first (line 356)
+2. **Hash-based auto-link only for new workflows** - No existing mapping (lines 424-429)
+3. **Conflict detection prevents duplicate links** - One canonical → one n8n ID per env (lines 541-549)
+4. **Fallback to UNTRACKED** - When auto-link fails, create untracked mapping (lines 453-465)
 
 ---
 
@@ -1117,7 +1523,185 @@ Is Git configured?
 
 ---
 
-## 10) Files Referenced
+## 10) Quick Reference: Status Cheat Sheets
+
+### A. Per-Workflow Status Quick Lookup
+
+| Status | Condition | Column Values | Typical Cause | Action Required |
+|--------|-----------|---------------|---------------|-----------------|
+| **LINKED** | Normal operation | `canonical_id` ≠ NULL, `is_present_in_n8n` = true, not deleted/ignored | Successfully synced and linked | None - monitor for drift |
+| **UNTRACKED** | No canonical mapping | `canonical_id` = NULL, `is_present_in_n8n` = true, not deleted/ignored | Auto-link failed or never attempted | Link manually or wait for auto-link |
+| **MISSING** | Disappeared from n8n | `n8n_workflow_id` ≠ NULL, `is_present_in_n8n` = false, not deleted/ignored | Workflow deleted in n8n or sync issue | Investigate deletion or re-import |
+| **IGNORED** | User excluded | `is_ignored` = true | User marked as irrelevant | None - intentionally excluded |
+| **DELETED** | Soft-deleted | `is_deleted` = true | User/system soft-delete | Restore or hard-delete |
+
+---
+
+### B. Environment-Level Status Quick Lookup
+
+| Status | Condition | What It Means | User Action | Status Clears When |
+|--------|-----------|---------------|-------------|-------------------|
+| **IN_SYNC** | Git configured, tracked workflows > 0, all match Git | All tracked workflows match their Git source | None - healthy state | Workflow changes in n8n |
+| **DRIFT_DETECTED** | Git configured, tracked workflows > 0, drift or not-in-git | Some tracked workflows differ from Git | Review drift report, sync to Git or revert | All workflows sync to Git |
+| **UNTRACKED** | Git configured, tracked workflows = 0 | No workflows are linked to canonical yet | Link workflows or run auto-sync | At least 1 workflow linked |
+| **UNKNOWN** | Git not configured | Cannot determine drift without Git | Configure Git repo and PAT | Git configured |
+| **ERROR** | Detection failed | System error during drift check | Check logs, retry detection | Detection succeeds |
+
+---
+
+### C. Status Transition Matrix
+
+This table shows valid state transitions for per-workflow status:
+
+| From \ To | LINKED | UNTRACKED | MISSING | IGNORED | DELETED |
+|-----------|--------|-----------|---------|---------|---------|
+| **LINKED** | N/A | ❌ Invalid | ✅ Deleted in n8n | ✅ User ignores | ✅ Soft-delete |
+| **UNTRACKED** | ✅ Auto/manual link | N/A | ❌ No n8n_id | ✅ User ignores | ✅ Soft-delete |
+| **MISSING** | ✅ Reappears in n8n | ✅ Canonical unlinked | N/A | ✅ User ignores | ✅ Soft-delete |
+| **IGNORED** | ✅ User un-ignores | ✅ User un-ignores | ✅ User un-ignores | N/A | ✅ Soft-delete |
+| **DELETED** | ✅ Restore | ✅ Restore | ✅ Restore | ✅ Restore | N/A |
+
+**Legend:**
+- ✅ Valid transition (can occur during normal operations)
+- ❌ Invalid transition (violates business rules)
+- N/A Same state (no transition)
+
+---
+
+### D. Diagnostic SQL Queries
+
+#### Count workflows by status for an environment:
+```sql
+SELECT
+  status,
+  COUNT(*) as count
+FROM workflow_env_map
+WHERE tenant_id = '<tenant-id>'
+  AND environment_id = '<env-id>'
+GROUP BY status
+ORDER BY count DESC;
+```
+
+#### Find untracked workflows that could be auto-linked:
+```sql
+SELECT
+  wem.n8n_workflow_id,
+  wem.env_content_hash,
+  cgs.canonical_id,
+  cgs.git_content_hash
+FROM workflow_env_map wem
+JOIN canonical_workflow_git_state cgs
+  ON wem.tenant_id = cgs.tenant_id
+  AND wem.environment_id = cgs.environment_id
+  AND wem.env_content_hash = cgs.git_content_hash
+WHERE wem.tenant_id = '<tenant-id>'
+  AND wem.environment_id = '<env-id>'
+  AND wem.canonical_id IS NULL
+  AND wem.status = 'untracked';
+```
+
+#### Find workflows with auto-link conflicts:
+```sql
+-- Find canonical workflows linked to multiple n8n IDs (should not happen)
+SELECT
+  canonical_id,
+  COUNT(DISTINCT n8n_workflow_id) as n8n_id_count,
+  array_agg(DISTINCT n8n_workflow_id) as n8n_ids
+FROM workflow_env_map
+WHERE tenant_id = '<tenant-id>'
+  AND environment_id = '<env-id>'
+  AND canonical_id IS NOT NULL
+  AND status NOT IN ('deleted', 'missing')
+GROUP BY canonical_id
+HAVING COUNT(DISTINCT n8n_workflow_id) > 1;
+```
+
+#### Find environment drift summary:
+```sql
+SELECT
+  e.n8n_name,
+  e.environment_class,
+  e.drift_status,
+  e.last_drift_detected_at,
+  COUNT(CASE WHEN wem.status = 'linked' THEN 1 END) as linked_count,
+  COUNT(CASE WHEN wem.status = 'untracked' THEN 1 END) as untracked_count,
+  COUNT(CASE WHEN wem.status = 'missing' THEN 1 END) as missing_count,
+  COUNT(CASE WHEN wem.status = 'ignored' THEN 1 END) as ignored_count,
+  COUNT(CASE WHEN wem.status = 'deleted' THEN 1 END) as deleted_count
+FROM environments e
+LEFT JOIN workflow_env_map wem
+  ON e.tenant_id = wem.tenant_id
+  AND e.id = wem.environment_id
+WHERE e.tenant_id = '<tenant-id>'
+GROUP BY e.id, e.n8n_name, e.environment_class, e.drift_status, e.last_drift_detected_at
+ORDER BY e.environment_class;
+```
+
+---
+
+### E. Common Troubleshooting Scenarios
+
+#### Scenario: Environment shows UNTRACKED but has workflows
+**Diagnosis:**
+```sql
+-- Check if any workflows are linked
+SELECT COUNT(*) as tracked_count
+FROM workflow_env_map
+WHERE tenant_id = '<tenant-id>'
+  AND environment_id = '<env-id>'
+  AND canonical_id IS NOT NULL
+  AND status NOT IN ('deleted', 'ignored');
+```
+**Expected:** If count = 0, environment status is correct
+**Resolution:** Link at least one workflow to change status
+
+---
+
+#### Scenario: Workflow shows as UNTRACKED after promotion
+**Diagnosis:**
+```sql
+-- Check for auto-link conflict
+SELECT
+  canonical_id,
+  n8n_workflow_id,
+  status,
+  env_content_hash
+FROM workflow_env_map
+WHERE tenant_id = '<tenant-id>'
+  AND environment_id = '<env-id>'
+  AND env_content_hash = '<workflow-hash>'
+ORDER BY created_at DESC;
+```
+**Expected:** Multiple rows with same hash, one MISSING, one UNTRACKED
+**Resolution:** Manually link new workflow or clean up old MISSING mapping
+
+---
+
+#### Scenario: Drift detected but all workflows appear in sync
+**Diagnosis:**
+```sql
+-- Check for renamed workflows
+SELECT
+  wem.n8n_workflow_id,
+  wem.canonical_id,
+  wem.env_content_hash,
+  cgs.git_content_hash,
+  wem.env_content_hash = cgs.git_content_hash as hashes_match
+FROM workflow_env_map wem
+JOIN canonical_workflow_git_state cgs
+  ON wem.tenant_id = cgs.tenant_id
+  AND wem.environment_id = cgs.environment_id
+  AND wem.canonical_id = cgs.canonical_id
+WHERE wem.tenant_id = '<tenant-id>'
+  AND wem.environment_id = '<env-id>'
+  AND wem.status = 'linked';
+```
+**Expected:** All `hashes_match` should be true
+**Resolution:** If false, workflow has actual drift; if true, check drift detection logic
+
+---
+
+## 11) Files Referenced
 
 | File | Purpose | Lines Analyzed |
 |------|---------|----------------|

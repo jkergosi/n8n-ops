@@ -1246,6 +1246,14 @@ async def upload_workflows(
     try:
         env_config = await resolve_environment_config(None, environment, tenant_id)
 
+        # Enforce environment class restriction - uploads only allowed in DEV
+        env_class = EnvironmentClass(env_config.get("environment_class", "dev"))
+        environment_action_guard.assert_can_perform_action(
+            env_class=env_class,
+            action=EnvironmentAction.UPLOAD_WORKFLOW,
+            environment_name=env_config.get("n8n_name")
+        )
+
         # Create provider adapter
         adapter = ProviderRegistry.get_adapter_for_environment(env_config)
 

@@ -1,6 +1,7 @@
 """
 Workflow Action Policy endpoint - returns what actions are allowed for a given environment.
 """
+from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException, Depends, status
 from app.schemas.workflow_policy import (
     EnvironmentClass,
@@ -12,6 +13,47 @@ from app.services.auth_service import get_current_user
 from app.services.feature_service import feature_service
 
 router = APIRouter()
+
+
+@router.get("/policy-matrix", response_model=List[Dict[str, Any]])
+async def get_workflow_policy_matrix(
+    user_info: dict = Depends(get_current_user)
+) -> List[Dict[str, Any]]:
+    """
+    Get the workflow policy matrix for all environment classes.
+
+    This is a public endpoint (authenticated users only) that returns
+    the policy matrix used to determine what actions are allowed
+    for workflows in different environment classes.
+    """
+    try:
+        response = db_service.client.table("workflow_policy_matrix").select("*").execute()
+        return response.data or []
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch workflow policy matrix: {str(e)}"
+        )
+
+
+@router.get("/plan-policy-overrides", response_model=List[Dict[str, Any]])
+async def get_plan_policy_overrides(
+    user_info: dict = Depends(get_current_user)
+) -> List[Dict[str, Any]]:
+    """
+    Get all plan-based policy overrides.
+
+    This is a public endpoint (authenticated users only) that returns
+    plan-specific overrides to the workflow policy matrix.
+    """
+    try:
+        response = db_service.client.table("plan_policy_overrides").select("*").execute()
+        return response.data or []
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch plan policy overrides: {str(e)}"
+        )
 
 
 @router.get("/policy/{environment_id}", response_model=WorkflowPolicyResponse)

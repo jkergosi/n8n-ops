@@ -226,3 +226,59 @@ class TestEnvironmentActionGuard:
             user_role="user"
         )
 
+    def test_upload_workflow_only_allowed_in_dev(self):
+        """Upload workflow should only be allowed in DEV environments"""
+        # Allowed in DEV
+        assert environment_action_guard.can_perform_action(
+            env_class=EnvironmentClass.DEV,
+            action=EnvironmentAction.UPLOAD_WORKFLOW,
+            user_role="user"
+        ) is True
+
+        # Blocked in STAGING
+        assert environment_action_guard.can_perform_action(
+            env_class=EnvironmentClass.STAGING,
+            action=EnvironmentAction.UPLOAD_WORKFLOW,
+            user_role="user"
+        ) is False
+
+        # Blocked in PRODUCTION
+        assert environment_action_guard.can_perform_action(
+            env_class=EnvironmentClass.PRODUCTION,
+            action=EnvironmentAction.UPLOAD_WORKFLOW,
+            user_role="user"
+        ) is False
+
+    def test_upload_workflow_blocked_for_all_roles_in_non_dev(self):
+        """Upload workflow should be blocked in non-DEV even for admin/superuser"""
+        for role in ["user", "admin", "superuser"]:
+            # Blocked in STAGING for all roles
+            assert environment_action_guard.can_perform_action(
+                env_class=EnvironmentClass.STAGING,
+                action=EnvironmentAction.UPLOAD_WORKFLOW,
+                user_role=role
+            ) is False
+
+            # Blocked in PRODUCTION for all roles
+            assert environment_action_guard.can_perform_action(
+                env_class=EnvironmentClass.PRODUCTION,
+                action=EnvironmentAction.UPLOAD_WORKFLOW,
+                user_role=role
+            ) is False
+
+    def test_upload_workflow_error_message(self):
+        """Upload workflow should return correct error message when blocked"""
+        with pytest.raises(ActionGuardError) as exc_info:
+            environment_action_guard.assert_can_perform_action(
+                env_class=EnvironmentClass.STAGING,
+                action=EnvironmentAction.UPLOAD_WORKFLOW,
+                user_role="user",
+                environment_name="Staging Environment"
+            )
+
+        assert exc_info.value.status_code == 403
+        error_detail = exc_info.value.detail
+        assert error_detail["error"] == "action_not_allowed"
+        assert error_detail["action"] == "upload_workflow"
+        assert "only allowed in DEV" in error_detail["reason"]
+

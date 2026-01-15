@@ -1,6 +1,6 @@
 // @ts-nocheck
 // TODO: Fix TypeScript errors in this file
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -106,6 +106,8 @@ export function WorkflowsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [editForm, setEditForm] = useState({
     name: '',
@@ -523,6 +525,31 @@ export function WorkflowsPage() {
     }
   };
 
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0 || !currentEnvironment?.id) return;
+
+    setIsUploading(true);
+    try {
+      await apiClient.uploadWorkflows(Array.from(files), currentEnvironment.id);
+      toast.success(`Successfully uploaded ${files.length} workflow(s)`);
+      queryClient.invalidateQueries({ queryKey: ['workflows-paginated'] });
+    } catch (error: any) {
+      const message = error.response?.data?.detail || 'Failed to upload workflows';
+      toast.error(message);
+    } finally {
+      setIsUploading(false);
+      // Reset file input so the same file can be uploaded again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -543,10 +570,24 @@ export function WorkflowsPage() {
             {isRefreshing ? 'Refreshing...' : 'Refresh from N8N'}
           </Button>
           {currentEnvironment?.allowUpload && (
-            <Button onClick={handleUploadClick}>
-              <Upload className="h-4 w-4 mr-2" />
-              Upload Workflow
-            </Button>
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                multiple
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <Button onClick={handleUploadClick} disabled={isUploading}>
+                {isUploading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4 mr-2" />
+                )}
+                {isUploading ? 'Uploading...' : 'Upload Workflow'}
+              </Button>
+            </>
           )}
         </div>
       </div>

@@ -655,6 +655,8 @@ export interface DriftIncidentListResponse {
 }
 
 // Drift Policies
+export type ProdHotfixKeepBehavior = 'force_update_dev' | 'no_dev_update';
+
 export interface DriftPolicy {
   id: string;
   tenant_id: string;
@@ -674,6 +676,7 @@ export interface DriftPolicy {
   retention_days_closed_incidents: number;
   retention_days_reconciliation_artifacts: number;
   retention_days_approvals: number;
+  prod_hotfix_keep_behavior: ProdHotfixKeepBehavior;
   created_at: string;
   updated_at: string;
 }
@@ -695,6 +698,7 @@ export interface DriftPolicyCreate {
   retention_days_closed_incidents?: number;
   retention_days_reconciliation_artifacts?: number;
   retention_days_approvals?: number;
+  prod_hotfix_keep_behavior?: ProdHotfixKeepBehavior;
 }
 
 export interface DriftPolicyUpdate {
@@ -714,6 +718,7 @@ export interface DriftPolicyUpdate {
   retention_days_closed_incidents?: number;
   retention_days_reconciliation_artifacts?: number;
   retention_days_approvals?: number;
+  prod_hotfix_keep_behavior?: ProdHotfixKeepBehavior;
 }
 
 export interface DriftPolicyTemplate {

@@ -38,6 +38,16 @@ class ApprovalRequirement(str, Enum):
     required_no_request = "required_no_request"
 
 
+class ProdHotfixKeepBehavior(str, Enum):
+    """Behavior when keeping a PROD hotfix.
+
+    When a user clicks 'Keep Hotfix' on a PROD environment with drift,
+    this policy controls whether DEV should be auto-updated.
+    """
+    FORCE_UPDATE_DEV = "force_update_dev"  # Default: push approved state to DEV runtime
+    NO_DEV_UPDATE = "no_dev_update"  # Do not update DEV, only update approved state
+
+
 class DriftPolicyCreate(BaseModel):
     """Create drift policy for a tenant."""
     default_ttl_hours: int = Field(default=72, ge=1)
@@ -68,6 +78,12 @@ class DriftPolicyCreate(BaseModel):
     require_approval_for_reconcile: bool = Field(default=True, description="Whether reconciling drift requires approval")
     approval_expiry_hours: int = Field(default=72, ge=1, description="Hours before approval request expires")
     auto_approve_config: Dict[str, Any] = Field(default_factory=dict, description="Configuration for auto-approval rules")
+
+    # PROD hotfix behavior
+    prod_hotfix_keep_behavior: ProdHotfixKeepBehavior = Field(
+        default=ProdHotfixKeepBehavior.FORCE_UPDATE_DEV,
+        description="Behavior when keeping a PROD hotfix. Default: also update DEV runtime."
+    )
 
 
 class DriftPolicyUpdate(BaseModel):
@@ -100,6 +116,9 @@ class DriftPolicyUpdate(BaseModel):
     require_approval_for_reconcile: Optional[bool] = None
     approval_expiry_hours: Optional[int] = Field(None, ge=1)
     auto_approve_config: Optional[Dict[str, Any]] = None
+
+    # PROD hotfix behavior
+    prod_hotfix_keep_behavior: Optional[ProdHotfixKeepBehavior] = None
 
 
 class DriftPolicyResponse(BaseModel):
@@ -135,6 +154,9 @@ class DriftPolicyResponse(BaseModel):
     require_approval_for_reconcile: bool
     approval_expiry_hours: int
     auto_approve_config: Dict[str, Any]
+
+    # PROD hotfix behavior
+    prod_hotfix_keep_behavior: str
 
     created_at: datetime
     updated_at: datetime

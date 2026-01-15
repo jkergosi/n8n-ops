@@ -78,14 +78,26 @@ export function CanonicalWorkflowsPage() {
     }
   };
 
-  const handleSyncEnv = async (environmentId: string) => {
+  const handleRefreshEnv = async (environmentId: string) => {
     try {
-      const response = await apiClient.post(`/canonical/sync/env/${environmentId}`);
-      toast.success('Environment sync started');
+      const result = await apiClient.refreshEnvironment(environmentId);
+      toast.success('Refreshing environment state');
       // Poll for completion
-      pollJobStatus(response.data.jobId);
+      pollJobStatus(result.data.job_id);
     } catch (error: any) {
-      toast.error('Failed to start environment sync');
+      toast.error('Failed to start refresh');
+      console.error(error);
+    }
+  };
+
+  const handleBackupEnv = async (environmentId: string) => {
+    try {
+      const result = await apiClient.backupEnvironment(environmentId);
+      toast.success('Backing up to Git');
+      // Poll for completion
+      pollJobStatus(result.data.job_id);
+    } catch (error: any) {
+      toast.error('Failed to start backup');
       console.error(error);
     }
   };
@@ -172,24 +184,28 @@ export function CanonicalWorkflowsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Environment Sync</CardTitle>
-            <CardDescription>Sync workflows from Git or n8n</CardDescription>
+            <CardDescription>Refresh workflow state from n8n, backup to Git (DEV only)</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {environments.map(env => (
+              {environments.map(env => {
+                const isDevEnv = env.environmentClass?.toLowerCase() === 'dev';
+                const hasGit = !!env.gitRepoUrl;
+                return (
                 <div key={env.id} className="flex items-center justify-between p-4 border rounded">
                   <div>
                     <div className="font-medium">{env.name}</div>
                     <div className="text-sm text-muted-foreground">
-                      {env.gitRepoUrl ? 'Git configured' : 'No Git repo'}
+                      {env.environmentClass || 'Unknown'} • {hasGit ? 'Git configured' : 'No Git repo'}
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    {env.gitRepoUrl && (
+                    {hasGit && (
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => handleSyncRepo(env.id)}
+                        title="Sync Git state to database (does not write to Git)"
                       >
                         <GitBranch className="mr-2 h-4 w-4" />
                         Sync Git
@@ -198,14 +214,26 @@ export function CanonicalWorkflowsPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleSyncEnv(env.id)}
+                      onClick={() => handleRefreshEnv(env.id)}
+                      title="Refresh workflow state from n8n (does not write to Git)"
                     >
                       <RefreshCw className="mr-2 h-4 w-4" />
-                      Sync n8n
+                      Refresh n8n
                     </Button>
+                    {isDevEnv && hasGit && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleBackupEnv(env.id)}
+                        title="Backup DEV workflows to Git"
+                      >
+                        <GitBranch className="mr-2 h-4 w-4" />
+                        Backup
+                      </Button>
+                    )}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           </CardContent>
         </Card>

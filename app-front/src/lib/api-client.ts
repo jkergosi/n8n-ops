@@ -441,7 +441,8 @@ class ApiClient {
       apiKey: env.n8n_api_key,
       n8nEncryptionKey: env.n8n_encryption_key,
       isActive: env.is_active,
-      allowUpload: env.allow_upload ?? false,
+      // Derive allowUpload from environment_class - uploads only allowed in DEV
+      allowUpload: env.environment_class === 'dev',
       lastConnected: env.last_connected,
       lastBackup: env.last_backup,
       lastHeartbeatAt: env.last_heartbeat_at,
@@ -477,7 +478,8 @@ class ApiClient {
       apiKey: env.n8n_api_key,
       n8nEncryptionKey: env.n8n_encryption_key,
       isActive: env.is_active,
-      allowUpload: env.allow_upload ?? false,
+      // Derive allowUpload from environment_class - uploads only allowed in DEV
+      allowUpload: env.environment_class === 'dev',
       lastConnected: env.last_connected,
       lastBackup: env.last_backup,
       lastHeartbeatAt: env.last_heartbeat_at,
@@ -917,6 +919,112 @@ class ApiClient {
     return { data: response.data };
   }
 
+  /**
+   * Refresh workflow state from n8n (observation-only, no writes).
+   * Available for ALL environments (DEV, STAGING, PROD).
+   * NEVER writes to Git - use saveAsApproved() for that.
+   * For PROD: auto-creates drift incident if drift detected.
+   */
+  async refreshEnvironment(environmentId: string): Promise<{
+    data: {
+      job_id: string;
+      status: string;
+      message: string;
+    };
+  }> {
+    const response = await this.client.post(`/environments/${environmentId}/refresh`);
+    return {
+      data: {
+        job_id: response.data.job_id || response.data.jobId,
+        status: response.data.status || 'pending',
+        message: response.data.message || 'Refresh started'
+      }
+    };
+  }
+
+  /**
+   * Save DEV environment workflows as approved state (writes to Git).
+   * RESTRICTIONS: DEV environment only, Git configuration required.
+   * This is the ONLY way to write DEV workflows to approved state.
+   */
+  async saveAsApproved(environmentId: string): Promise<{
+    data: {
+      job_id: string;
+      status: string;
+      message: string;
+    };
+  }> {
+    const response = await this.client.post(`/environments/${environmentId}/backup`);
+    return {
+      data: {
+        job_id: response.data.job_id || response.data.jobId,
+        status: response.data.status || 'pending',
+        message: response.data.message || 'Save as approved started'
+      }
+    };
+  }
+
+  /**
+   * @deprecated Use saveAsApproved() instead. This alias exists for backwards compatibility.
+   */
+  async backupEnvironment(environmentId: string): Promise<{
+    data: {
+      job_id: string;
+      status: string;
+      message: string;
+    };
+  }> {
+    return this.saveAsApproved(environmentId);
+  }
+
+  /**
+   * Revert environment to approved state (deploys from Git to n8n runtime).
+   * RESTRICTIONS: STAGING and PROD environments only.
+   * Closes drift incident if no drift remains after revert.
+   */
+  async revertEnvironment(environmentId: string): Promise<{
+    data: {
+      job_id: string;
+      status: string;
+      message: string;
+    };
+  }> {
+    const response = await this.client.post(`/environments/${environmentId}/revert`);
+    return {
+      data: {
+        job_id: response.data.job_id || response.data.jobId,
+        status: response.data.status || 'pending',
+        message: response.data.message || 'Revert started'
+      }
+    };
+  }
+
+  /**
+   * Keep PROD hotfix as approved state.
+   * RESTRICTIONS: PROD environment only.
+   * Accepts runtime changes as new approved state.
+   * Based on policy, may also push to DEV runtime.
+   */
+  async keepHotfixAsApproved(environmentId: string): Promise<{
+    data: {
+      job_id: string;
+      status: string;
+      message: string;
+    };
+  }> {
+    const response = await this.client.post(`/environments/${environmentId}/keep-hotfix`);
+    return {
+      data: {
+        job_id: response.data.job_id || response.data.jobId,
+        status: response.data.status || 'pending',
+        message: response.data.message || 'Keep hotfix started'
+      }
+    };
+  }
+
+  /**
+   * @deprecated Use refreshEnvironment() instead. This alias exists for backwards compatibility.
+   */
   async syncEnvironment(environmentId: string): Promise<{
     data: {
       job_id: string;
@@ -924,15 +1032,7 @@ class ApiClient {
       message: string;
     };
   }> {
-    // Use canonical env sync endpoint (new canonical system)
-    const response = await this.client.post(`/canonical/sync/env/${environmentId}`);
-    return { 
-      data: {
-        job_id: response.data.job_id || response.data.jobId,
-        status: response.data.status || 'pending',
-        message: response.data.message || 'Sync started'
-      }
-    };
+    return this.refreshEnvironment(environmentId);
   }
 
   async getBackgroundJob(jobId: string): Promise<{
@@ -3106,7 +3206,8 @@ class ApiClient {
   }
 
   async getWorkflowPolicyMatrix(): Promise<{ data: Array<any> }> {
-    const response = await this.client.get('/admin/entitlements/workflow-policy-matrix');
+    // Use public endpoint (authenticated users) instead of admin endpoint
+    const response = await this.client.get('/workflows/policy-matrix');
     return { data: response.data };
   }
 
@@ -3127,7 +3228,8 @@ class ApiClient {
   }
 
   async getPlanPolicyOverrides(): Promise<{ data: Array<any> }> {
-    const response = await this.client.get('/admin/entitlements/plan-policy-overrides');
+    // Use public endpoint (authenticated users) instead of admin endpoint
+    const response = await this.client.get('/workflows/plan-policy-overrides');
     return { data: response.data };
   }
 

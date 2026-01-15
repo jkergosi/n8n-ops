@@ -122,6 +122,13 @@ async def get_environment_capabilities(
             org_policy_flags=org_policy_flags,
             plan=plan
         ),
+        "upload_workflow": environment_action_guard.can_perform_action(
+            env_class=env_class,
+            action=EnvironmentAction.UPLOAD_WORKFLOW,
+            user_role=user_role,
+            org_policy_flags=org_policy_flags,
+            plan=plan
+        ),
     }
     
     return EnvironmentCapabilitiesResponse(

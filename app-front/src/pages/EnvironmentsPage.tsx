@@ -42,7 +42,7 @@ import { apiClient } from '@/lib/api-client';
 import { useAppStore } from '@/store/use-app-store';
 import { useAuth } from '@/lib/auth';
 import { cn, getErrorMessage } from '@/lib/utils';
-import { Plus, Server, RefreshCw, Edit, RefreshCcw, CheckCircle2, AlertCircle, Loader2, XCircle, MoreVertical, Clock } from 'lucide-react';
+import { Plus, Server, RefreshCw, Edit, RefreshCcw, CheckCircle2, AlertCircle, Loader2, XCircle, MoreVertical, Clock, GitBranch, Undo2, Check, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Environment, EnvironmentType, EnvironmentTypeConfig } from '@/types';
 import { useFeatures } from '@/lib/features';
@@ -69,14 +69,20 @@ export function EnvironmentsPage() {
     };
   }, []);
   const [testingInDialog, setTestingInDialog] = useState(false);
-  const [syncConfirmDialogOpen, setSyncConfirmDialogOpen] = useState(false);
+  const [refreshConfirmDialogOpen, setRefreshConfirmDialogOpen] = useState(false);
+  const [backupConfirmDialogOpen, setBackupConfirmDialogOpen] = useState(false);
+  const [revertConfirmDialogOpen, setRevertConfirmDialogOpen] = useState(false);
+  const [keepHotfixConfirmDialogOpen, setKeepHotfixConfirmDialogOpen] = useState(false);
 
   const { environmentTypes } = useEnvironmentTypes();
   const [selectedEnvForAction, setSelectedEnvForAction] = useState<Environment | null>(null);
-  const [syncingEnvId, setSyncingEnvId] = useState<string | null>(null);
+  const [refreshingEnvId, setRefreshingEnvId] = useState<string | null>(null);
+  const [backupEnvId, setBackupEnvId] = useState<string | null>(null);
+  const [revertEnvId, setRevertEnvId] = useState<string | null>(null);
+  const [keepHotfixEnvId, setKeepHotfixEnvId] = useState<string | null>(null);
   const [activeJobs, setActiveJobs] = useState<Record<string, {
     jobId: string;
-    jobType: 'sync';
+    jobType: 'refresh' | 'backup' | 'revert' | 'keep-hotfix';
     status: 'running' | 'completed' | 'failed';
     currentStep?: string;
     current: number;
@@ -266,43 +272,150 @@ export function EnvironmentsPage() {
     },
   });
 
-  const syncMutation = useMutation({
-    mutationFn: (environmentId: string) => api.syncEnvironment(environmentId),
+  const refreshMutation = useMutation({
+    mutationFn: (environmentId: string) => apiClient.refreshEnvironment(environmentId),
     onSuccess: (result, environmentId) => {
-      setSyncingEnvId(null);
+      setRefreshingEnvId(null);
       const { job_id, status, message } = result.data;
 
       // Accept 'pending', 'running', and 'already_running' as valid statuses
       if (job_id && (status === 'running' || status === 'pending' || status === 'already_running')) {
         if (status === 'already_running') {
-          toast.info('Sync already in progress');
+          toast.info('Refresh already in progress');
         } else {
-          toast.success('Syncing environment state (background)');
+          toast.success('Refreshing environment state (background)');
         }
         // Job progress will be updated via SSE
         setActiveJobs((prev) => ({
           ...prev,
           [environmentId]: {
             jobId: job_id,
-            jobType: 'sync',
-            status: 'running', // Always set to 'running' for UI consistency
+            jobType: 'refresh',
+            status: 'running',
             current: 0,
-            total: 5, // workflows, executions, credentials, users, tags
-            message: status === 'already_running' ? 'Sync already in progress...' : 'Starting sync...',
+            total: 5,
+            message: status === 'already_running' ? 'Refresh already in progress...' : 'Starting refresh...',
           },
         }));
 
-        // Redirect to activity page to view sync progress in real-time
+        // Redirect to activity page to view progress in real-time
         navigate(`/activity/${job_id}`);
       } else {
-        toast.error(message || 'Failed to start sync');
+        toast.error(message || 'Failed to start refresh');
       }
 
       queryClient.invalidateQueries({ queryKey: ['environments'] });
     },
     onError: (error: any) => {
-      setSyncingEnvId(null);
-      toast.error(getErrorMessage(error, 'Failed to sync environment'));
+      setRefreshingEnvId(null);
+      toast.error(getErrorMessage(error, 'Failed to refresh environment'));
+    },
+  });
+
+  const backupMutation = useMutation({
+    mutationFn: (environmentId: string) => apiClient.saveAsApproved(environmentId),
+    onSuccess: (result, environmentId) => {
+      setBackupEnvId(null);
+      const { job_id, status, message } = result.data;
+
+      if (job_id && (status === 'running' || status === 'pending')) {
+        toast.success('Saving workflows as approved (background)');
+        // Job progress will be updated via SSE
+        setActiveJobs((prev) => ({
+          ...prev,
+          [environmentId]: {
+            jobId: job_id,
+            jobType: 'backup',
+            status: 'running',
+            current: 0,
+            total: 2,
+            message: 'Starting save...',
+          },
+        }));
+
+        // Redirect to activity page to view progress in real-time
+        navigate(`/activity/${job_id}`);
+      } else {
+        toast.error(message || 'Failed to save as approved');
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['environments'] });
+    },
+    onError: (error: any) => {
+      setBackupEnvId(null);
+      toast.error(getErrorMessage(error, 'Failed to save as approved'));
+    },
+  });
+
+  const revertMutation = useMutation({
+    mutationFn: (environmentId: string) => apiClient.revertEnvironment(environmentId),
+    onSuccess: (result, environmentId) => {
+      setRevertEnvId(null);
+      const { job_id, status, message } = result.data;
+
+      if (job_id && (status === 'running' || status === 'pending')) {
+        toast.success('Reverting to approved state (background)');
+        // Job progress will be updated via SSE
+        setActiveJobs((prev) => ({
+          ...prev,
+          [environmentId]: {
+            jobId: job_id,
+            jobType: 'revert',
+            status: 'running',
+            current: 0,
+            total: 3,
+            message: 'Starting revert...',
+          },
+        }));
+
+        // Redirect to activity page to view progress in real-time
+        navigate(`/activity/${job_id}`);
+      } else {
+        toast.error(message || 'Failed to start revert');
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['environments'] });
+      queryClient.invalidateQueries({ queryKey: ['incidents'] });
+    },
+    onError: (error: any) => {
+      setRevertEnvId(null);
+      toast.error(getErrorMessage(error, 'Failed to revert environment'));
+    },
+  });
+
+  const keepHotfixMutation = useMutation({
+    mutationFn: (environmentId: string) => apiClient.keepHotfixAsApproved(environmentId),
+    onSuccess: (result, environmentId) => {
+      setKeepHotfixEnvId(null);
+      const { job_id, status, message } = result.data;
+
+      if (job_id && (status === 'running' || status === 'pending')) {
+        toast.success('Keeping hotfix as approved (background)');
+        // Job progress will be updated via SSE
+        setActiveJobs((prev) => ({
+          ...prev,
+          [environmentId]: {
+            jobId: job_id,
+            jobType: 'keep-hotfix',
+            status: 'running',
+            current: 0,
+            total: 4,
+            message: 'Starting keep hotfix...',
+          },
+        }));
+
+        // Redirect to activity page to view progress in real-time
+        navigate(`/activity/${job_id}`);
+      } else {
+        toast.error(message || 'Failed to keep hotfix');
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['environments'] });
+      queryClient.invalidateQueries({ queryKey: ['incidents'] });
+    },
+    onError: (error: any) => {
+      setKeepHotfixEnvId(null);
+      toast.error(getErrorMessage(error, 'Failed to keep hotfix'));
     },
   });
 
@@ -407,21 +520,78 @@ export function EnvironmentsPage() {
     }
   };
 
-  const handleSyncClick = (env: Environment) => {
+  const handleRefreshClick = (env: Environment) => {
     // Check if there's already an active job
     if (activeJobs[env.id]?.status === 'running') {
-      toast.info('Sync already in progress for this environment');
+      toast.info('Operation already in progress for this environment');
       return;
     }
     setSelectedEnvForAction(env);
-    setSyncConfirmDialogOpen(true);
+    setRefreshConfirmDialogOpen(true);
   };
 
-  const handleSyncConfirm = () => {
+  const handleRefreshConfirm = () => {
     if (selectedEnvForAction) {
-      setSyncingEnvId(selectedEnvForAction.id);
-      syncMutation.mutate(selectedEnvForAction.id);
-      setSyncConfirmDialogOpen(false);
+      setRefreshingEnvId(selectedEnvForAction.id);
+      refreshMutation.mutate(selectedEnvForAction.id);
+      setRefreshConfirmDialogOpen(false);
+      setSelectedEnvForAction(null);
+    }
+  };
+
+  const handleBackupClick = (env: Environment) => {
+    // Check if there's already an active job
+    if (activeJobs[env.id]?.status === 'running') {
+      toast.info('Operation already in progress for this environment');
+      return;
+    }
+    setSelectedEnvForAction(env);
+    setBackupConfirmDialogOpen(true);
+  };
+
+  const handleBackupConfirm = () => {
+    if (selectedEnvForAction) {
+      setBackupEnvId(selectedEnvForAction.id);
+      backupMutation.mutate(selectedEnvForAction.id);
+      setBackupConfirmDialogOpen(false);
+      setSelectedEnvForAction(null);
+    }
+  };
+
+  const handleRevertClick = (env: Environment) => {
+    // Check if there's already an active job
+    if (activeJobs[env.id]?.status === 'running') {
+      toast.info('Operation already in progress for this environment');
+      return;
+    }
+    setSelectedEnvForAction(env);
+    setRevertConfirmDialogOpen(true);
+  };
+
+  const handleRevertConfirm = () => {
+    if (selectedEnvForAction) {
+      setRevertEnvId(selectedEnvForAction.id);
+      revertMutation.mutate(selectedEnvForAction.id);
+      setRevertConfirmDialogOpen(false);
+      setSelectedEnvForAction(null);
+    }
+  };
+
+  const handleKeepHotfixClick = (env: Environment) => {
+    // Check if there's already an active job
+    if (activeJobs[env.id]?.status === 'running') {
+      toast.info('Operation already in progress for this environment');
+      return;
+    }
+    setSelectedEnvForAction(env);
+    setKeepHotfixConfirmDialogOpen(true);
+  };
+
+  const handleKeepHotfixConfirm = () => {
+    if (selectedEnvForAction) {
+      setKeepHotfixEnvId(selectedEnvForAction.id);
+      keepHotfixMutation.mutate(selectedEnvForAction.id);
+      setKeepHotfixConfirmDialogOpen(false);
       setSelectedEnvForAction(null);
     }
   };
@@ -681,30 +851,100 @@ export function EnvironmentsPage() {
                       </TableCell>
                       <TableCell className="sticky right-0 bg-background">
                         <div className="flex gap-2 items-center">
+                          {/* Refresh button - available for all environments */}
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => handleSyncClick(env)}
-                                  disabled={syncingEnvId === env.id || activeJobs[env.id]?.status === 'running'}
+                                  onClick={() => handleRefreshClick(env)}
+                                  disabled={refreshingEnvId === env.id || backupEnvId === env.id || revertEnvId === env.id || keepHotfixEnvId === env.id || activeJobs[env.id]?.status === 'running'}
                                 >
                                   <RefreshCcw
-                                    className={`h-3 w-3 mr-1 ${syncingEnvId === env.id || activeJobs[env.id]?.status === 'running' ? 'animate-spin' : ''}`}
+                                    className={`h-3 w-3 mr-1 ${refreshingEnvId === env.id || (activeJobs[env.id]?.status === 'running' && activeJobs[env.id]?.jobType === 'refresh') ? 'animate-spin' : ''}`}
                                   />
-                                  Sync
+                                  Refresh
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p>
-                                  {env.environmentClass?.toLowerCase() === 'dev'
-                                    ? 'Sync discovers workflows from n8n and commits changes to Git when configured.'
-                                    : 'Sync checks this environment against the canonical Git version.'}
-                                </p>
+                                <p>Refresh discovers workflows from n8n and detects drift.</p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
+
+                          {/* Save as Approved button - DEV only with Git configured */}
+                          {env.environmentClass?.toLowerCase() === 'dev' && env.gitRepoUrl && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleBackupClick(env)}
+                                    disabled={refreshingEnvId === env.id || backupEnvId === env.id || revertEnvId === env.id || keepHotfixEnvId === env.id || activeJobs[env.id]?.status === 'running'}
+                                  >
+                                    <Save
+                                      className={`h-3 w-3 mr-1 ${backupEnvId === env.id || (activeJobs[env.id]?.status === 'running' && activeJobs[env.id]?.jobType === 'backup') ? 'animate-spin' : ''}`}
+                                    />
+                                    Save as Approved
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Save current DEV workflows as the approved version.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+
+                          {/* Revert button - STAGING/PROD only when drift exists */}
+                          {(env.environmentClass?.toLowerCase() === 'staging' || env.environmentClass?.toLowerCase() === 'production') && env.gitRepoUrl && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleRevertClick(env)}
+                                    disabled={refreshingEnvId === env.id || backupEnvId === env.id || revertEnvId === env.id || keepHotfixEnvId === env.id || activeJobs[env.id]?.status === 'running'}
+                                  >
+                                    <Undo2
+                                      className={`h-3 w-3 mr-1 ${revertEnvId === env.id || (activeJobs[env.id]?.status === 'running' && activeJobs[env.id]?.jobType === 'revert') ? 'animate-spin' : ''}`}
+                                    />
+                                    Revert
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Revert to approved version by deploying approved workflows to n8n.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+
+                          {/* Keep Hotfix button - PROD only when drift exists */}
+                          {env.environmentClass?.toLowerCase() === 'production' && env.gitRepoUrl && stateBadge.status === 'drift_detected' && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="default"
+                                    onClick={() => handleKeepHotfixClick(env)}
+                                    disabled={refreshingEnvId === env.id || backupEnvId === env.id || revertEnvId === env.id || keepHotfixEnvId === env.id || activeJobs[env.id]?.status === 'running'}
+                                  >
+                                    <Check
+                                      className={`h-3 w-3 mr-1 ${keepHotfixEnvId === env.id || (activeJobs[env.id]?.status === 'running' && activeJobs[env.id]?.jobType === 'keep-hotfix') ? 'animate-spin' : ''}`}
+                                    />
+                                    Keep Hotfix
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Accept current PROD changes as the new approved version.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button size="sm" variant="ghost" className="h-8 w-8 p-0">
@@ -736,7 +976,10 @@ export function EnvironmentsPage() {
                                 {activeJobs[env.id].status === 'failed' && (
                                   <XCircle className="h-3 w-3" />
                                 )}
-                                Syncing
+                                {activeJobs[env.id].jobType === 'refresh' ? 'Refreshing' :
+                                 activeJobs[env.id].jobType === 'backup' ? 'Saving' :
+                                 activeJobs[env.id].jobType === 'revert' ? 'Reverting' :
+                                 activeJobs[env.id].jobType === 'keep-hotfix' ? 'Keeping hotfix' : 'Processing'}
                                 {activeJobs[env.id].current > 0 && activeJobs[env.id].total > 0 && (
                                   <span className="text-xs">
                                     ({activeJobs[env.id].current}/{activeJobs[env.id].total})
@@ -947,36 +1190,137 @@ export function EnvironmentsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Sync Confirmation Dialog */}
-      <Dialog open={syncConfirmDialogOpen} onOpenChange={setSyncConfirmDialogOpen}>
+      {/* Refresh Confirmation Dialog */}
+      <Dialog open={refreshConfirmDialogOpen} onOpenChange={setRefreshConfirmDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Sync Environment</DialogTitle>
+            <DialogTitle>Refresh Environment</DialogTitle>
             <DialogDescription>
-              {selectedEnvForAction?.environmentClass?.toLowerCase() === 'dev'
-                ? `Sync and commit changes from ${selectedEnvForAction?.name}`
-                : `Check ${selectedEnvForAction?.name} against canonical Git version`}
+              Refresh workflow state from {selectedEnvForAction?.name}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <p className="text-sm text-muted-foreground">
-              {selectedEnvForAction?.environmentClass?.toLowerCase() === 'dev'
-                ? 'This will discover workflows from n8n and commit changes to Git when configured. The sync will run in the background.'
-                : 'This will discover workflows from n8n and check against the canonical Git version. The sync will run in the background.'}
+              This will discover workflows from n8n and update the current state.
+              {selectedEnvForAction?.environmentClass?.toLowerCase() !== 'dev' && ' Drift will be detected against the approved version.'}
+              <strong className="block mt-2">This is a read-only operation.</strong>
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => {
-              setSyncConfirmDialogOpen(false);
+              setRefreshConfirmDialogOpen(false);
               setSelectedEnvForAction(null);
             }}>
               Cancel
             </Button>
             <Button
-              onClick={handleSyncConfirm}
-              disabled={syncMutation.isPending}
+              onClick={handleRefreshConfirm}
+              disabled={refreshMutation.isPending}
             >
-              {syncMutation.isPending ? 'Starting...' : 'Start Sync'}
+              {refreshMutation.isPending ? 'Starting...' : 'Start Refresh'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save as Approved Confirmation Dialog (DEV only) */}
+      <Dialog open={backupConfirmDialogOpen} onOpenChange={setBackupConfirmDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Save as Approved</DialogTitle>
+            <DialogDescription>
+              Save workflows from {selectedEnvForAction?.name} as approved
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              This will save the current DEV workflows as the official approved version.
+            </p>
+            <p className="text-sm text-amber-600 dark:text-amber-400 mt-3 font-medium">
+              STAGING and PROD environments will detect drift until they sync to this version.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setBackupConfirmDialogOpen(false);
+              setSelectedEnvForAction(null);
+            }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBackupConfirm}
+              disabled={backupMutation.isPending}
+            >
+              {backupMutation.isPending ? 'Starting...' : 'Save as Approved'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revert Confirmation Dialog (STAGING/PROD only) */}
+      <Dialog open={revertConfirmDialogOpen} onOpenChange={setRevertConfirmDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Revert to Approved</DialogTitle>
+            <DialogDescription>
+              Revert {selectedEnvForAction?.name} to approved version
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              This will deploy the approved workflows to n8n, overwriting any local changes.
+            </p>
+            <p className="text-sm text-amber-600 dark:text-amber-400 mt-3 font-medium">
+              Any runtime changes in this environment will be lost.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setRevertConfirmDialogOpen(false);
+              setSelectedEnvForAction(null);
+            }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRevertConfirm}
+              disabled={revertMutation.isPending}
+              variant="destructive"
+            >
+              {revertMutation.isPending ? 'Starting...' : 'Revert to Approved'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Keep Hotfix Confirmation Dialog (PROD only) */}
+      <Dialog open={keepHotfixConfirmDialogOpen} onOpenChange={setKeepHotfixConfirmDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Keep Hotfix</DialogTitle>
+            <DialogDescription>
+              Accept {selectedEnvForAction?.name} changes as approved
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              This will accept the current PROD runtime changes as the new approved version.
+            </p>
+            <p className="text-sm text-blue-600 dark:text-blue-400 mt-3 font-medium">
+              The drift incident will be closed. DEV may be updated automatically based on policy.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setKeepHotfixConfirmDialogOpen(false);
+              setSelectedEnvForAction(null);
+            }}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleKeepHotfixConfirm}
+              disabled={keepHotfixMutation.isPending}
+            >
+              {keepHotfixMutation.isPending ? 'Starting...' : 'Keep Hotfix'}
             </Button>
           </DialogFooter>
         </DialogContent>

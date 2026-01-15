@@ -24,6 +24,7 @@ class EnvironmentAction(str, Enum):
     DEPLOY_INBOUND = "deploy_inbound"
     RESTORE_ROLLBACK = "restore_rollback"
     EDIT_IN_N8N = "edit_in_n8n"
+    UPLOAD_WORKFLOW = "upload_workflow"
 
 
 class ActionGuardError(HTTPException):
@@ -134,7 +135,14 @@ class EnvironmentActionGuard:
                 return False
             # Allowed in dev
             return True
-            
+
+        elif action == EnvironmentAction.UPLOAD_WORKFLOW:
+            # Upload workflow only allowed in DEV environments
+            # This is a hard policy - not configurable via policy flags
+            if env_class != EnvironmentClass.DEV:
+                return False
+            return True
+
         # Unknown action - deny by default
         logger.warning(f"Unknown action: {action}")
         return False
@@ -217,7 +225,9 @@ class EnvironmentActionGuard:
                 return "Restore/rollback in production requires admin role"
         elif action == EnvironmentAction.EDIT_IN_N8N:
             return f"Direct editing in N8N is not allowed in {env_class.value} environments"
-        
+        elif action == EnvironmentAction.UPLOAD_WORKFLOW:
+            return "Workflow uploads are only allowed in DEV environments"
+
         return "Action not allowed for this environment"
 
 

@@ -582,22 +582,33 @@ async def _run_repo_sync_background(
             logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
 
 
-@router.post("/sync/env/{environment_id}")
-async def sync_environment(
+@router.post("/refresh/{environment_id}")
+async def refresh_environment(
     environment_id: str,
     background_tasks: BackgroundTasks,
     user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("environment_basic"))
 ):
     """
-    Sync workflows from n8n environment to database.
+    Refresh workflow state from n8n (observation-only, no Git writes).
 
-    IDEMPOTENT: If a sync job is already queued or running for this environment,
+    Available for ALL environments (DEV, STAGING, PROD).
+
+    Behavior:
+    - Queries n8n runtime for workflows
+    - Normalizes payloads and computes content hashes
+    - Compares to Git (if applicable)
+    - Updates DB records (mapping status, drift indicators, timestamps)
+    - Triggers drift detection for non-DEV environments
+
+    Constraints:
+    - NEVER writes to Git
+    - NEVER deploys workflows
+    - NEVER reconciles drift
+    - Idempotent and safe to run repeatedly
+
+    IDEMPOTENT: If a refresh job is already queued or running for this environment,
     returns the existing job ID instead of creating a duplicate.
-
-    For DEV environments with Git configured, sync triggers a separate background job
-    to commit changes to Git. This provides the path to create Git state for workflows.
-    STAGING/PROD environments do not commit to Git.
     """
     try:
         tenant_id = get_tenant_id(user_info)
@@ -636,7 +647,7 @@ async def sync_environment(
 
         # Enqueue background task for new jobs only
         background_tasks.add_task(
-            _run_env_sync_background,
+            _run_refresh_background,
             job["id"],
             tenant_id,
             environment_id,
@@ -647,20 +658,285 @@ async def sync_environment(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to start env sync: {str(e)}", exc_info=True)
+        logger.error(f"Failed to start refresh: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to start sync: {str(e)}"
+            detail=f"Failed to start refresh: {str(e)}"
         )
 
 
-async def _run_env_sync_background(
+@router.post("/backup/{environment_id}")
+async def backup_environment(
+    environment_id: str,
+    background_tasks: BackgroundTasks,
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("workflow_push"))
+):
+    """
+    Backup DEV environment workflows to Git (explicit Git write operation).
+
+    RESTRICTIONS:
+    - DEV environment only (enforced at API layer)
+    - Git configuration required (git_repo_url, git_pat)
+    - Requires workflow_push entitlement
+
+    Behavior:
+    1. Executes Refresh logic for DEV (observation, no Git)
+    2. For workflows that are LINKED and have changes:
+       - Serializes normalized workflow definitions
+       - Writes/updates Git files
+       - Commits with metadata (author, timestamp, environment=DEV)
+    3. Updates DB with commit SHA, backup timestamp
+
+    Constraints:
+    - Must only be available in DEV
+    - Must never deploy workflows
+    - Must never run implicitly
+    - Requires explicit user action
+    """
+    try:
+        tenant_id = get_tenant_id(user_info)
+
+        # Get user ID from user_info
+        user = user_info.get("user", {})
+        user_id = user.get("id", "00000000-0000-0000-0000-000000000000")
+
+        # Get environment
+        environment = await db_service.get_environment(environment_id, tenant_id)
+        if not environment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Environment not found"
+            )
+
+        # Guard: Verify DEV environment
+        env_class = environment.get("environment_class", "").lower()
+        if env_class != "dev":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Backup operation is only allowed for DEV environments"
+            )
+
+        # Guard: Verify Git configuration
+        if not environment.get("git_repo_url") or not environment.get("git_pat"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Git repository configuration is required for backup"
+            )
+
+        # Create background job for backup
+        job = await background_job_service.create_job(
+            tenant_id=tenant_id,
+            job_type=BackgroundJobType.DEV_GIT_SYNC,
+            resource_id=environment_id,
+            resource_type="environment",
+            created_by=user_id,
+            metadata={
+                "operation": "backup",
+                "environment_id": environment_id
+            }
+        )
+
+        if not job or not job.get("id"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create backup job"
+            )
+
+        # Enqueue background task
+        background_tasks.add_task(
+            _run_backup_background,
+            job["id"],
+            tenant_id,
+            environment_id,
+            environment
+        )
+
+        return {"job_id": job["id"], "status": "pending"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start backup: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start backup: {str(e)}"
+        )
+
+
+async def _run_backup_background(
     job_id: str,
     tenant_id: str,
     environment_id: str,
     environment: Dict[str, Any]
 ):
-    """Background task for env sync"""
+    """
+    Background task for backup operation.
+
+    Backup = Refresh + Git commit for DEV environments.
+    """
+    try:
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.RUNNING
+        )
+
+        # Emit initial SSE event
+        try:
+            from app.api.endpoints.sse import emit_sync_progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="refreshing_state",
+                current=0,
+                total=0,
+                message="Refreshing workflow state from n8n...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit initial SSE event: {str(sse_err)}")
+
+        # Phase 1: Refresh (observation-only)
+        results = await CanonicalEnvSyncService.sync_environment(
+            tenant_id=tenant_id,
+            environment_id=environment_id,
+            environment=environment,
+            job_id=job_id,
+            checkpoint=None,
+            tenant_id_for_sse=tenant_id
+        )
+
+        # Update last_sync_at timestamp
+        from datetime import datetime
+        now = datetime.utcnow().isoformat()
+        try:
+            await db_service.update_environment(
+                environment_id,
+                tenant_id,
+                {
+                    "last_connected": now,
+                    "last_sync_at": now,
+                    "drift_status": "IN_SYNC",
+                    "last_drift_check_at": now
+                }
+            )
+        except Exception as conn_err:
+            logger.warning(f"Failed to update environment timestamps: {str(conn_err)}")
+
+        # Phase 2: Git commit
+        try:
+            from app.api.endpoints.sse import emit_sync_progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="persisting_to_git",
+                current=0,
+                total=0,
+                message="Persisting workflows to Git...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+
+        observed_workflow_ids = results.get("observed_workflow_ids", [])
+        created_workflow_ids = results.get("created_workflow_ids", [])
+
+        if not observed_workflow_ids:
+            logger.debug(f"Backup: No workflows to process for environment {environment_id}")
+            await background_job_service.update_job_status(
+                job_id=job_id,
+                status=BackgroundJobStatus.COMPLETED,
+                result={"message": "No workflows to commit", "workflows_persisted": 0}
+            )
+            return
+
+        # Run Git commit
+        committed_count = await _commit_dev_workflows_to_git(
+            tenant_id=tenant_id,
+            environment_id=environment_id,
+            environment=environment,
+            observed_workflow_ids=observed_workflow_ids,
+            created_workflow_ids=created_workflow_ids,
+            job_id=job_id,
+            tenant_id_for_sse=tenant_id
+        )
+
+        # Update last_backup timestamp
+        try:
+            await db_service.update_environment(
+                environment_id,
+                tenant_id,
+                {"last_backup": now}
+            )
+        except Exception as backup_err:
+            logger.warning(f"Failed to update last_backup: {str(backup_err)}")
+
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.COMPLETED,
+            result={
+                "message": "Backup completed",
+                "workflows_persisted": committed_count,
+                "workflows_synced": results.get("workflows_synced", 0)
+            }
+        )
+
+        # Emit completion
+        try:
+            from app.api.endpoints.sse import emit_sync_progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="completed",
+                current_step="completed",
+                current=committed_count,
+                total=committed_count,
+                message=f"Backup complete: {committed_count} workflow(s) persisted to Git",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit completion SSE event: {str(sse_err)}")
+
+        logger.info(f"Backup completed for environment {environment_id}: {committed_count} workflows persisted")
+
+    except Exception as e:
+        logger.error(f"Backup failed: {str(e)}", exc_info=True)
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.FAILED,
+            error_message=str(e)
+        )
+
+        # Emit failure SSE event
+        try:
+            from app.api.endpoints.sse import emit_sync_progress
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="failed",
+                current_step="failed",
+                current=0,
+                total=1,
+                message=f"Backup failed: {str(e)}",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
+
+
+async def _run_refresh_background(
+    job_id: str,
+    tenant_id: str,
+    environment_id: str,
+    environment: Dict[str, Any]
+):
+    """
+    Background task for refresh operation (observation-only).
+
+    Refresh discovers workflows from n8n, updates DB records, and detects drift.
+    NEVER writes to Git - that's the Backup operation's responsibility.
+    """
     # Track final status to ensure job is always updated
     final_status = BackgroundJobStatus.FAILED
     final_error_message = None
@@ -843,80 +1119,12 @@ async def _run_env_sync_background(
             )
         except Exception as sse_err:
             logger.warning(f"Failed to emit completion SSE event: {str(sse_err)}")
-        
-        # DEV environments: enqueue Phase 2 (Git commit) as separate background job
-        env_class = environment.get("environment_class", "").lower()
-        if env_class == "dev":
-            git_repo_url = environment.get("git_repo_url")
-            git_pat = environment.get("git_pat")
-            
-            if git_repo_url and git_pat:
-                try:
-                    # Create Phase 2 background job
-                    phase2_job = await background_job_service.create_job(
-                        tenant_id=tenant_id,
-                        job_type=BackgroundJobType.DEV_GIT_SYNC,
-                        resource_id=environment_id,
-                        resource_type="environment",
-                        created_by=None,  # System-created
-                        metadata={
-                            "phase1_job_id": job_id,
-                            "environment_id": environment_id
-                        }
-                    )
-                    
-                    # Enqueue Phase 2 job (runs asynchronously, doesn't block Phase 1)
-                    # Use asyncio.create_task() and yield to event loop to ensure it runs
-                    import asyncio
-                    try:
-                        # Create task - this schedules it for execution
-                        task = asyncio.create_task(
-                            _run_dev_git_sync_background(
-                                phase2_job["id"],
-                                tenant_id,
-                                environment_id,
-                                environment,
-                                job_id  # Pass Phase 1 job ID so Phase 2 can read its results
-                            )
-                        )
-                        
-                        # Add done callback to log completion/errors
-                        def log_task_result(fut):
-                            try:
-                                fut.result()  # This will raise if task failed
-                                logger.info(f"Phase 2 Git sync task completed successfully for job {phase2_job['id']}")
-                            except Exception as e:
-                                logger.error(f"Phase 2 Git sync task failed for job {phase2_job['id']}: {str(e)}", exc_info=True)
-                        
-                        task.add_done_callback(log_task_result)
-                        
-                        # Yield to event loop to ensure task is scheduled and starts running
-                        # This is critical - without this, the task might not execute if parent completes immediately
-                        await asyncio.sleep(0)
-                        
-                        logger.info(f"DEV sync: Enqueued Phase 2 Git sync job {phase2_job['id']} (task created and scheduled) for environment {environment_id}")
-                    except Exception as task_err:
-                        logger.error(f"DEV sync: Failed to create Phase 2 task: {str(task_err)}", exc_info=True)
-                        # Fallback: try to run it directly (but this will block, so log warning)
-                        logger.warning(f"DEV sync: Attempting direct execution of Phase 2 (this may block)")
-                        try:
-                            await _run_dev_git_sync_background(
-                                phase2_job["id"],
-                                tenant_id,
-                                environment_id,
-                                environment,
-                                job_id
-                            )
-                        except Exception as direct_err:
-                            logger.error(f"DEV sync: Direct execution also failed: {str(direct_err)}", exc_info=True)
-                except Exception as git_job_err:
-                    # Don't fail Phase 1 if Phase 2 job creation fails
-                    logger.warning(f"DEV sync: Failed to enqueue Phase 2 Git sync job: {str(git_job_err)}", exc_info=True)
-            else:
-                logger.debug(f"DEV environment {environment_id} has no Git configuration, skipping Phase 2 Git sync")
+
+        # NOTE: Refresh NEVER triggers Git commit (Phase 2).
+        # Git writes are only done via the explicit /backup endpoint.
 
     except Exception as e:
-        logger.error(f"Env sync failed: {str(e)}")
+        logger.error(f"Refresh failed: {str(e)}")
         final_status = BackgroundJobStatus.FAILED
         final_error_message = str(e)
 

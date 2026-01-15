@@ -37,6 +37,9 @@ class BackgroundJobType:
     DEV_GIT_SYNC = "dev_git_sync"
     # Bulk operations
     BULK_WORKFLOW_OPERATION = "bulk_workflow_operation"
+    # Drift + Hotfix operations
+    CANONICAL_REVERT = "canonical_revert"
+    CANONICAL_KEEP_HOTFIX = "canonical_keep_hotfix"
 
 
 class BackgroundJobService:
@@ -295,6 +298,37 @@ class BackgroundJobService:
         """Get the latest job for a specific resource"""
         jobs = await BackgroundJobService.get_jobs_by_resource(resource_type, resource_id, tenant_id, limit=1)
         return jobs[0] if jobs else None
+
+    @staticmethod
+    async def get_active_job_for_resource(
+        resource_type: str,
+        resource_id: str,
+        tenant_id: str,
+        job_types: Optional[List[str]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Check if there's an active (pending/running) job for a resource.
+
+        Args:
+            resource_type: Type of resource ('environment', 'promotion', etc.)
+            resource_id: ID of the resource
+            tenant_id: Tenant ID
+            job_types: Optional list of job types to filter by
+
+        Returns:
+            Active job if found, None otherwise
+        """
+        query = db_service.client.table("background_jobs").select("*")\
+            .eq("resource_type", resource_type)\
+            .eq("resource_id", resource_id)\
+            .eq("tenant_id", tenant_id)\
+            .in_("status", [BackgroundJobStatus.PENDING, BackgroundJobStatus.RUNNING])
+
+        if job_types:
+            query = query.in_("job_type", job_types)
+
+        response = query.order("created_at", desc=True).limit(1).execute()
+        return response.data[0] if response.data else None
 
     @staticmethod
     async def cancel_job(job_id: str) -> Dict[str, Any]:

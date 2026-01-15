@@ -1520,3 +1520,1767 @@ async def refresh_environment_drift(
         )
 
 
+# =============================================================================
+# Environment Action Endpoints (Greenfield Model)
+# =============================================================================
+# These endpoints implement the declarative drift/hotfix handling model:
+# - refresh: Read-only observation (ALL envs)
+# - backup: DEV only - write runtime to approved state
+# - revert: STAGING/PROD only - deploy approved state to runtime
+# - keep-hotfix: PROD only - accept runtime as approved + optional DEV push
+# =============================================================================
+
+
+@router.post("/{environment_id}/refresh")
+async def refresh_environment_state(
+    environment_id: str,
+    background_tasks: BackgroundTasks,
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("environment_basic"))
+):
+    """
+    Refresh workflow state from n8n (observation-only, no writes).
+
+    Available for ALL environments (DEV, STAGING, PROD).
+
+    Behavior:
+    - Queries n8n runtime for workflows
+    - Normalizes payloads and computes content hashes
+    - Compares to approved state (Git)
+    - Updates DB records (mapping status, drift indicators, timestamps)
+    - Triggers drift detection for non-DEV environments
+
+    Constraints:
+    - NEVER writes to approved state (Git)
+    - NEVER deploys workflows to n8n
+    - Idempotent and safe to run repeatedly
+
+    Returns:
+        Background job info with job_id and status
+    """
+    # Forward to canonical workflow refresh endpoint logic
+    from app.services.canonical_env_sync_service import CanonicalEnvSyncService
+    from app.services.canonical_reconciliation_service import CanonicalReconciliationService
+
+    try:
+        tenant_id = get_tenant_id(user_info)
+        user = user_info.get("user", {})
+        user_id = user.get("id", "00000000-0000-0000-0000-000000000000")
+
+        # Get environment
+        environment = await db_service.get_environment(environment_id, tenant_id)
+        if not environment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Environment not found"
+            )
+
+        # Guard: Verify action is allowed
+        try:
+            environment_action_guard.assert_can_perform_action(
+                action=EnvironmentAction.SYNC_STATUS,
+                environment=environment,
+                tenant_id=tenant_id
+            )
+        except ActionGuardError as guard_err:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=str(guard_err)
+            )
+
+        # Use sync orchestrator for idempotent job creation
+        job, is_new = await sync_orchestrator.request_sync(
+            tenant_id=tenant_id,
+            environment_id=environment_id,
+            created_by=user_id
+        )
+
+        if not job or not job.get("id"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create or find sync job"
+            )
+
+        if not is_new:
+            return {
+                "status": "already_running",
+                "job_id": job["id"],
+                "message": "Refresh job is already running for this environment"
+            }
+
+        # Enqueue background task for new jobs
+        background_tasks.add_task(
+            _run_refresh_environment_background,
+            job["id"],
+            tenant_id,
+            environment_id,
+            environment
+        )
+
+        return {
+            "job_id": job["id"],
+            "status": "pending",
+            "message": "Refresh job started"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start refresh: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start refresh: {str(e)}"
+        )
+
+
+async def _run_refresh_environment_background(
+    job_id: str,
+    tenant_id: str,
+    environment_id: str,
+    environment: dict
+):
+    """
+    Background task for refresh operation (observation-only).
+
+    Refreshes workflow state from n8n, updates DB records, detects drift.
+    NEVER writes to approved state (Git).
+    """
+    from app.services.canonical_env_sync_service import CanonicalEnvSyncService
+    from app.services.canonical_reconciliation_service import CanonicalReconciliationService
+    from app.services.drift_incident_service import drift_incident_service
+
+    final_status = BackgroundJobStatus.FAILED
+    final_error_message = None
+    final_results = {}
+
+    try:
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.RUNNING
+        )
+
+        # Phase 1: Discover workflows from n8n
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="discovering_workflows",
+                current=0,
+                total=0,
+                message="Discovering workflows from n8n...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit initial SSE event: {str(sse_err)}")
+
+        # Run environment sync (observation-only)
+        results = await CanonicalEnvSyncService.sync_environment(
+            tenant_id=tenant_id,
+            environment_id=environment_id,
+            environment=environment,
+            job_id=job_id,
+            checkpoint=None,
+            tenant_id_for_sse=tenant_id
+        )
+
+        # Update timestamps
+        now = datetime.utcnow().isoformat()
+        try:
+            await db_service.update_environment(
+                environment_id,
+                tenant_id,
+                {
+                    "last_connected": now,
+                    "last_sync_at": now
+                }
+            )
+        except Exception as conn_err:
+            logger.warning(f"Failed to update environment timestamps: {str(conn_err)}")
+
+        workflows_synced = results.get("workflows_synced", 0)
+        workflows_linked = results.get("workflows_linked", 0)
+        workflows_untracked = results.get("workflows_untracked", 0)
+
+        # Phase 2: Drift detection (non-DEV only)
+        env_class = environment.get("environment_class", "").lower()
+        is_dev = env_class == "dev"
+        drift_count = 0
+
+        if not is_dev:
+            # Reconcile to detect drift
+            try:
+                await emit_sync_progress(
+                    job_id=job_id,
+                    environment_id=environment_id,
+                    status="running",
+                    current_step="detecting_drift",
+                    current=workflows_linked,
+                    total=workflows_linked,
+                    message=f"Detecting drift in {workflows_linked} linked workflow(s)...",
+                    tenant_id=tenant_id
+                )
+            except Exception as sse_err:
+                logger.warning(f"Failed to emit reconciliation SSE event: {str(sse_err)}")
+
+            try:
+                await CanonicalReconciliationService.reconcile_all_pairs_for_environment(
+                    tenant_id=tenant_id,
+                    changed_env_id=environment_id
+                )
+            except Exception as recon_err:
+                logger.warning(f"Reconciliation failed but continuing: {str(recon_err)}")
+
+            # Get drift count
+            try:
+                drift_result = db_service.client.table("workflow_diff_state").select(
+                    "workflow_id", "canonical_id"
+                ).eq("tenant_id", tenant_id).eq(
+                    "source_environment_id", environment_id
+                ).eq("diff_status", "modified").execute()
+                drift_count = len(drift_result.data or [])
+            except Exception as drift_err:
+                logger.warning(f"Failed to get drift count: {str(drift_err)}")
+
+            # AUTO-CREATE INCIDENT for PROD drift (idempotent)
+            if drift_count > 0 and env_class == "production":
+                try:
+                    existing_incident = await drift_incident_service.get_active_incident_for_environment(
+                        tenant_id, environment_id
+                    )
+                    if not existing_incident:
+                        affected_workflows = []
+                        for drift_item in (drift_result.data or []):
+                            affected_workflows.append({
+                                "workflow_id": drift_item.get("workflow_id"),
+                                "canonical_id": drift_item.get("canonical_id"),
+                                "drift_type": "modified"
+                            })
+                        try:
+                            await drift_incident_service.create_incident(
+                                tenant_id=tenant_id,
+                                environment_id=environment_id,
+                                user_id=None,
+                                title=f"Drift detected in PROD: {drift_count} workflow(s)",
+                                affected_workflows=affected_workflows,
+                                drift_snapshot=None,
+                                severity="high"
+                            )
+                            logger.info(f"Auto-created drift incident for PROD environment {environment_id}")
+                        except Exception as incident_err:
+                            # Log but don't fail - incident creation is supplemental
+                            logger.warning(f"Failed to auto-create incident: {str(incident_err)}")
+                except Exception as incident_check_err:
+                    logger.warning(f"Failed to check for existing incident: {str(incident_check_err)}")
+
+            # Update environment drift status
+            drift_status = "DRIFT_DETECTED" if drift_count > 0 else "IN_SYNC"
+            try:
+                await db_service.update_environment(
+                    environment_id,
+                    tenant_id,
+                    {
+                        "drift_status": drift_status,
+                        "last_drift_check_at": now,
+                        "last_drift_detected_at": now if drift_count > 0 else None
+                    }
+                )
+            except Exception as drift_update_err:
+                logger.warning(f"Failed to update drift_status: {str(drift_update_err)}")
+        else:
+            # DEV: n8n is source of truth, no drift concept
+            try:
+                await db_service.update_environment(
+                    environment_id,
+                    tenant_id,
+                    {
+                        "drift_status": "IN_SYNC",
+                        "last_drift_check_at": now
+                    }
+                )
+            except Exception as drift_update_err:
+                logger.warning(f"Failed to update drift_status: {str(drift_update_err)}")
+
+        # Build result
+        final_results = {
+            "workflows_processed": workflows_synced,
+            "workflows_linked": workflows_linked,
+            "workflows_untracked": workflows_untracked,
+            "environment_class": env_class,
+            "is_dev": is_dev,
+            "drift_detected_count": drift_count if not is_dev else 0
+        }
+        final_status = BackgroundJobStatus.COMPLETED
+
+        # Emit completion
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="completed",
+                current_step="completed",
+                current=workflows_synced,
+                total=workflows_synced,
+                message=f"Refresh complete: {workflows_synced} workflows processed",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit completion SSE event: {str(sse_err)}")
+
+    except Exception as e:
+        logger.error(f"Refresh failed: {str(e)}", exc_info=True)
+        final_status = BackgroundJobStatus.FAILED
+        final_error_message = str(e)
+
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="failed",
+                current_step="failed",
+                current=0,
+                total=1,
+                message=f"Refresh failed: {str(e)}",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
+
+    finally:
+        # Always update job status
+        try:
+            if final_status == BackgroundJobStatus.COMPLETED:
+                await background_job_service.update_job_status(
+                    job_id=job_id,
+                    status=final_status,
+                    result=final_results
+                )
+            else:
+                await background_job_service.update_job_status(
+                    job_id=job_id,
+                    status=final_status,
+                    error_message=final_error_message
+                )
+        except Exception as status_update_err:
+            logger.critical(f"CRITICAL: Failed to update job {job_id} final status: {str(status_update_err)}")
+
+
+@router.post("/{environment_id}/backup")
+async def backup_environment_to_approved(
+    environment_id: str,
+    background_tasks: BackgroundTasks,
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("workflow_push"))
+):
+    """
+    Save DEV environment workflows as approved state (DEV only).
+
+    RESTRICTIONS:
+    - DEV environment only (enforced server-side)
+    - Git configuration required
+    - Requires workflow_push entitlement
+
+    Behavior:
+    1. Refresh (observation, no Git writes)
+    2. For linked workflows with changes:
+       - Serialize normalized workflow definitions
+       - Write/update files in approved state (Git)
+       - Commit with metadata
+    3. Update DB with commit SHA, backup timestamp
+
+    Constraints:
+    - Only available in DEV
+    - Never deploys workflows to n8n
+    - Requires explicit user action (no implicit writes)
+
+    Returns:
+        Background job info with job_id and status
+    """
+    from app.services.github_service import GitHubService
+    from app.services.canonical_env_sync_service import CanonicalEnvSyncService
+    import re
+
+    try:
+        tenant_id = get_tenant_id(user_info)
+        user = user_info.get("user", {})
+        user_id = user.get("id", "00000000-0000-0000-0000-000000000000")
+
+        # Get environment
+        environment = await db_service.get_environment(environment_id, tenant_id)
+        if not environment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Environment not found"
+            )
+
+        # Guard: Verify DEV environment
+        env_class = environment.get("environment_class", "").lower()
+        if env_class != "dev":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Backup operation is only allowed for DEV environments"
+            )
+
+        # Guard: Verify action is allowed
+        try:
+            environment_action_guard.assert_can_perform_action(
+                action=EnvironmentAction.BACKUP,
+                environment=environment,
+                tenant_id=tenant_id
+            )
+        except ActionGuardError as guard_err:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=str(guard_err)
+            )
+
+        # Guard: Verify Git configuration
+        if not environment.get("git_repo_url") or not environment.get("git_pat"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Git repository configuration is required for backup"
+            )
+
+        # Idempotency: Check for existing active job
+        active_job = await background_job_service.get_active_job_for_resource(
+            resource_type="environment",
+            resource_id=environment_id,
+            tenant_id=tenant_id,
+            job_types=[BackgroundJobType.DEV_GIT_SYNC, BackgroundJobType.CANONICAL_ENV_SYNC]
+        )
+        if active_job:
+            logger.info(f"Backup already in progress for environment {environment_id}: {active_job['id']}")
+            return {
+                "job_id": active_job["id"],
+                "status": "already_running",
+                "message": "Backup already in progress"
+            }
+
+        # Create background job
+        job = await background_job_service.create_job(
+            tenant_id=tenant_id,
+            job_type=BackgroundJobType.DEV_GIT_SYNC,
+            resource_id=environment_id,
+            resource_type="environment",
+            created_by=user_id,
+            metadata={
+                "operation": "backup",
+                "environment_id": environment_id
+            }
+        )
+
+        if not job or not job.get("id"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create backup job"
+            )
+
+        # Audit log: Backup started
+        try:
+            await create_audit_log(
+                action_type=AuditActionType.ENVIRONMENT_BACKUP_STARTED,
+                action=f"Started backup for environment",
+                tenant_id=tenant_id,
+                user_id=user_id,
+                resource_id=environment_id,
+                resource_type="environment",
+                metadata={
+                    "environment_name": environment.get("n8n_name", environment.get("name")),
+                    "job_id": job["id"]
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to create audit log: {str(audit_error)}")
+
+        # Enqueue background task
+        background_tasks.add_task(
+            _run_backup_environment_background,
+            job["id"],
+            tenant_id,
+            environment_id,
+            environment,
+            user_id
+        )
+
+        return {
+            "job_id": job["id"],
+            "status": "pending",
+            "message": "Backup job started"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start backup: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start backup: {str(e)}"
+        )
+
+
+async def _run_backup_environment_background(
+    job_id: str,
+    tenant_id: str,
+    environment_id: str,
+    environment: dict,
+    user_id: str = None
+):
+    """
+    Background task for backup operation.
+
+    Backup = Refresh + Write to approved state (Git) for DEV environments.
+    """
+    from app.services.canonical_env_sync_service import CanonicalEnvSyncService
+    from app.services.github_service import GitHubService
+    from app.services.canonical_workflow_service import CanonicalWorkflowService
+    from app.schemas.canonical_workflow import WorkflowMappingStatus
+    import re
+
+    try:
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.RUNNING
+        )
+
+        # Phase 1: Refresh
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="refreshing_state",
+                current=0,
+                total=0,
+                message="Refreshing workflow state from n8n...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit initial SSE event: {str(sse_err)}")
+
+        results = await CanonicalEnvSyncService.sync_environment(
+            tenant_id=tenant_id,
+            environment_id=environment_id,
+            environment=environment,
+            job_id=job_id,
+            checkpoint=None,
+            tenant_id_for_sse=tenant_id
+        )
+
+        now = datetime.utcnow().isoformat()
+        try:
+            await db_service.update_environment(
+                environment_id,
+                tenant_id,
+                {
+                    "last_connected": now,
+                    "last_sync_at": now,
+                    "drift_status": "IN_SYNC",
+                    "last_drift_check_at": now
+                }
+            )
+        except Exception as conn_err:
+            logger.warning(f"Failed to update environment timestamps: {str(conn_err)}")
+
+        # Phase 2: Write to approved state (Git)
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="persisting_approved_state",
+                current=0,
+                total=0,
+                message="Saving workflows as approved state...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+
+        # Get Git configuration
+        git_repo_url = environment.get("git_repo_url")
+        git_branch = environment.get("git_branch", "main")
+        git_pat = environment.get("git_pat")
+        git_folder = environment.get("git_folder") or "dev"
+
+        match = re.match(r'https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$', git_repo_url)
+        if not match:
+            raise Exception(f"Invalid Git repo URL: {git_repo_url}")
+
+        repo_owner, repo_name = match.groups()
+        github = GitHubService(
+            token=git_pat,
+            repo_owner=repo_owner,
+            repo_name=repo_name,
+            branch=git_branch
+        )
+
+        if not github.is_configured():
+            raise Exception("GitHub service not properly configured")
+
+        # Get linked workflows to commit
+        linked_workflows_result = db_service.client.table("workflow_env_map").select(
+            "canonical_id, env_content_hash, workflow_data, n8n_workflow_id, status"
+        ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq(
+            "status", WorkflowMappingStatus.LINKED.value
+        ).not_.is_("canonical_id", "null").execute()
+
+        workflows_to_commit = linked_workflows_result.data or []
+
+        # Get Git state to compare hashes
+        canonical_ids = [row["canonical_id"] for row in workflows_to_commit if row.get("canonical_id")]
+        git_hashes = {}
+        if canonical_ids:
+            git_state_result = db_service.client.table("canonical_workflow_git_state").select(
+                "canonical_id, git_content_hash"
+            ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).in_(
+                "canonical_id", canonical_ids
+            ).execute()
+            git_hashes = {row["canonical_id"]: row["git_content_hash"] for row in (git_state_result.data or [])}
+
+        # Commit changed workflows
+        committed_count = 0
+        total_to_commit = len([w for w in workflows_to_commit if w.get("env_content_hash") != git_hashes.get(w.get("canonical_id"))])
+
+        for wf in workflows_to_commit:
+            canonical_id = wf.get("canonical_id")
+            env_hash = wf.get("env_content_hash")
+            workflow_data = wf.get("workflow_data")
+
+            if not workflow_data or not env_hash or not canonical_id:
+                continue
+
+            # Only commit if hash changed
+            git_hash = git_hashes.get(canonical_id)
+            if env_hash == git_hash:
+                continue
+
+            try:
+                workflow_name = workflow_data.get("name", "Unknown")
+                await github.write_workflow_file(
+                    canonical_id=canonical_id,
+                    workflow_data=workflow_data,
+                    git_folder=git_folder,
+                    commit_message=f"sync(dev): update {workflow_name}"
+                )
+
+                # Update git_state with new hash
+                git_path = f"workflows/{git_folder}/{canonical_id}.json"
+                db_service.client.table("canonical_workflow_git_state").upsert({
+                    "tenant_id": tenant_id,
+                    "environment_id": environment_id,
+                    "canonical_id": canonical_id,
+                    "git_path": git_path,
+                    "git_content_hash": env_hash,
+                    "last_repo_sync_at": datetime.utcnow().isoformat()
+                }, on_conflict="tenant_id,environment_id,canonical_id").execute()
+
+                committed_count += 1
+
+                # Emit progress
+                try:
+                    await emit_sync_progress(
+                        job_id=job_id,
+                        environment_id=environment_id,
+                        status="running",
+                        current_step="persisting_approved_state",
+                        current=committed_count,
+                        total=total_to_commit,
+                        message=f"{committed_count} / {total_to_commit} workflows saved",
+                        tenant_id=tenant_id
+                    )
+                except Exception as sse_err:
+                    logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+
+            except Exception as commit_err:
+                logger.warning(f"Failed to commit workflow {canonical_id}: {commit_err}", exc_info=True)
+
+        # Update last_backup timestamp
+        try:
+            await db_service.update_environment(
+                environment_id,
+                tenant_id,
+                {"last_backup": now}
+            )
+        except Exception as backup_err:
+            logger.warning(f"Failed to update last_backup: {str(backup_err)}")
+
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.COMPLETED,
+            result={
+                "message": "Backup completed",
+                "workflows_persisted": committed_count,
+                "workflows_synced": results.get("workflows_synced", 0)
+            }
+        )
+
+        # Emit completion
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="completed",
+                current_step="completed",
+                current=committed_count,
+                total=committed_count,
+                message=f"Backup complete: {committed_count} workflow(s) saved as approved",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit completion SSE event: {str(sse_err)}")
+
+        # Audit log: Backup completed
+        try:
+            await create_audit_log(
+                action_type=AuditActionType.ENVIRONMENT_BACKUP_COMPLETED,
+                action=f"Backup completed: {committed_count} workflow(s) saved",
+                tenant_id=tenant_id,
+                user_id=user_id,
+                resource_id=environment_id,
+                resource_type="environment",
+                metadata={
+                    "environment_name": environment.get("n8n_name", environment.get("name")),
+                    "job_id": job_id,
+                    "workflows_persisted": committed_count
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to create audit log: {str(audit_error)}")
+
+        logger.info(f"Backup completed for environment {environment_id}: {committed_count} workflows saved")
+
+    except Exception as e:
+        logger.error(f"Backup failed: {str(e)}", exc_info=True)
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.FAILED,
+            error_message=str(e)
+        )
+
+        # Audit log: Backup failed
+        try:
+            await create_audit_log(
+                action_type=AuditActionType.ENVIRONMENT_BACKUP_FAILED,
+                action=f"Backup failed: {str(e)}",
+                tenant_id=tenant_id,
+                user_id=user_id,
+                resource_id=environment_id,
+                resource_type="environment",
+                metadata={
+                    "environment_name": environment.get("n8n_name", environment.get("name")),
+                    "job_id": job_id,
+                    "error": str(e)
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to create audit log: {str(audit_error)}")
+
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="failed",
+                current_step="failed",
+                current=0,
+                total=1,
+                message=f"Backup failed: {str(e)}",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
+
+
+@router.post("/{environment_id}/revert")
+async def revert_environment_to_approved(
+    environment_id: str,
+    background_tasks: BackgroundTasks,
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("workflow_push"))
+):
+    """
+    Revert environment to approved state (STAGING/PROD only).
+
+    Deploy approved state (from Git) to n8n runtime.
+    Allowed only in STAGING or PRODUCTION environments.
+
+    Behavior:
+    1. Read approved workflows from Git
+    2. Deploy each workflow to n8n runtime
+    3. Refresh environment to verify state
+    4. If no drift remains, close active incident (PROD)
+
+    Constraints:
+    - Not available in DEV (DEV is source of truth)
+    - Requires explicit user action
+    - Closes incident only if revert succeeds
+
+    Returns:
+        Background job info with job_id and status
+    """
+    try:
+        tenant_id = get_tenant_id(user_info)
+        user = user_info.get("user", {})
+        user_id = user.get("id", "00000000-0000-0000-0000-000000000000")
+
+        # Get environment
+        environment = await db_service.get_environment(environment_id, tenant_id)
+        if not environment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Environment not found"
+            )
+
+        # Guard: Verify STAGING or PROD environment
+        env_class = environment.get("environment_class", "").lower()
+        if env_class not in ["staging", "production"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Revert operation is only allowed for STAGING or PRODUCTION environments"
+            )
+
+        # Guard: Verify action is allowed
+        try:
+            environment_action_guard.assert_can_perform_action(
+                action=EnvironmentAction.RESTORE_ROLLBACK,
+                environment=environment,
+                tenant_id=tenant_id
+            )
+        except ActionGuardError as guard_err:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=str(guard_err)
+            )
+
+        # Guard: Verify Git configuration
+        if not environment.get("git_repo_url") or not environment.get("git_pat"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Git repository configuration is required for revert"
+            )
+
+        # Idempotency: Check for existing active job
+        active_job = await background_job_service.get_active_job_for_resource(
+            resource_type="environment",
+            resource_id=environment_id,
+            tenant_id=tenant_id,
+            job_types=[BackgroundJobType.CANONICAL_REVERT, BackgroundJobType.CANONICAL_ENV_SYNC]
+        )
+        if active_job:
+            logger.info(f"Revert already in progress for environment {environment_id}: {active_job['id']}")
+            return {
+                "job_id": active_job["id"],
+                "status": "already_running",
+                "message": "Revert already in progress"
+            }
+
+        # Create background job
+        job = await background_job_service.create_job(
+            tenant_id=tenant_id,
+            job_type=BackgroundJobType.CANONICAL_REVERT,
+            resource_id=environment_id,
+            resource_type="environment",
+            created_by=user_id,
+            metadata={
+                "operation": "revert",
+                "environment_id": environment_id
+            }
+        )
+
+        if not job or not job.get("id"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create revert job"
+            )
+
+        # Audit log: Revert started
+        try:
+            await create_audit_log(
+                action_type=AuditActionType.ENVIRONMENT_REVERT_STARTED,
+                action=f"Started revert for environment",
+                tenant_id=tenant_id,
+                user_id=user_id,
+                resource_id=environment_id,
+                resource_type="environment",
+                metadata={
+                    "environment_name": environment.get("n8n_name", environment.get("name")),
+                    "environment_class": env_class,
+                    "job_id": job["id"]
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to create audit log: {str(audit_error)}")
+
+        # Enqueue background task
+        background_tasks.add_task(
+            _run_revert_environment_background,
+            job["id"],
+            tenant_id,
+            environment_id,
+            environment,
+            user_id
+        )
+
+        return {
+            "job_id": job["id"],
+            "status": "pending",
+            "message": "Revert job started"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start revert: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start revert: {str(e)}"
+        )
+
+
+async def _run_revert_environment_background(
+    job_id: str,
+    tenant_id: str,
+    environment_id: str,
+    environment: dict,
+    user_id: str
+):
+    """
+    Background task for revert operation.
+
+    Deploys approved state (from Git) to n8n runtime.
+    """
+    from app.services.github_service import GitHubService
+    from app.services.canonical_env_sync_service import CanonicalEnvSyncService
+    from app.services.drift_incident_service import drift_incident_service
+    import re
+
+    try:
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.RUNNING
+        )
+
+        # Phase 1: Load approved state
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="loading_approved_state",
+                current=0,
+                total=0,
+                message="Loading approved workflows...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit initial SSE event: {str(sse_err)}")
+
+        # Get linked workflows
+        mappings_result = db_service.client.table("workflow_env_map").select(
+            "canonical_id, n8n_workflow_id, status"
+        ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq(
+            "status", "linked"
+        ).not_.is_("canonical_id", "null").execute()
+
+        mappings = mappings_result.data or []
+        total_workflows = len(mappings)
+
+        if total_workflows == 0:
+            await background_job_service.update_job_status(
+                job_id=job_id,
+                status=BackgroundJobStatus.COMPLETED,
+                result={"message": "No linked workflows to revert", "workflows_deployed": 0}
+            )
+            return
+
+        # Get Git state
+        canonical_ids = [m["canonical_id"] for m in mappings if m.get("canonical_id")]
+        git_states_result = db_service.client.table("canonical_workflow_git_state").select(
+            "canonical_id, git_path, git_content_hash"
+        ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).in_(
+            "canonical_id", canonical_ids
+        ).execute()
+        git_states = {row["canonical_id"]: row for row in (git_states_result.data or [])}
+
+        # Get Git configuration
+        git_repo_url = environment.get("git_repo_url")
+        git_branch = environment.get("git_branch", "main")
+        git_pat = environment.get("git_pat")
+        git_folder = environment.get("git_folder") or environment.get("environment_class", "").lower()
+
+        match = re.match(r'https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$', git_repo_url)
+        if not match:
+            raise Exception(f"Invalid Git repo URL: {git_repo_url}")
+
+        repo_owner, repo_name = match.groups()
+        github = GitHubService(
+            token=git_pat,
+            repo_owner=repo_owner,
+            repo_name=repo_name,
+            branch=git_branch
+        )
+
+        # Get n8n client
+        from app.services.provider_registry import ProviderRegistry
+        config = {
+            "n8n_base_url": environment.get("base_url"),
+            "n8n_api_key": environment.get("api_key")
+        }
+        n8n = ProviderRegistry.get_adapter(provider="n8n", config=config)
+
+        # Phase 2: Deploy workflows
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="deploying_workflows",
+                current=0,
+                total=total_workflows,
+                message=f"Deploying {total_workflows} workflow(s) from approved state...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+
+        deployed_count = 0
+        failed_count = 0
+        errors = []
+
+        for idx, mapping in enumerate(mappings):
+            canonical_id = mapping.get("canonical_id")
+            n8n_workflow_id = mapping.get("n8n_workflow_id")
+
+            if not canonical_id or canonical_id not in git_states:
+                logger.warning(f"Revert: No Git state for canonical {canonical_id}, skipping")
+                failed_count += 1
+                continue
+
+            try:
+                # Read workflow from Git
+                workflow_data = await github.read_workflow_file(canonical_id, git_folder)
+                if not workflow_data:
+                    raise Exception(f"Workflow file not found in Git: {canonical_id}")
+
+                # Deploy to n8n
+                if n8n_workflow_id:
+                    await n8n.update_workflow(n8n_workflow_id, workflow_data)
+                else:
+                    created = await n8n.create_workflow(workflow_data)
+                    n8n_workflow_id = created.get("id")
+                    db_service.client.table("workflow_env_map").update({
+                        "n8n_workflow_id": n8n_workflow_id
+                    }).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq(
+                        "canonical_id", canonical_id
+                    ).execute()
+
+                deployed_count += 1
+
+                # Emit progress
+                try:
+                    await emit_sync_progress(
+                        job_id=job_id,
+                        environment_id=environment_id,
+                        status="running",
+                        current_step="deploying_workflows",
+                        current=deployed_count + failed_count,
+                        total=total_workflows,
+                        message=f"Deployed {deployed_count} / {total_workflows} workflows",
+                        tenant_id=tenant_id
+                    )
+                except Exception as sse_err:
+                    logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+
+            except Exception as deploy_err:
+                logger.warning(f"Revert: Failed to deploy workflow {canonical_id}: {deploy_err}", exc_info=True)
+                failed_count += 1
+                errors.append({"canonical_id": canonical_id, "error": str(deploy_err)})
+
+        # Phase 3: Refresh to verify state
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="verifying_state",
+                current=total_workflows,
+                total=total_workflows,
+                message="Verifying environment state...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+
+        # Refresh environment
+        try:
+            await CanonicalEnvSyncService.sync_environment(
+                tenant_id=tenant_id,
+                environment_id=environment_id,
+                environment=environment,
+                job_id=None,
+                checkpoint=None,
+                tenant_id_for_sse=None
+            )
+        except Exception as refresh_err:
+            logger.warning(f"Post-revert refresh failed: {str(refresh_err)}")
+
+        # Check if drift still exists
+        drift_result = db_service.client.table("workflow_diff_state").select(
+            "workflow_id"
+        ).eq("tenant_id", tenant_id).eq(
+            "source_environment_id", environment_id
+        ).eq("diff_status", "modified").execute()
+        remaining_drift = len(drift_result.data or [])
+
+        # Phase 4: Close incident if no drift remains (PROD only)
+        env_class = environment.get("environment_class", "").lower()
+        incident_closed = False
+        if env_class == "production" and remaining_drift == 0:
+            try:
+                active_incident = await drift_incident_service.get_active_incident_for_environment(
+                    tenant_id, environment_id
+                )
+                if active_incident:
+                    await drift_incident_service.close_incident(
+                        tenant_id=tenant_id,
+                        incident_id=active_incident["id"],
+                        user_id=user_id,
+                        reason="Reverted to approved state",
+                        resolution_type="revert"
+                    )
+                    incident_closed = True
+                    logger.info(f"Closed incident {active_incident['id']} after successful revert")
+            except Exception as close_err:
+                logger.warning(f"Failed to close incident after revert: {str(close_err)}")
+
+        # Update drift status
+        now = datetime.utcnow().isoformat()
+        drift_status = "DRIFT_DETECTED" if remaining_drift > 0 else "IN_SYNC"
+        try:
+            await db_service.update_environment(
+                environment_id,
+                tenant_id,
+                {
+                    "drift_status": drift_status,
+                    "last_drift_check_at": now
+                }
+            )
+        except Exception as update_err:
+            logger.warning(f"Failed to update drift status: {str(update_err)}")
+
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.COMPLETED,
+            result={
+                "message": "Revert completed",
+                "workflows_deployed": deployed_count,
+                "workflows_failed": failed_count,
+                "remaining_drift": remaining_drift,
+                "incident_closed": incident_closed,
+                "errors": errors
+            }
+        )
+
+        # Emit completion
+        completion_msg = f"Revert complete: {deployed_count} workflows deployed"
+        if remaining_drift > 0:
+            completion_msg += f" ({remaining_drift} still drifted)"
+        elif incident_closed:
+            completion_msg += ", incident resolved"
+
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="completed",
+                current_step="completed",
+                current=deployed_count,
+                total=total_workflows,
+                message=completion_msg,
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit completion SSE event: {str(sse_err)}")
+
+        logger.info(f"Revert completed for environment {environment_id}: {deployed_count} workflows deployed")
+
+    except Exception as e:
+        logger.error(f"Revert failed: {str(e)}", exc_info=True)
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.FAILED,
+            error_message=str(e)
+        )
+
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="failed",
+                current_step="failed",
+                current=0,
+                total=1,
+                message=f"Revert failed: {str(e)}",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
+
+
+@router.post("/{environment_id}/keep-hotfix")
+async def keep_hotfix_as_approved(
+    environment_id: str,
+    background_tasks: BackgroundTasks,
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("workflow_push"))
+):
+    """
+    Keep PROD hotfix as approved state (PROD only).
+
+    Accept runtime changes as the new approved state.
+    Optionally push to DEV based on tenant policy.
+
+    Behavior:
+    1. Refresh (snapshot runtime)
+    2. Write runtime to approved state (Git)
+    3. Refresh PROD again to verify sync
+    4. If no drift, resolve/close active incident
+    5. If policy = FORCE_UPDATE_DEV, deploy to DEV runtime
+       - DEV push failure does NOT reopen incident
+       - Failure is recorded and retryable
+
+    Constraints:
+    - Only available in PROD
+    - Requires active drift incident
+    - No per-incident prompts (policy-driven)
+
+    Returns:
+        Background job info with job_id and status
+    """
+    from app.services.drift_incident_service import drift_incident_service
+
+    try:
+        tenant_id = get_tenant_id(user_info)
+        user = user_info.get("user", {})
+        user_id = user.get("id", "00000000-0000-0000-0000-000000000000")
+
+        # Get environment
+        environment = await db_service.get_environment(environment_id, tenant_id)
+        if not environment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Environment not found"
+            )
+
+        # Guard: Verify PROD environment
+        env_class = environment.get("environment_class", "").lower()
+        if env_class != "production":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Keep hotfix operation is only allowed for PRODUCTION environments"
+            )
+
+        # Guard: Verify Git configuration
+        if not environment.get("git_repo_url") or not environment.get("git_pat"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Git repository configuration is required for keep hotfix"
+            )
+
+        # Verify active incident exists
+        active_incident = await drift_incident_service.get_active_incident_for_environment(
+            tenant_id, environment_id
+        )
+        if not active_incident:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No active drift incident found for this environment"
+            )
+
+        # Create background job
+        job = await background_job_service.create_job(
+            tenant_id=tenant_id,
+            job_type=BackgroundJobType.CANONICAL_KEEP_HOTFIX,
+            resource_id=environment_id,
+            resource_type="environment",
+            created_by=user_id,
+            metadata={
+                "operation": "keep_hotfix",
+                "environment_id": environment_id,
+                "incident_id": active_incident["id"]
+            }
+        )
+
+        if not job or not job.get("id"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create keep-hotfix job"
+            )
+
+        # Enqueue background task
+        background_tasks.add_task(
+            _run_keep_hotfix_background,
+            job["id"],
+            tenant_id,
+            environment_id,
+            environment,
+            active_incident["id"],
+            user_id
+        )
+
+        return {
+            "job_id": job["id"],
+            "status": "pending",
+            "message": "Keep hotfix job started"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start keep-hotfix: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start keep-hotfix: {str(e)}"
+        )
+
+
+async def _run_keep_hotfix_background(
+    job_id: str,
+    tenant_id: str,
+    environment_id: str,
+    environment: dict,
+    incident_id: str,
+    user_id: str
+):
+    """
+    Background task for keep-hotfix operation.
+
+    1. Refresh (snapshot runtime)
+    2. Write runtime to approved state (Git)
+    3. Refresh PROD again
+    4. If no drift, close incident
+    5. If policy FORCE_UPDATE_DEV, push to DEV
+    """
+    from app.services.canonical_env_sync_service import CanonicalEnvSyncService
+    from app.services.github_service import GitHubService
+    from app.services.drift_incident_service import drift_incident_service
+    from app.schemas.canonical_workflow import WorkflowMappingStatus
+    import re
+
+    try:
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.RUNNING
+        )
+
+        # Phase 1: Refresh (snapshot runtime)
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="refreshing_state",
+                current=0,
+                total=0,
+                message="Refreshing workflow state from PROD...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit initial SSE event: {str(sse_err)}")
+
+        results = await CanonicalEnvSyncService.sync_environment(
+            tenant_id=tenant_id,
+            environment_id=environment_id,
+            environment=environment,
+            job_id=job_id,
+            checkpoint=None,
+            tenant_id_for_sse=tenant_id
+        )
+
+        # Phase 2: Write runtime to approved state (Git)
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="persisting_hotfix",
+                current=0,
+                total=0,
+                message="Saving hotfix as approved state...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+
+        # Get Git configuration
+        git_repo_url = environment.get("git_repo_url")
+        git_branch = environment.get("git_branch", "main")
+        git_pat = environment.get("git_pat")
+        git_folder = environment.get("git_folder") or "prod"
+
+        match = re.match(r'https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$', git_repo_url)
+        if not match:
+            raise Exception(f"Invalid Git repo URL: {git_repo_url}")
+
+        repo_owner, repo_name = match.groups()
+        github = GitHubService(
+            token=git_pat,
+            repo_owner=repo_owner,
+            repo_name=repo_name,
+            branch=git_branch
+        )
+
+        # Get linked workflows
+        linked_workflows_result = db_service.client.table("workflow_env_map").select(
+            "canonical_id, env_content_hash, workflow_data, n8n_workflow_id, status"
+        ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).eq(
+            "status", WorkflowMappingStatus.LINKED.value
+        ).not_.is_("canonical_id", "null").execute()
+
+        workflows_to_commit = linked_workflows_result.data or []
+
+        # Get Git state
+        canonical_ids = [row["canonical_id"] for row in workflows_to_commit if row.get("canonical_id")]
+        git_hashes = {}
+        if canonical_ids:
+            git_state_result = db_service.client.table("canonical_workflow_git_state").select(
+                "canonical_id, git_content_hash"
+            ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).in_(
+                "canonical_id", canonical_ids
+            ).execute()
+            git_hashes = {row["canonical_id"]: row["git_content_hash"] for row in (git_state_result.data or [])}
+
+        # Commit changed workflows
+        committed_count = 0
+        total_to_commit = len([w for w in workflows_to_commit if w.get("env_content_hash") != git_hashes.get(w.get("canonical_id"))])
+
+        for wf in workflows_to_commit:
+            canonical_id = wf.get("canonical_id")
+            env_hash = wf.get("env_content_hash")
+            workflow_data = wf.get("workflow_data")
+
+            if not workflow_data or not env_hash or not canonical_id:
+                continue
+
+            # Only commit if hash changed
+            git_hash = git_hashes.get(canonical_id)
+            if env_hash == git_hash:
+                continue
+
+            try:
+                workflow_name = workflow_data.get("name", "Unknown")
+                await github.write_workflow_file(
+                    canonical_id=canonical_id,
+                    workflow_data=workflow_data,
+                    git_folder=git_folder,
+                    commit_message=f"hotfix(prod): keep {workflow_name}"
+                )
+
+                # Update git_state
+                git_path = f"workflows/{git_folder}/{canonical_id}.json"
+                db_service.client.table("canonical_workflow_git_state").upsert({
+                    "tenant_id": tenant_id,
+                    "environment_id": environment_id,
+                    "canonical_id": canonical_id,
+                    "git_path": git_path,
+                    "git_content_hash": env_hash,
+                    "last_repo_sync_at": datetime.utcnow().isoformat()
+                }, on_conflict="tenant_id,environment_id,canonical_id").execute()
+
+                committed_count += 1
+
+                # Emit progress
+                try:
+                    await emit_sync_progress(
+                        job_id=job_id,
+                        environment_id=environment_id,
+                        status="running",
+                        current_step="persisting_hotfix",
+                        current=committed_count,
+                        total=total_to_commit,
+                        message=f"{committed_count} / {total_to_commit} workflows saved",
+                        tenant_id=tenant_id
+                    )
+                except Exception as sse_err:
+                    logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+
+            except Exception as commit_err:
+                logger.warning(f"Failed to commit workflow {canonical_id}: {commit_err}", exc_info=True)
+
+        # Phase 3: Refresh PROD again to verify
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="running",
+                current_step="verifying_state",
+                current=0,
+                total=0,
+                message="Verifying environment state...",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+
+        await CanonicalEnvSyncService.sync_environment(
+            tenant_id=tenant_id,
+            environment_id=environment_id,
+            environment=environment,
+            job_id=None,
+            checkpoint=None,
+            tenant_id_for_sse=None
+        )
+
+        # Check remaining drift
+        drift_result = db_service.client.table("workflow_diff_state").select(
+            "workflow_id"
+        ).eq("tenant_id", tenant_id).eq(
+            "source_environment_id", environment_id
+        ).eq("diff_status", "modified").execute()
+        remaining_drift = len(drift_result.data or [])
+
+        # Phase 4: Close incident if no drift
+        incident_closed = False
+        if remaining_drift == 0:
+            try:
+                await drift_incident_service.close_incident(
+                    tenant_id=tenant_id,
+                    incident_id=incident_id,
+                    user_id=user_id,
+                    reason="Hotfix accepted as approved state",
+                    resolution_type="promote"
+                )
+                incident_closed = True
+                logger.info(f"Closed incident {incident_id} after keep-hotfix")
+            except Exception as close_err:
+                logger.warning(f"Failed to close incident: {str(close_err)}")
+
+        # Update drift status
+        now = datetime.utcnow().isoformat()
+        drift_status = "DRIFT_DETECTED" if remaining_drift > 0 else "IN_SYNC"
+        try:
+            await db_service.update_environment(
+                environment_id,
+                tenant_id,
+                {
+                    "drift_status": drift_status,
+                    "last_drift_check_at": now
+                }
+            )
+        except Exception as update_err:
+            logger.warning(f"Failed to update drift status: {str(update_err)}")
+
+        # Phase 5: Push to DEV if policy requires
+        drift_policy = await _get_drift_policy(tenant_id)
+        should_update_dev = drift_policy.get("prod_hotfix_keep_behavior") == "force_update_dev"
+
+        dev_update_result = None
+        if should_update_dev:
+            try:
+                await emit_sync_progress(
+                    job_id=job_id,
+                    environment_id=environment_id,
+                    status="running",
+                    current_step="updating_dev",
+                    current=0,
+                    total=0,
+                    message="Pushing approved state to DEV...",
+                    tenant_id=tenant_id
+                )
+            except Exception as sse_err:
+                logger.warning(f"Failed to emit SSE progress event: {str(sse_err)}")
+
+            # Find DEV environment
+            dev_env = await _find_dev_environment(tenant_id)
+            if dev_env:
+                dev_update_result = await _push_approved_state_to_dev(
+                    tenant_id=tenant_id,
+                    prod_environment=environment,
+                    dev_environment=dev_env,
+                    committed_canonical_ids=canonical_ids
+                )
+            else:
+                logger.warning(f"Keep hotfix: No DEV environment found for tenant {tenant_id}")
+                dev_update_result = {"success": False, "error": "No DEV environment found"}
+
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.COMPLETED,
+            result={
+                "message": "Keep hotfix completed",
+                "workflows_persisted": committed_count,
+                "remaining_drift": remaining_drift,
+                "incident_closed": incident_closed,
+                "dev_update_enabled": should_update_dev,
+                "dev_update_result": dev_update_result
+            }
+        )
+
+        # Emit completion
+        completion_msg = f"Hotfix kept: {committed_count} workflow(s) saved as approved"
+        if incident_closed:
+            completion_msg += ", incident resolved"
+        if should_update_dev:
+            if dev_update_result and dev_update_result.get("success"):
+                completion_msg += f", DEV updated ({dev_update_result.get('deployed_count', 0)} workflows)"
+            else:
+                completion_msg += ", DEV update failed (retryable)"
+
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="completed",
+                current_step="completed",
+                current=committed_count,
+                total=committed_count,
+                message=completion_msg,
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit completion SSE event: {str(sse_err)}")
+
+        logger.info(f"Keep hotfix completed for environment {environment_id}")
+
+    except Exception as e:
+        logger.error(f"Keep hotfix failed: {str(e)}", exc_info=True)
+        await background_job_service.update_job_status(
+            job_id=job_id,
+            status=BackgroundJobStatus.FAILED,
+            error_message=str(e)
+        )
+
+        try:
+            await emit_sync_progress(
+                job_id=job_id,
+                environment_id=environment_id,
+                status="failed",
+                current_step="failed",
+                current=0,
+                total=1,
+                message=f"Keep hotfix failed: {str(e)}",
+                tenant_id=tenant_id
+            )
+        except Exception as sse_err:
+            logger.warning(f"Failed to emit SSE failure event: {str(sse_err)}")
+
+
+async def _get_drift_policy(tenant_id: str) -> dict:
+    """Get drift policy for tenant with defaults."""
+    try:
+        response = db_service.client.table("drift_policies").select(
+            "*"
+        ).eq("tenant_id", tenant_id).single().execute()
+        return response.data or {"prod_hotfix_keep_behavior": "force_update_dev"}
+    except Exception:
+        return {"prod_hotfix_keep_behavior": "force_update_dev"}
+
+
+async def _find_dev_environment(tenant_id: str) -> dict | None:
+    """Find DEV environment for tenant."""
+    try:
+        response = db_service.client.table("environments").select(
+            "*"
+        ).eq("tenant_id", tenant_id).ilike("environment_class", "dev").limit(1).execute()
+        return response.data[0] if response.data else None
+    except Exception:
+        return None
+
+
+async def _push_approved_state_to_dev(
+    tenant_id: str,
+    prod_environment: dict,
+    dev_environment: dict,
+    committed_canonical_ids: list
+) -> dict:
+    """
+    Push approved state from PROD to DEV runtime.
+
+    DEV push failure does NOT fail the overall keep-hotfix operation.
+    Failures are recorded for later retry.
+    """
+    from app.services.github_service import GitHubService
+    from app.services.provider_registry import ProviderRegistry
+    import re
+
+    dev_environment_id = dev_environment.get("id")
+
+    try:
+        # Get DEV Git configuration
+        git_repo_url = dev_environment.get("git_repo_url")
+        git_pat = dev_environment.get("git_pat")
+        git_branch = dev_environment.get("git_branch", "main")
+        prod_git_folder = prod_environment.get("git_folder") or "prod"
+
+        if not git_repo_url or not git_pat:
+            return {"success": False, "error": "DEV Git not configured"}
+
+        match = re.match(r'https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$', git_repo_url)
+        if not match:
+            return {"success": False, "error": f"Invalid DEV Git repo URL: {git_repo_url}"}
+
+        repo_owner, repo_name = match.groups()
+        github = GitHubService(
+            token=git_pat,
+            repo_owner=repo_owner,
+            repo_name=repo_name,
+            branch=git_branch
+        )
+
+        # Get DEV n8n client
+        config = {
+            "n8n_base_url": dev_environment.get("base_url"),
+            "n8n_api_key": dev_environment.get("api_key")
+        }
+        dev_n8n = ProviderRegistry.get_adapter(provider="n8n", config=config)
+
+        # Get DEV mappings
+        dev_mappings_result = db_service.client.table("workflow_env_map").select(
+            "canonical_id, n8n_workflow_id, status"
+        ).eq("tenant_id", tenant_id).eq("environment_id", dev_environment_id).in_(
+            "canonical_id", committed_canonical_ids
+        ).execute()
+        dev_mappings = {m["canonical_id"]: m for m in (dev_mappings_result.data or [])}
+
+        deployed_count = 0
+        failed_count = 0
+        errors = []
+
+        for canonical_id in committed_canonical_ids:
+            try:
+                # Read workflow from PROD Git folder
+                workflow_data = await github.read_workflow_file(canonical_id, prod_git_folder)
+                if not workflow_data:
+                    raise Exception(f"Workflow not found in Git: {canonical_id}")
+
+                # Get DEV n8n_workflow_id if exists
+                dev_mapping = dev_mappings.get(canonical_id, {})
+                dev_n8n_workflow_id = dev_mapping.get("n8n_workflow_id")
+
+                # Deploy to DEV
+                if dev_n8n_workflow_id:
+                    await dev_n8n.update_workflow(dev_n8n_workflow_id, workflow_data)
+                else:
+                    created = await dev_n8n.create_workflow(workflow_data)
+                    dev_n8n_workflow_id = created.get("id")
+                    # Create mapping
+                    db_service.client.table("workflow_env_map").upsert({
+                        "tenant_id": tenant_id,
+                        "environment_id": dev_environment_id,
+                        "canonical_id": canonical_id,
+                        "n8n_workflow_id": dev_n8n_workflow_id,
+                        "status": "linked"
+                    }, on_conflict="tenant_id,environment_id,canonical_id").execute()
+
+                deployed_count += 1
+
+            except Exception as deploy_err:
+                logger.warning(f"Failed to deploy {canonical_id} to DEV: {deploy_err}", exc_info=True)
+                failed_count += 1
+                errors.append({"canonical_id": canonical_id, "error": str(deploy_err)})
+
+        return {
+            "success": failed_count == 0,
+            "deployed_count": deployed_count,
+            "failed_count": failed_count,
+            "errors": errors
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to push approved state to DEV: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e)}

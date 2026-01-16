@@ -101,7 +101,7 @@ Port configuration is in `.env.local` (root) and should not be modified without 
 - **Health Monitoring**: Automated health checks with heartbeat tracking for environments
 - **Service Recovery**: Automatic detection and handling of backend connectivity issues
 - **Bulk Operations**: Batch sync, backup, and restore across multiple environments
-- **Untracked Workflows**: Detection and management of workflows not in canonical system
+- **Git-Based Promotions**: Target-ownership snapshot system for DEV→STAGING→PROD workflow promotion
 - **Workflow Matrix**: Cross-environment workflow status overview
 - **Execution Analytics**: Advanced execution metrics and performance insights
 - **Credential Health**: Monitoring and tracking of credential status across environments
@@ -124,17 +124,17 @@ n8n-ops/
 │   ├── CLAUDE.md                # Backend-specific docs
 │   ├── app/
 │   │   ├── main.py              # App entry, router registration
-│   │   ├── api/endpoints/       # 50+ API routers
-│   │   ├── services/            # 44+ business logic services
-│   │   ├── schemas/             # 26+ Pydantic model files
+│   │   ├── api/endpoints/       # 51 API routers
+│   │   ├── services/            # 63 business logic services
+│   │   ├── schemas/             # 28 Pydantic model files
 │   │   └── core/                # Config, feature gates
 │   ├── alembic/                 # Alembic migrations
 │   ├── migrations/              # SQL migrations
-│   └── tests/                   # 49+ pytest test files
+│   └── tests/                   # 74 pytest test files
 ├── app-front/                  # React frontend
 │   ├── CLAUDE.md                # Frontend-specific docs
 │   └── src/
-│       ├── pages/               # 62+ pages (core + support + admin)
+│       ├── pages/               # 66+ pages (core + support + admin)
 │       ├── components/          # UI, workflow, pipeline components
 │       ├── hooks/               # Custom React hooks
 │       ├── lib/                 # API client, auth, features
@@ -194,39 +194,3 @@ cd app-front && npm run lint                   # Lint check
 - Frontend docs: `app-front/CLAUDE.md`
 - API docs: `http://localhost:4000/docs`
 - [FastAPI](https://fastapi.tiangolo.com/) | [N8N API](https://docs.n8n.io/api/) | [Supabase](https://supabase.com/docs) | [TanStack Query](https://tanstack.com/query) | [shadcn/ui](https://ui.shadcn.com/)
-
----
-
-## Active Instruction Context: Unqork Documentation Crawling
-
-> **When working on Unqork docs.unqork.io crawling diagnostics, use `rnd/rnd.md` as the active instruction file.**
-
-### Scope
-
-The `rnd/rnd.md` file contains specialized guidance for diagnosing and debugging documentation crawling issues specific to `docs.unqork.io`. This includes:
-
-- Debug playbook and practical checklist
-- Edge case handling (404 pages, WAF/bot-challenge detection)
-- Classification verification (NOT_FOUND, AUTH_REQUIRED, BLOCKED, RATE_LIMITED)
-- Incremental crawling and anti-bot hygiene rules
-- Output contract recommendations
-
-### Constraints (Diagnostic-Only Mode)
-
-When `rnd.md` is the active context, the following constraints apply:
-
-- **No new URL discovery** — Work only with known/provided URLs
-- **No URL guessing** — Do not infer or construct URLs
-- **Diagnostic-only mode** — Focus on analyzing and debugging existing crawl results
-
-### Supporting Documents
-
-| Document | Purpose |
-|----------|---------|
-| `rnd/rnd.md` | Active instruction file — debug playbook and edge cases |
-| `rnd/1_extract.md` | Extraction rules and content processing guidelines |
-| `rnd/2_reconcile.md` | Reconciliation rules for comparing crawl results |
-
-### Usage
-
-For Unqork crawling diagnostic sessions, reference `rnd/rnd.md` first. The core N8N Ops platform instructions above remain applicable for all other development work.

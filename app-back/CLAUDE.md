@@ -146,12 +146,25 @@ All endpoints prefixed with `/api/v1`.
 | POST | `/backup` | Bulk backup to Git |
 | POST | `/restore` | Bulk restore from snapshots |
 
-### Untracked Workflows (`/untracked-workflows`)
+### Git Promotions (`/git-promotions`) - NEW
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/` | List workflows not in canonical system |
-| POST | `/onboard` | Onboard untracked workflows |
-| DELETE | `/{id}` | Remove untracked workflow |
+| POST | `/initiate` | Initiate Git-based promotion (DEV→STAGING or STAGING→PROD) |
+| POST | `/{id}/approve` | Approve pending promotion (PROD targets) |
+| POST | `/{id}/reject` | Reject pending promotion |
+| GET | `/{id}` | Get promotion details |
+| GET | `/` | List promotions with filtering |
+| POST | `/rollback/initiate` | Initiate rollback to previous snapshot |
+| POST | `/rollback/{id}/approve` | Approve pending rollback (PROD) |
+| POST | `/rollback/{id}/reject` | Reject pending rollback |
+| GET | `/environments/{id}/snapshots` | List available snapshots for rollback |
+| GET | `/environments/{id}/current` | Get current snapshot info |
+| POST | `/backup/create` | Create backup snapshot (no pointer update) |
+| GET | `/backups` | List backup records |
+
+### Untracked Workflows - DEPRECATED
+> **Note:** Untracked Workflows endpoint removed. Replaced by Git-based snapshot system.
+> Environments are now either NEW (no `current.json`) or onboarded (managed by git-promotions).
 
 ### Workflow Matrix (`/workflow-matrix`)
 | Method | Endpoint | Description |
@@ -199,6 +212,14 @@ All endpoints prefixed with `/api/v1`.
 | `admin_credentials` | `/admin/credentials` | Credential health monitoring |
 | `admin_retention` | `/admin/retention` | Drift data retention management |
 
+### Platform Admin Endpoints (Super Admin)
+| Router | Prefix | Description |
+|--------|--------|-------------|
+| `platform_admins` | `/platform/admins` | Platform admin user management |
+| `platform_impersonation` | `/platform/impersonation` | Tenant impersonation for support |
+| `platform_console` | `/platform/console` | Platform-wide console operations |
+| `platform_overview` | `/platform/overview` | Platform-wide statistics and metrics |
+
 ## Services
 
 | File | Purpose |
@@ -232,12 +253,17 @@ All endpoints prefixed with `/api/v1`.
 | `environment_action_guard.py` | Policy-based action validation per environment |
 | `canonical_repo_sync_service.py` | Repository synchronization for canonical workflows |
 | `canonical_env_sync_service.py` | Environment synchronization for canonical workflows |
+| `canonical_onboarding_service.py` | Onboarding environments to canonical workflow system |
 | `canonical_reconciliation_service.py` | Reconciliation between Git and environment state |
 | `canonical_sync_scheduler.py` | Scheduled canonical workflow sync operations |
+| `canonical_workflow_service.py` | Core canonical workflow operations and state management |
 | `health_check_scheduler.py` | Periodic health checks for active environments |
 | `bulk_workflow_service.py` | Batch operations for sync, backup, restore |
-| `untracked_workflows_service.py` | Detection of workflows outside canonical system |
+| `untracked_workflows_service.py` | Detection of workflows outside canonical system (DEPRECATED) |
 | `promotion_validation_service.py` | Pre-promotion validation and rollback state |
+| `git_promotion_service.py` | Git-based promotion flow with target-ownership model |
+| `git_snapshot_service.py` | Core snapshot operations, hash computation, verification |
+| `onboarding_service.py` | Environment onboarding to Git snapshot system |
 
 ## Schemas (Pydantic Models)
 
@@ -267,7 +293,8 @@ All endpoints prefixed with `/api/v1`.
 | `background_job.py` | `BackgroundJobResponse`, `BackgroundJobCreate` |
 | `canonical_workflow.py` | `CanonicalWorkflowGitState`, `WorkflowEnvMap` |
 | `bulk_operations.py` | `BulkSyncRequest`, `BulkOperationResponse` |
-| `untracked_workflow.py` | `UntrackedWorkflow`, `OnboardRequest` |
+| `untracked_workflow.py` | `UntrackedWorkflow`, `OnboardRequest` (DEPRECATED) |
+| `snapshot_manifest.py` | `SnapshotManifest`, `SnapshotKind`, `WorkflowFileEntry`, `EnvironmentPointer` |
 
 ## Database Tables
 

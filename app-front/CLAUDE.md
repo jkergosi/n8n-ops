@@ -64,12 +64,21 @@ User starts the frontend with: `npm run dev`
 | Page | Route | Description |
 |------|-------|-------------|
 | `CanonicalWorkflowsPage` | `/canonical-workflows` | Canonical workflow management |
+| `CanonicalOnboardingPage` | `/canonical-onboarding` | Onboard environments to canonical system |
+| `WorkflowMappingsPage` | `/workflow-mappings` | View workflow-to-environment mappings |
+| `UnmappedWorkflowsPage` | `/unmapped-workflows` | Workflows not mapped in canonical system |
 
 ### Activity Center
 | Page | Route | Description |
 |------|-------|-------------|
 | `ActivityCenterPage` | `/activity` | Unified activity feed |
-| `ActivityDetailPage` | `/activity/:id` | Activity item details |
+| `ActivityDetailPage` | `/activity/:id` | Activity item details with logs |
+
+### Promotion & Diff
+| Page | Route | Description |
+|------|-------|-------------|
+| `PromotePage` | `/promote` | Git-based workflow promotion interface |
+| `DiffStatesPage` | `/diff-states` | Compare environment states side-by-side |
 
 ### Team & Admin
 | Page | Route | Description |
@@ -82,7 +91,6 @@ User starts the frontend with: `npm run dev`
 | `ObservabilityPage` | `/observability` | Health monitoring |
 | `ExecutionAnalyticsPage` | `/execution-analytics` | Execution analytics and metrics |
 | `WorkflowsOverviewPage` | `/workflows-overview` | Cross-environment workflow matrix |
-| `UntrackedWorkflowsPage` | `/untracked-workflows` | Workflows not in canonical system |
 | `AlertsPage` | `/alerts` | Alert configuration |
 | `LoginPage` | `/login` | User authentication |
 | `OnboardingPage` | `/onboarding` | New user setup |
@@ -99,8 +107,11 @@ User starts the frontend with: `npm run dev`
 ### Admin Pages (`/admin/*`)
 | Page | Route | Description |
 |------|-------|-------------|
+| `AdminDashboardPage` | `/admin` | Admin dashboard overview |
 | `TenantsPage` | `/admin/tenants` | Multi-tenant admin |
 | `TenantDetailPage` | `/admin/tenants/:id` | Individual tenant management |
+| `TenantSettingsPage` | `/admin/tenants/:id/settings` | Tenant-specific settings |
+| `TenantProvidersPage` | `/admin/tenants/:id/providers` | Tenant provider subscriptions |
 | `SystemBillingPage` | `/admin/billing` | System billing |
 | `PlansPage` | `/admin/plans` | Subscription plans |
 | `UsagePage` | `/admin/usage` | Usage statistics |
@@ -113,8 +124,10 @@ User starts the frontend with: `npm run dev`
 | `TenantOverridesPage` | `/admin/tenant-overrides` | Per-tenant feature overrides |
 | `EntitlementsAuditPage` | `/admin/entitlements-audit` | Entitlement change history |
 | `SupportConfigPage` | `/admin/support-config` | Support system settings |
+| `SupportRequestsPage` | `/admin/support-requests` | View and manage support requests |
 | `CredentialHealthPage` | `/admin/credential-health` | Credential monitoring |
 | `DriftPoliciesPage` | `/admin/drift-policies` | Drift detection policy config |
+| `RetentionSettingsPage` | `/admin/retention` | Data retention settings |
 
 ## State Management
 
@@ -182,12 +195,17 @@ await apiClient.bulkSync(environmentIds);
 await apiClient.bulkBackup(environmentIds);
 await apiClient.bulkRestore(snapshotIds);
 
-// Untracked Workflows
-await apiClient.getUntrackedWorkflows();
-await apiClient.onboardUntrackedWorkflows(workflowIds);
-
 // Workflow Matrix
 await apiClient.getWorkflowMatrix();
+
+// Git Promotions
+await apiClient.initiateGitPromotion(sourceEnvId, targetEnvId, workflowIds);
+await apiClient.approveGitPromotion(promotionId);
+await apiClient.rejectGitPromotion(promotionId);
+await apiClient.getGitPromotions(params);
+await apiClient.getGitPromotion(promotionId);
+await apiClient.getEnvironmentSnapshots(environmentId);
+await apiClient.getCurrentSnapshot(environmentId);
 
 // Execution Analytics
 await apiClient.getExecutionAnalytics(params);

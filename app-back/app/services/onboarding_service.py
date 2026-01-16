@@ -121,7 +121,7 @@ class OnboardingService:
             ValueError: If environment not found or not configured
         """
         # Check if already onboarded (idempotent)
-        is_onboarded = await git_snapshot_service.is_env_onboarded(tenant_id, env_id)
+        is_onboarded, _ = await git_snapshot_service.is_env_onboarded(tenant_id, env_id)
         if is_onboarded:
             logger.info(f"Environment {env_id} is already onboarded")
             return OnboardingResult(

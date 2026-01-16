@@ -73,7 +73,7 @@ export function WorkflowsOverviewPage() {
       const syncResponse = await apiClient.syncEnvironment(environmentId);
       const jobId = syncResponse.data.job_id;
 
-      toast.info(`Syncing ${environmentName}...`);
+      toast.info(`Refreshing ${environmentName}...`);
 
       // Poll for job completion with exponential backoff
       let completed = false;
@@ -93,11 +93,11 @@ export function WorkflowsOverviewPage() {
 
           if (status === 'completed' || status === 'success') {
             completed = true;
-            toast.success(`Sync completed for ${environmentName}`);
+            toast.success(`Refresh completed for ${environmentName}`);
           } else if (status === 'failed' || status === 'error') {
             completed = true;
-            const errorMessage = jobStatus.data.error_message || 'Sync failed';
-            toast.error(`Sync failed for ${environmentName}: ${errorMessage}`);
+            const errorMessage = jobStatus.data.error_message || 'Refresh failed';
+            toast.error(`Refresh failed for ${environmentName}: ${errorMessage}`);
           }
           // If status is 'pending' or 'running', continue polling with backoff
           delay = Math.min(delay * backoffFactor, maxDelay);
@@ -109,14 +109,14 @@ export function WorkflowsOverviewPage() {
       }
 
       if (!completed) {
-        toast.warning(`Sync for ${environmentName} is taking longer than expected. Refreshing matrix...`);
+        toast.warning(`Refresh for ${environmentName} is taking longer than expected. Refreshing matrix...`);
       }
 
       // Reload the entire matrix after sync completes
       await loadMatrix();
     } catch (error: any) {
       const message = error?.response?.data?.detail || error?.message || 'Unknown error';
-      toast.error(`Failed to sync ${environmentName}: ${message}`);
+      toast.error(`Failed to refresh ${environmentName}: ${message}`);
       console.error('Sync error:', error);
     } finally {
       // Remove environment from syncing set
@@ -326,7 +326,7 @@ export function WorkflowsOverviewPage() {
                                           Syncing...
                                         </>
                                       ) : (
-                                        'Sync'
+                                        'Refresh'
                                       )}
                                     </Button>
                                   )}

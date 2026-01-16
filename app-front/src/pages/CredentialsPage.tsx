@@ -56,14 +56,13 @@ import {
   Search, AlertCircle, RefreshCw, Key, Download, ArrowUpDown, ArrowUp, ArrowDown,
   ExternalLink, Plus, MoreHorizontal, Pencil, Trash2, Eye, EyeOff, Info, Grid3X3, ShieldCheck, Loader2
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { EnvironmentType, Credential, Environment } from '@/types';
 import { toast } from 'sonner';
 import { getDefaultEnvironmentId, resolveEnvironment, sortEnvironments } from '@/lib/environment-utils';
 import { formatNodeType } from '@/lib/workflow-analysis';
 import { CredentialMatrix, CredentialDiscovery, MappingHealthCheck } from '@/components/credentials';
 import { useFeatures } from '@/lib/features';
-import { useNavigate } from 'react-router-dom';
 
 type SortField = 'name' | 'type' | 'environment' | 'workflows';
 type SortDirection = 'asc' | 'desc';
@@ -147,6 +146,7 @@ export function CredentialsPage() {
   const queryClient = useQueryClient();
   const { planName } = useFeatures();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebounce(searchQuery, 300);
@@ -181,6 +181,24 @@ export function CredentialsPage() {
     queryKey: ['environments'],
     queryFn: () => apiClient.getEnvironments(),
   });
+
+  // Get available environments (filtered and sorted)
+  const availableEnvironments = useMemo(() => {
+    if (!environments?.data) return [];
+    return sortEnvironments(environments.data.filter((env: Environment) => env.isActive));
+  }, [environments]);
+
+  // Read env_id URL parameter on mount and set selected environment
+  useEffect(() => {
+    const envIdParam = searchParams.get('env_id');
+    if (envIdParam && availableEnvironments.length > 0) {
+      // Check if the env_id from URL exists in available environments
+      const envExists = availableEnvironments.some(env => env.id === envIdParam);
+      if (envExists && selectedEnvironment !== envIdParam) {
+        setSelectedEnvironment(envIdParam as EnvironmentType);
+      }
+    }
+  }, [searchParams, availableEnvironments, selectedEnvironment, setSelectedEnvironment]);
 
   // Get the selected environment ID (handle type vs id selection)
   const selectedEnvId = useMemo(() => {
@@ -309,19 +327,19 @@ export function CredentialsPage() {
     onSuccess: (results) => {
       setIsSyncing(false);
       const total = results.reduce((sum, r) => sum + (r.synced || 0), 0);
-      toast.success(`Synced ${total} credentials from N8N`);
+      toast.success(`Refreshed ${total} credentials from N8N`);
       // Invalidate the live credentials query to refetch
       queryClient.invalidateQueries({ queryKey: ['physical-credentials'] });
     },
     onError: (error: any) => {
       setIsSyncing(false);
-      const message = error.response?.data?.detail || 'Failed to sync from N8N';
+      const message = error.response?.data?.detail || 'Failed to refresh from N8N';
       toast.error(message);
     },
   });
 
   const handleSyncFromN8N = () => {
-    toast.info('Syncing credentials from N8N...');
+    toast.info('Refreshing credentials from N8N...');
     setIsSyncing(true);
     syncMutation.mutate();
   };
@@ -675,7 +693,19 @@ export function CredentialsPage() {
 
             <select
               value={selectedEnvId || 'all'}
-              onChange={(e) => setSelectedEnvironment(e.target.value as EnvironmentType)}
+              onChange={(e) => {
+                const newEnvId = e.target.value as EnvironmentType;
+                setSelectedEnvironment(newEnvId);
+
+                // Sync selection to URL env_id param
+                const newSearchParams = new URLSearchParams(searchParams);
+                if (newEnvId && newEnvId !== 'all') {
+                  newSearchParams.set('env_id', newEnvId);
+                } else {
+                  newSearchParams.delete('env_id');
+                }
+                setSearchParams(newSearchParams, { replace: true });
+              }}
               className="flex h-9 w-[180px] rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <option value="all" className="bg-background text-foreground">All Environments</option>

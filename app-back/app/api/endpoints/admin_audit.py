@@ -257,6 +257,8 @@ async def get_audit_logs(
     provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, platform (NULL), or all"),
     impersonation_session_id: Optional[str] = Query(None, description="Filter by impersonation session ID"),
     impersonated_user_id: Optional[str] = Query(None, description="Filter by impersonated user ID"),
+    environment_id: Optional[str] = Query(None, description="Filter by environment ID"),
+    env_id: Optional[str] = Query(None, description="Filter by environment ID (alias for environment_id)"),
     search: Optional[str] = Query(None, description="Search in action, resource_name"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
@@ -269,8 +271,15 @@ async def get_audit_logs(
     - make: Show only Make.com provider actions
     - platform: Show only platform-scoped actions (provider IS NULL)
     - all (or omit): Show all entries
+
+    Supports both env_id and environment_id parameters for flexibility.
+    env_id takes precedence if both are provided.
     """
     try:
+        # Prefer env_id over environment_id for backward compatibility
+        # This allows the API to accept both parameter names
+        effective_env_id = env_id or environment_id
+
         # Build query
         query = db_service.client.table("audit_logs").select("*", count="exact")
 
@@ -287,6 +296,24 @@ async def get_audit_logs(
             query = query.eq("tenant_id", tenant_id)
         if resource_type:
             query = query.eq("resource_type", resource_type)
+
+        # Environment filter
+        # Filter audit logs related to a specific environment by checking:
+        # 1. Direct environment resource (resource_type='environment' AND resource_id=env_id)
+        # 2. Deployment-related actions (old_value or new_value contains source_environment_id or target_environment_id)
+        # 3. Environment-scoped actions (metadata contains environment_id)
+        if effective_env_id:
+            # Build OR conditions for environment filtering
+            # Note: Supabase PostgREST uses @> for JSONB containment
+            env_conditions = [
+                f"and(resource_type.eq.environment,resource_id.eq.{effective_env_id})",
+                f"old_value->>source_environment_id.eq.{effective_env_id}",
+                f"old_value->>target_environment_id.eq.{effective_env_id}",
+                f"new_value->>source_environment_id.eq.{effective_env_id}",
+                f"new_value->>target_environment_id.eq.{effective_env_id}",
+                f"metadata->>environment_id.eq.{effective_env_id}",
+            ]
+            query = query.or_(",".join(env_conditions))
 
         # Provider filter
         if provider and provider != "all":
@@ -373,10 +400,19 @@ async def export_audit_logs(
     action_type: Optional[str] = Query(None),
     tenant_id: Optional[str] = Query(None),
     provider: Optional[str] = Query(None, description="Filter by provider: n8n, make, platform, or all"),
+    environment_id: Optional[str] = Query(None, description="Filter by environment ID"),
+    env_id: Optional[str] = Query(None, description="Filter by environment ID (alias for environment_id)"),
     _: dict = Depends(require_platform_admin()),
 ):
-    """Export audit logs as JSON (for CSV conversion on frontend)."""
+    """Export audit logs as JSON (for CSV conversion on frontend).
+
+    Supports both env_id and environment_id parameters for flexibility.
+    env_id takes precedence if both are provided.
+    """
     try:
+        # Prefer env_id over environment_id for backward compatibility
+        effective_env_id = env_id or environment_id
+
         query = db_service.client.table("audit_logs").select("*")
 
         if start_date:
@@ -387,6 +423,23 @@ async def export_audit_logs(
             query = query.eq("action_type", action_type)
         if tenant_id:
             query = query.eq("tenant_id", tenant_id)
+
+        # Environment filter
+        # Filter audit logs related to a specific environment by checking:
+        # 1. Direct environment resource (resource_type='environment' AND resource_id=env_id)
+        # 2. Deployment-related actions (old_value or new_value contains source_environment_id or target_environment_id)
+        # 3. Environment-scoped actions (metadata contains environment_id)
+        if effective_env_id:
+            # Build OR conditions for environment filtering
+            env_conditions = [
+                f"and(resource_type.eq.environment,resource_id.eq.{effective_env_id})",
+                f"old_value->>source_environment_id.eq.{effective_env_id}",
+                f"old_value->>target_environment_id.eq.{effective_env_id}",
+                f"new_value->>source_environment_id.eq.{effective_env_id}",
+                f"new_value->>target_environment_id.eq.{effective_env_id}",
+                f"metadata->>environment_id.eq.{effective_env_id}",
+            ]
+            query = query.or_(",".join(env_conditions))
 
         # Provider filter
         if provider and provider != "all":

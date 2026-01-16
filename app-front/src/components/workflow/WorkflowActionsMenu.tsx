@@ -58,7 +58,8 @@ export function WorkflowActionsMenu({
 
   const isDevEnvironment = environment?.environmentClass?.toLowerCase() === 'dev';
   const hasDrift = workflow.syncStatus === 'local_changes' || workflow.syncStatus === 'conflict';
-  const hasActiveIncident = environment?.driftStatus === 'DRIFT_INCIDENT_ACTIVE';
+  // Check for active drift incident using activeDriftIncidentId (the actual indicator)
+  const hasActiveIncident = Boolean(environment?.activeDriftIncidentId);
 
   return (
     <DropdownMenu>

@@ -79,7 +79,7 @@ export function DashboardPage() {
       title: 'Recent Executions',
       value: totalExecutions,
       icon: Activity,
-      description: 'In the last sync',
+      description: 'In the last refresh',
     },
     {
       title: 'Environments',
@@ -131,11 +131,11 @@ export function DashboardPage() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">2. Sync Workflows</CardTitle>
+              <CardTitle className="text-lg">2. Refresh Workflows</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                Your workflows will be automatically synced and available for management.
+                Your workflows will be automatically refreshed and available for management.
               </p>
             </CardContent>
           </Card>
@@ -272,7 +272,7 @@ export function DashboardPage() {
                     icon: envCount === 0 ? Plus : Workflow,
                   };
                   const secondary = [
-                    { label: 'Sync Workflows', href: '/workflows', icon: Workflow },
+                    { label: 'Refresh Workflows', href: '/workflows', icon: Workflow },
                     { label: 'View Executions', href: '/executions', icon: Activity },
                   ];
                   

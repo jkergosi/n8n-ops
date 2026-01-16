@@ -161,7 +161,7 @@ export function LoadingStatesDemo() {
                 <div className="space-y-4">
                   <LoadingState resource="data" inline />
                   <LoadingSpinner size="sm" label="Processing..." />
-                  <LoadingSpinner size="md" label="Syncing changes..." />
+                  <LoadingSpinner size="md" label="Refreshing changes..." />
                 </div>
               </div>
             </CardContent>
@@ -175,7 +175,7 @@ export function LoadingStatesDemo() {
             <CardContent>
               <div className="max-w-md mx-auto">
                 <MultiStepLoading
-                  title="Synchronizing Environment"
+                  title="Refreshing Environment"
                   steps={multiStepSteps}
                 />
                 <Button
@@ -302,7 +302,7 @@ export function LoadingStatesDemo() {
               </div>
 
               <CancellableOperation
-                title="Syncing 47 Workflows"
+                title="Refreshing 47 Workflows"
                 description="Synchronizing workflows from production environment"
                 status={operationStatus}
                 progress={operationProgress}

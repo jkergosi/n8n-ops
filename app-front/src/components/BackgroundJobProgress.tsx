@@ -39,7 +39,7 @@ export function BackgroundJobProgress({
   const getJobTypeLabel = () => {
     switch (jobType) {
       case 'sync':
-        return 'Environment Sync';
+        return 'Environment Refresh';
       case 'backup':
         return 'GitHub Backup';
       case 'restore':

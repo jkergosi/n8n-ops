@@ -1,9 +1,13 @@
 # 04 - Canonical Workflow System
 
+> **Terminology Note:** This document uses internal technical terminology. For user-facing terms, see `14_terminology_and_rules.md`:
+> - **User-facing:** "Source-Managed Workflow" = **Internal:** "Canonical Workflow"
+> - **User-facing:** "Unmanaged Workflow" = **Internal:** "Unmapped Workflow"
+
 ## Canonical Model & Mapping Logic
 
 ### Core Concept
-- **Canonical Workflow**: Git-backed "source of truth" for a workflow across all environments
+- **Canonical Workflow** (internal) / **Source-Managed Workflow** (user-facing): Git-backed "source of truth" for a workflow across all environments
 - **workflow_env_map**: Junction table mapping canonical workflows to specific environment instances
 
 ### Tables
@@ -43,8 +47,8 @@
 ```python
 class WorkflowMappingStatus(str, Enum):
     LINKED = "linked"       # Has canonical_id, tracked
-    UNTRACKED = "untracked" # No canonical_id, needs onboarding
-    MISSING = "missing"     # Was linked/untracked, now gone from n8n
+    UNMAPPED = "unmapped" # No canonical_id, needs onboarding
+    MISSING = "missing"     # Was linked/unmapped, now gone from n8n
     IGNORED = "ignored"     # Explicitly ignored by user
     DELETED = "deleted"     # Soft-deleted
 ```
@@ -55,17 +59,17 @@ class WorkflowMappingStatus(str, Enum):
 1. **DELETED** - Highest precedence (once deleted, stays deleted)
 2. **IGNORED** - User-explicit ignore overrides system states
 3. **MISSING** - If workflow disappears from n8n during sync
-4. **UNTRACKED** - If no canonical_id (not mapped)
+4. **UNMAPPED** - If no canonical_id (not mapped)
 5. **LINKED** - Default operational state (has canonical_id + n8n_workflow_id)
 
 ### State Transitions
 
 **File**: `services/canonical_env_sync_service.py:sync_environment()`
 
-- New workflow detected → UNTRACKED (if no match) or LINKED (if auto-linked)
-- User links untracked → UNTRACKED → LINKED
-- Workflow disappears from n8n → LINKED/UNTRACKED → MISSING
-- Missing workflow reappears → MISSING → LINKED or UNTRACKED
+- New workflow detected → UNMAPPED (if no match) or LINKED (if auto-linked)
+- User links unmapped → UNMAPPED → LINKED
+- Workflow disappears from n8n → LINKED/UNMAPPED → MISSING
+- Missing workflow reappears → MISSING → LINKED or UNMAPPED
 - User marks as ignored → any state → IGNORED
 - Workflow deleted → any state → DELETED
 
@@ -78,27 +82,26 @@ class WorkflowMappingStatus(str, Enum):
 
 ---
 
-## Untracked Detection & Onboarding Flow
+## Unmapped Detection & Onboarding Flow
 
-### Untracked Detection
+> **Note:** The dedicated `untracked_workflows_service.py` and `/canonical/untracked` endpoint have been **deprecated and removed**. Unmapped workflow detection is now integrated into the canonical environment sync service.
 
-**Service**: `services/untracked_workflows_service.py:get_untracked()`
+### Unmapped Detection
+
+**Service**: `services/canonical_env_sync_service.py` (integrated)
 
 **Query Logic**:
 ```sql
 SELECT * FROM workflow_env_map
-WHERE tenant_id = ? 
+WHERE tenant_id = ?
   AND canonical_id IS NULL
-  AND status IN ('untracked', 'missing')
+  AND status IN ('unmapped', 'missing')
   AND is_deleted = false
 ```
 
-**API**: `GET /api/v1/canonical/untracked?environment_id={id}`
-
 **Detection Timing**:
-- During environment sync
-- On-demand via API call
-- After canonical onboarding (identifies remaining untracked)
+- During environment sync (automatic)
+- Via workflow matrix view (displays unmapped workflows)
 
 ### Onboarding Flow
 
@@ -147,7 +150,7 @@ WHERE tenant_id = ?
 
 **Returns**: 
 - Onboarding status
-- Workflows still untracked
+- Workflows still unmapped
 - Environments synced
 
 ---
@@ -244,7 +247,7 @@ ORDER BY cw.name
 2. For each workflow:
    - Check if `workflow_env_map` record exists
    - If yes: Update `env_content_hash`, `n8n_updated_at`, status
-   - If no: Create new record with `status = UNTRACKED`
+   - If no: Create new record with `status = UNMAPPED`
 3. Mark workflows not seen as `status = MISSING`
 
 **Batch Size**: 25-30 workflows per batch (hardcoded)
@@ -317,19 +320,21 @@ ORDER BY cw.name
 
 ## API Endpoints
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/canonical/workflows` | List canonical workflows |
-| GET | `/canonical/workflows/{id}` | Get canonical workflow |
-| POST | `/canonical/sync-repo` | Sync Git → canonical |
-| POST | `/canonical/sync-environment/{id}` | Sync environment → map |
-| POST | `/canonical/reconcile` | Reconcile conflicts |
-| GET | `/canonical/untracked` | List untracked workflows |
-| POST | `/canonical/link` | Link untracked to canonical |
-| GET | `/canonical/onboard/preflight` | Preflight checks |
-| POST | `/canonical/onboard/inventory` | Start onboarding |
-| GET | `/canonical/onboard/completion` | Check completion |
-| GET | `/workflows/matrix` | Cross-environment matrix view |
+| Method | Path | Purpose | Status |
+|--------|------|---------|--------|
+| GET | `/canonical/workflows` | List canonical workflows | Active |
+| GET | `/canonical/workflows/{id}` | Get canonical workflow | Active |
+| POST | `/canonical/sync-repo` | Sync Git → canonical | Active |
+| POST | `/canonical/sync-environment/{id}` | Sync environment → map | Active |
+| POST | `/canonical/reconcile` | Reconcile conflicts | Active |
+| GET | `/canonical/onboard/preflight` | Preflight checks | Active |
+| POST | `/canonical/onboard/inventory` | Start onboarding | Active |
+| GET | `/canonical/onboard/completion` | Check completion | Active |
+| GET | `/workflows/matrix` | Cross-environment matrix view | Active |
+| ~~GET~~ | ~~`/canonical/untracked`~~ | ~~List unmapped workflows~~ | **Deprecated** |
+| ~~POST~~ | ~~`/canonical/link`~~ | ~~Link unmapped to canonical~~ | **Deprecated** |
+
+> **Note:** The `/canonical/untracked` and `/canonical/link` endpoints have been deprecated. Unmapped workflows are now visible via the workflow matrix and onboarding flow.
 
 ---
 
@@ -338,8 +343,9 @@ ORDER BY cw.name
 | Test File | Coverage |
 |-----------|----------|
 | `test_canonical_onboarding_integrity.py` | Onboarding flow, idempotency, constraints |
-| `test_untracked_workflows_service.py` | Untracked detection |
 | `tests/e2e/test_canonical_e2e.py` | Complete onboarding flow (preflight → inventory → reconciliation → Git PR) |
+
+> **Note:** `test_untracked_workflows_service.py` has been removed (deprecated service deleted).
 
 **Evidence:** E2E tests run in CI via `.github/workflows/e2e-tests.yml`
 
@@ -416,7 +422,7 @@ ORDER BY cw.name
 
 3. **Git Conflict Resolution UI**: No user-facing UI to resolve conflicts.
 
-4. **Multi-Workflow Bulk Link**: Can link one untracked at a time. No bulk link.
+4. **Multi-Workflow Bulk Link**: Can link one unmapped at a time. No bulk link.
 
 5. **Canonical Workflow Templates**: No template system for common workflows.
 

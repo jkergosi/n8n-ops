@@ -5,8 +5,8 @@
 | Field | Value |
 |-------|-------|
 | Product Name | N8N Ops Platform |
-| Version | 1.0 |
-| Last Updated | January 2026 |
+| Version | 1.1 |
+| Last Updated | January 16, 2026 |
 | Status | Production |
 
 ---
@@ -397,6 +397,8 @@ OPEN → ACKNOWLEDGED → RESOLVED
 
 ### 3.5 Canonical Workflow System
 
+> **Terminology Note**: User-facing: "Source-Managed Workflow" = Internal: "Canonical Workflow". User-facing: "Unmanaged Workflow" = Internal: "Unmapped Workflow".
+
 #### 3.5.1 Canonical Workflow Management
 
 **Description**: Git-backed source of truth for workflows
@@ -410,17 +412,27 @@ OPEN → ACKNOWLEDGED → RESOLVED
 | CAN-004 | Sync environment to canonical state | P1 |
 | CAN-005 | Reconcile Git and environment state | P1 |
 
-#### 3.5.2 Untracked Workflow Detection
+#### 3.5.2 Unmanaged Workflow Detection
 
 **Description**: Identify workflows not in canonical system
 
 **Requirements**:
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| CAN-006 | Detect untracked workflows | P1 |
-| CAN-007 | List untracked workflows by environment | P1 |
-| CAN-008 | Onboard untracked workflows | P1 |
-| CAN-009 | Bulk onboarding | P2 |
+| CAN-006 | Detect unmanaged workflows | P1 |
+| CAN-007 | List unmanaged workflows by environment | P1 |
+| CAN-008 | Onboard unmanaged workflows | P1 |
+| CAN-009 | Bulk onboarding with smart matching | P1 |
+| CAN-010 | Preflight validation before onboarding | P1 |
+
+**Workflow Mapping Statuses**:
+| Status | Description |
+|--------|-------------|
+| LINKED | Has canonical_id, tracked in system |
+| UNMAPPED | No canonical_id, needs onboarding |
+| MISSING | Was linked/unmapped, now gone from n8n |
+| IGNORED | Explicitly ignored by user |
+| DELETED | Soft-deleted |
 
 #### 3.5.3 Workflow Matrix
 
@@ -429,9 +441,10 @@ OPEN → ACKNOWLEDGED → RESOLVED
 **Requirements**:
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| CAN-010 | Matrix view of workflows across environments | P1 |
-| CAN-011 | Show sync status per environment | P1 |
-| CAN-012 | Identify missing deployments | P1 |
+| CAN-011 | Matrix view of workflows across environments | P1 |
+| CAN-012 | Show sync status per environment | P1 |
+| CAN-013 | Identify missing deployments | P1 |
+| CAN-014 | Display drift status (hash comparison) | P1 |
 
 ### 3.6 Snapshots & Restore
 
@@ -538,6 +551,76 @@ OPEN → ACKNOWLEDGED → RESOLVED
 | BULK-004 | Progress tracking per operation | P1 |
 | BULK-005 | Partial failure handling | P1 |
 
+### 3.9.1 Environment States
+
+**Description**: Environment-level drift and sync status tracking
+
+**Environment States (DriftStatus)**:
+| Status | Condition | Description |
+|--------|-----------|-------------|
+| NEW | No baseline exists | Drift detection skipped, awaiting onboarding |
+| IN_SYNC | Baseline exists, runtime matches | All workflows match approved versions |
+| DRIFT_DETECTED | Baseline exists, runtime differs | One or more workflows differ from approved |
+| GIT_UNAVAILABLE | Git repo inaccessible | Repository deleted, forbidden, or unreachable |
+| ERROR | Exception during detection | Check failed; see error details |
+| UNKNOWN | Never checked | Initial state before first detection |
+
+**UI Labels by Environment Class**:
+| DriftStatus | DEV Label | STAGING/PROD Label |
+|-------------|-----------|-------------------|
+| NEW | "No baseline" | "Not onboarded" |
+| IN_SYNC | "Matches baseline" | "Matches approved" |
+| DRIFT_DETECTED | "Different from baseline" | "Drift detected" |
+| GIT_UNAVAILABLE | "Git unavailable" | "Git unavailable" |
+
+**Action Gating**:
+| Action | Condition | Rationale |
+|--------|-----------|-----------|
+| Revert | Onboarded AND Git accessible | Cannot revert without baseline |
+| Keep Hotfix | Onboarded AND Git accessible | Cannot mark hotfix without baseline |
+| Save as Approved | Git accessible | Creates or updates baseline |
+| Promote | Source onboarded AND Git accessible | Must have baseline to promote |
+
+### 3.9.2 Retention Policies
+
+**Description**: Data lifecycle management with configurable retention periods
+
+**Requirements**:
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| RET-001 | Execution data retention by plan tier | P1 |
+| RET-002 | Activity/audit log retention by plan tier | P1 |
+| RET-003 | Snapshot retention by plan tier | P1 |
+| RET-004 | Deployment history retention by plan tier | P1 |
+| RET-005 | Drift data retention by plan tier | P1 |
+| RET-006 | Background job enforcement scheduler | P1 |
+
+**Default Retention by Plan**:
+| Data Type | Free | Pro | Agency | Enterprise |
+|-----------|------|-----|--------|------------|
+| Executions | 7 days | 30 days | 90 days | 365 days |
+| Audit Logs | 7 days | 90 days | 180 days | Unlimited |
+| Snapshots | 7 days | 30 days | 90 days | 365 days |
+| Deployments | 7 days | 30 days | 90 days | 365 days |
+
+### 3.9.3 Git-Based Promotions
+
+**Description**: Target-ownership snapshot system for workflow promotion
+
+**Requirements**:
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| GITPROMO-001 | Create pre-promotion snapshot on target | P0 |
+| GITPROMO-002 | Git-backed promotion audit trail | P1 |
+| GITPROMO-003 | PROD hotfix "keep" behavior | P1 |
+| GITPROMO-004 | Rollback to pre-promotion state | P1 |
+| GITPROMO-005 | Upload restriction on STAGING/PROD | P1 |
+
+**PROD Hotfix Handling**:
+- Hotfixes made directly in PROD can be "kept" (approved)
+- Kept hotfixes update the Git baseline to match PROD state
+- Prevents drift alerts for intentional production fixes
+
 ### 3.10 Team & Access Management
 
 #### 3.10.1 Team Management
@@ -602,28 +685,57 @@ OPEN → ACKNOWLEDGED → RESOLVED
 | Execution Metrics | No | Yes | Yes | Yes |
 | Alerting | No | Yes | Yes | Yes |
 | Role-Based Access | No | Yes | Yes | Yes |
-| Audit Logs | No | 90 days | 180 days | Unlimited |
+| **Data Retention** | | | | |
+| - Executions | 7 days | 30 days | 90 days | 365 days |
+| - Audit Logs | 7 days | 90 days | 180 days | Unlimited |
+| - Snapshots | 7 days | 30 days | 90 days | 365 days |
+| - Deployments | 7 days | 30 days | 90 days | 365 days |
 | Credential Remapping | No | No | No | Yes |
 | SSO/SCIM | No | No | No | Yes |
 | **Support** | Community | Email | Priority | Dedicated |
 
 ### 3.12 Admin Portal
 
-**Description**: System administration features
+**Description**: Tenant-level system administration features (21 pages)
 
 **Requirements**:
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| ADMIN-001 | Tenant management dashboard | P1 |
-| ADMIN-002 | System billing overview | P1 |
-| ADMIN-003 | Plan configuration | P1 |
-| ADMIN-004 | Usage statistics | P1 |
-| ADMIN-005 | Performance metrics | P2 |
-| ADMIN-006 | Audit log queries | P1 |
-| ADMIN-007 | Feature matrix configuration | P1 |
-| ADMIN-008 | Per-tenant feature overrides | P2 |
-| ADMIN-009 | Support configuration | P2 |
-| ADMIN-010 | Drift policy administration | P2 |
+| ADMIN-001 | Admin dashboard overview | P0 |
+| ADMIN-002 | Audit logs viewer | P1 |
+| ADMIN-003 | Credential health monitoring | P1 |
+| ADMIN-004 | Drift policies configuration | P1 |
+| ADMIN-005 | Entitlements audit | P1 |
+| ADMIN-006 | Feature matrix configuration | P1 |
+| ADMIN-007 | Notifications management | P1 |
+| ADMIN-008 | Performance metrics | P2 |
+| ADMIN-009 | Plans management | P1 |
+| ADMIN-010 | Retention settings | P1 |
+| ADMIN-011 | Security settings | P1 |
+| ADMIN-012 | Support configuration | P2 |
+| ADMIN-013 | Support requests management | P1 |
+| ADMIN-014 | System billing overview | P1 |
+| ADMIN-015 | Tenant detail view | P1 |
+| ADMIN-016 | Tenant overrides configuration | P2 |
+| ADMIN-017 | Tenant providers configuration | P2 |
+| ADMIN-018 | Tenant settings | P1 |
+| ADMIN-019 | Tenants list | P0 |
+| ADMIN-020 | Usage statistics | P1 |
+| ADMIN-021 | General settings | P1 |
+
+### 3.12.1 Platform Console
+
+**Description**: Cross-tenant platform administration (4 pages)
+
+**Requirements**:
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| PLAT-001 | Platform dashboard with system-wide metrics | P1 |
+| PLAT-002 | Platform admins management | P1 |
+| PLAT-003 | Tenant user/role management | P1 |
+| PLAT-004 | Support console for cross-tenant support | P1 |
+| PLAT-005 | Tenant impersonation for debugging | P2 |
+| PLAT-006 | Impersonation audit logging | P1 |
 
 ### 3.13 Support System
 
@@ -718,6 +830,23 @@ OPEN → ACKNOWLEDGED → RESOLVED
 - Auth0 (authentication)
 - GitHub (version control)
 
+### 4.2.1 Background Job Schedulers
+
+The backend runs 8 background schedulers for automated operations:
+
+| Scheduler | Purpose | Default Interval |
+|-----------|---------|-----------------|
+| Deployment Scheduler | Execute scheduled deployments | On-demand |
+| Drift Detection Scheduler | Periodic drift checks | Configurable per tenant |
+| Canonical Sync Scheduler | Sync canonical workflows with Git | Hourly |
+| Health Check Scheduler | Monitor environment health | 5 minutes |
+| Rollup Scheduler | Pre-compute observability rollups | 15 minutes |
+| Retention Enforcement | Enforce data retention policies | Daily |
+| Downgrade Enforcement | Enforce grace period expiry | Hourly |
+| Alert Rules Evaluation | Evaluate alert rules and trigger notifications | Configurable |
+
+All schedulers start on application startup and gracefully stop on shutdown.
+
 ### 4.3 Multi-Tenancy
 
 - Complete data isolation per tenant
@@ -801,33 +930,45 @@ OPEN → ACKNOWLEDGED → RESOLVED
 ## 7. Roadmap
 
 ### Phase 1: Foundation (Complete)
-- Environment management
-- Workflow synchronization
+- Environment management and configuration
+- Workflow synchronization from n8n instances
 - Basic promotion pipelines
 - GitHub backup/restore
-- Multi-tenancy
-- Role-based access
+- Multi-tenancy with complete data isolation
+- Role-based access control
 
 ### Phase 2: Governance (Complete)
-- Drift detection and incidents
-- Approval workflows
-- Audit logging
-- Snapshot and restore
-- Credential management
+- Drift detection and incident management
+- Approval workflows for promotions
+- Comprehensive audit logging
+- Git-backed snapshots and restore
+- Credential health monitoring
 
 ### Phase 3: Enterprise (Complete)
-- Drift policies and TTL/SLA
-- Canonical workflow system
-- Bulk operations
-- Execution analytics
-- Advanced admin portal
+- Drift policies with TTL/SLA enforcement
+- Canonical workflow system with Git integration
+- Bulk operations (sync, backup, restore)
+- Execution analytics and observability
+- Advanced admin portal (21 pages)
+- Platform admin console
+- Support ticket system
 
-### Phase 4: Scale (Planned)
-- Secret vault integration
-- SSO/SCIM
-- Advanced compliance tools
-- Custom integrations
-- White-label options
+### Phase 4: Operations (Complete)
+- Git-based promotion system
+- PROD hotfix keep behavior
+- Environment state management
+- Data retention policies
+- Background job schedulers (8 schedulers)
+- Real-time SSE streaming
+- Health monitoring and recovery
+
+### Phase 5: Scale (Planned)
+- Secret vault integration (HashiCorp Vault, AWS Secrets Manager)
+- SSO/SCIM enterprise authentication
+- Advanced compliance tools and reporting
+- Custom provider integrations (beyond n8n)
+- White-label deployment options
+- Multi-region support
 
 ---
 
@@ -838,46 +979,86 @@ OPEN → ACKNOWLEDGED → RESOLVED
 | Term | Definition |
 |------|------------|
 | **Environment** | A connected n8n instance (dev, staging, production) |
+| **Environment Class** | Category determining policies (DEVELOPMENT, STAGING, PRODUCTION) |
 | **Workflow** | An n8n automation workflow |
+| **Source-Managed Workflow** | User-facing term for canonical (Git-tracked) workflow |
+| **Unmanaged Workflow** | User-facing term for unmapped (not Git-tracked) workflow |
 | **Promotion** | Moving a workflow from one environment to another |
 | **Pipeline** | A defined path for promotions (e.g., dev → staging → prod) |
 | **Drift** | Differences between expected and actual workflow configuration |
 | **Snapshot** | A point-in-time backup of environment state |
-| **Canonical Workflow** | The Git-backed source of truth for a workflow |
+| **Canonical Workflow** | Internal term for Git-backed source of truth workflow |
+| **Content Hash** | SHA256 hash of normalized workflow JSON for comparison |
 | **Gate** | A validation step required before promotion |
 | **Tenant** | An isolated customer organization |
+| **Hotfix** | Direct production change outside normal promotion flow |
+| **Baseline** | The approved state of an environment (stored in Git) |
+| **Onboarding** | Process of linking existing workflows to canonical system |
+| **ADR** | Architecture Decision Record documenting design decisions |
 
-### 8.2 API Endpoints Summary
+### 8.2 Codebase Statistics
 
-| Category | Endpoints |
+**Backend (`app-back/`)**:
+| Component | Count |
+|-----------|-------|
+| API Endpoint Modules | 51 |
+| Service Modules | 63 |
+| Schema Files | 28 |
+| Test Files | 78 |
+| Alembic Migrations | 79 |
+
+**Frontend (`app-front/`)**:
+| Component | Count |
+|-----------|-------|
+| Core Pages | 41 |
+| Admin Pages | 21 |
+| Support Pages | 4 |
+| Platform Pages | 4 |
+| **Total Pages** | **70** |
+
+**Documentation**:
+| Type | Count |
+|------|-------|
+| Architecture Decision Records (ADRs) | 10 |
+| MVP Readiness Pack Documents | 14 |
+
+### 8.3 API Endpoints Summary
+
+| Category | Endpoint Modules |
 |----------|-----------|
-| Auth | 7 |
-| Environments | 12 |
-| Workflows | 12 |
-| Canonical Workflows | 9 |
-| Pipelines | 5 |
-| Promotions | 6 |
-| Deployments | 3 |
-| Snapshots | 3 |
-| Drift & Incidents | 12 |
-| Bulk Operations | 3 |
-| Executions | 3 |
-| Other (tags, credentials, etc.) | 15+ |
-| Admin | 10+ |
-| **Total** | **100+** |
+| Auth & Security | auth, security |
+| Environments | environments, environment_capabilities |
+| Workflows | workflows, workflow_matrix, workflow_policy |
+| Canonical System | canonical_workflows, git_promotions |
+| Pipelines & Promotions | pipelines, promotions, deployments |
+| Drift & Incidents | incidents, drift_policies, drift_reports, drift_approvals |
+| Snapshots & Restore | snapshots, restore |
+| Observability | observability, executions |
+| Bulk Operations | bulk_operations |
+| Credentials & Tags | credentials, tags |
+| Teams & Billing | teams, billing, downgrades |
+| Admin | admin_* (11 modules) |
+| Platform | platform_* (4 modules) |
+| Real-time | sse, notifications, background_jobs |
+| Support | support |
+| **Total Modules** | **51** |
 
-### 8.3 Database Tables Summary
+### 8.4 Database Tables Summary
 
 | Category | Tables |
 |----------|--------|
-| Core (tenants, users, environments) | 4 |
-| Workflows & Executions | 5 |
-| Promotion & Deployment | 5 |
-| Drift Management | 6 |
+| Core (tenants, users, environments) | 6 |
+| Workflows & Executions | 6 |
 | Canonical System | 3 |
-| Entitlements & Billing | 4 |
-| Admin & Audit | 5 |
-| **Total** | **32+** |
+| Promotion & Deployment | 5 |
+| Drift Management | 8 |
+| Entitlements & Billing | 6 |
+| Plans & Features | 4 |
+| Admin & Audit | 6 |
+| Support | 3 |
+| Background Jobs | 2 |
+| Security | 3 |
+| **Total** | **52+** |
 
 ---
 

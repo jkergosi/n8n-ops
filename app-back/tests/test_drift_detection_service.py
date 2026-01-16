@@ -157,9 +157,40 @@ class TestDetectDrift:
 
     @pytest.mark.asyncio
     async def test_detect_drift_no_git_configured(self, mock_environment_no_git):
-        """Test drift detection when GitHub is not configured."""
+        """Test drift detection when GitHub is not configured.
+
+        P1 DELTA FIX: With workflows present (workflow_count > 0), this is UNMANAGED state
+        (not an error). When no workflows exist, it returns UNKNOWN with error message.
+        """
         with patch("app.services.drift_detection_service.db_service") as mock_db:
             mock_db.get_environment = AsyncMock(return_value=mock_environment_no_git)
+            mock_db.update_environment = AsyncMock()
+
+            service = DriftDetectionService()
+            result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
+
+            # mock_environment_no_git has workflow_count=5, so UNMANAGED state (no error)
+            assert result.git_configured is False
+            assert result.error is None  # UNMANAGED is not an error state
+
+    @pytest.mark.asyncio
+    async def test_detect_drift_no_git_no_workflows(self):
+        """Test drift detection when GitHub is not configured AND no workflows exist.
+
+        This is the EMPTY state - returns UNKNOWN with error message.
+        """
+        empty_env = {
+            "id": MOCK_ENVIRONMENT_ID,
+            "tenant_id": MOCK_TENANT_ID,
+            "n8n_name": "Empty Dev",
+            "n8n_base_url": "https://dev.n8n.example.com",
+            "is_active": True,
+            "workflow_count": 0,  # No workflows
+            "git_repo_url": None,
+            "git_pat": None,
+        }
+        with patch("app.services.drift_detection_service.db_service") as mock_db:
+            mock_db.get_environment = AsyncMock(return_value=empty_env)
             mock_db.update_environment = AsyncMock()
 
             service = DriftDetectionService()
@@ -177,7 +208,7 @@ class TestDetectDrift:
 
             # Mock is_env_onboarded to return False (no baseline exists)
             with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
-                mock_snapshot.is_env_onboarded = AsyncMock(return_value=False)
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=(False, "new"))
 
                 service = DriftDetectionService()
                 result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
@@ -224,7 +255,7 @@ class TestDetectDrift:
 
             # Mock is_env_onboarded to return True (environment has baseline)
             with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
-                mock_snapshot.is_env_onboarded = AsyncMock(return_value=True)
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=(True, "onboarded"))
 
                 with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
                     mock_adapter = MagicMock()
@@ -243,6 +274,8 @@ class TestDetectDrift:
                             mock_compare.return_value = mock_result
 
                             service = DriftDetectionService()
+                            # Mock _get_linked_workflow_ids to return None (no mapping data, backward compat)
+                            service._get_linked_workflow_ids = AsyncMock(return_value=None)
                             result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
 
                             assert result.in_sync == 1
@@ -260,7 +293,7 @@ class TestDetectDrift:
 
             # Mock is_env_onboarded to return True (environment has baseline)
             with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
-                mock_snapshot.is_env_onboarded = AsyncMock(return_value=True)
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=(True, "onboarded"))
 
                 with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
                     mock_adapter = MagicMock()
@@ -295,6 +328,8 @@ class TestDetectDrift:
                             mock_compare.side_effect = compare_side_effect
 
                             service = DriftDetectionService()
+                            # Mock _get_linked_workflow_ids to return None (no mapping data, backward compat)
+                            service._get_linked_workflow_ids = AsyncMock(return_value=None)
                             result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
 
                             assert result.total_workflows == 3
@@ -311,7 +346,7 @@ class TestDetectDrift:
 
             # Mock is_env_onboarded to return True (environment has baseline)
             with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
-                mock_snapshot.is_env_onboarded = AsyncMock(return_value=True)
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=(True, "onboarded"))
 
                 with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
                     mock_adapter = MagicMock()
@@ -332,7 +367,7 @@ class TestDetectDrift:
 
             # Mock is_env_onboarded to return True (environment has baseline)
             with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
-                mock_snapshot.is_env_onboarded = AsyncMock(return_value=True)
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=(True, "onboarded"))
 
                 with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
                     mock_adapter = MagicMock()
@@ -479,7 +514,7 @@ class TestDetectDriftWithoutUpdate:
 
             # Mock is_env_onboarded to return True (environment has baseline)
             with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
-                mock_snapshot.is_env_onboarded = AsyncMock(return_value=True)
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=(True, "onboarded"))
 
                 with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
                     mock_adapter = MagicMock()
@@ -498,6 +533,8 @@ class TestDetectDriftWithoutUpdate:
                             mock_compare.return_value = mock_result
 
                             service = DriftDetectionService()
+                            # Mock _get_linked_workflow_ids to return None (no mapping data, backward compat)
+                            service._get_linked_workflow_ids = AsyncMock(return_value=None)
                             result = await service.detect_drift(
                                 MOCK_TENANT_ID,
                                 MOCK_ENVIRONMENT_ID,

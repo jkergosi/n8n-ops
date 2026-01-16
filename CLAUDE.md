@@ -38,6 +38,48 @@ If tests fail, fix the issues before reporting completion. Do not hand off broke
 
 **Format:** "This change requires a [backend/frontend] restart to take effect. Please restart the [backend/frontend] server when convenient."
 
+## ADR Enforcement (MANDATORY)
+
+**Before making architectural, pattern, or tooling decisions, check `/docs/adr/` for existing ADRs.**
+
+### Rules
+1. **If an ADR exists** for the topic, follow it without deviation
+2. **If no ADR exists** and making a non-trivial decision, create a new ADR in `/docs/adr/` before proceeding
+3. **Never contradict** an accepted ADR unless explicitly told to supersede it
+4. **Use existing format** from `/docs/adr/` when creating new ADRs (see ADR-007 for full template)
+
+### ADR Categories to Check
+- Error handling and validation patterns
+- Retry strategies and resilience
+- Authentication/authorization patterns
+- API design patterns
+- State management approaches
+- Credential and secrets handling
+- Technology and library choices
+- Naming conventions
+- Component/node preferences
+- Git and sync behavior
+
+### Non-Trivial Decisions Requiring ADR
+- Introducing new error handling patterns
+- Changing retry/backoff strategies
+- Adding new external integrations
+- Modifying authentication flows
+- Establishing new naming conventions
+- Choosing between architectural approaches
+
+### Decision Capture
+After implementing any of the following, ask: **"Should I document this as an ADR in /docs/adr/?"**
+- Choosing between multiple valid approaches
+- Introducing a new library, tool, or dependency
+- Establishing a pattern that should be consistent across the codebase
+- Deviating from a common convention (and why)
+- Setting up error handling, retry logic, or fallback behavior
+- Defining API contracts or data structures
+- Making trade-offs (performance vs readability, flexibility vs simplicity, etc.)
+
+If yes, create the ADR immediately. If no, continue without documenting.
+
 ## Port Configuration
 
 | Worktree | Frontend | Backend |

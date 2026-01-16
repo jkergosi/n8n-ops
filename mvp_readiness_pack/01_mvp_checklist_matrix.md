@@ -3,6 +3,8 @@
 **Generated:** 2026-01-08
 **Evidence-Based:** Repository scan only
 
+> **See Also:** `14_terminology_and_rules.md` for user-facing terminology mapping, environment rules, and enforcement guarantees.
+
 ## MVP Readiness Status
 
 | MVP Area | Sub-Requirement | Status | Evidence (file:symbol) | API Endpoints | DB Tables | Tests | Risks/Gaps |
@@ -34,7 +36,7 @@
 | **Promotion Correctness** | Idempotency via content hash | ✅ Implemented | `app-back/app/services/promotion_service.py:normalize_workflow_for_comparison()` (lines 85-156) | N/A | N/A | `tests/test_promotion_idempotency.py` | None |
 | **Drift Detection** | Incident lifecycle | ✅ Implemented | `app-back/app/services/drift_incident_service.py` | `GET /api/v1/incidents`, `POST /api/v1/incidents/{id}/acknowledge`, `POST /api/v1/incidents/{id}/stabilize`, `POST /api/v1/incidents/{id}/reconcile`, `POST /api/v1/incidents/{id}/close` | `drift_incidents` | `tests/test_drift_incident_service.py` | None |
 | **Drift Detection** | TTL enforcement | ✅ Implemented | `app-back/app/services/drift_retention_service.py` | N/A | `drift_incidents`, `drift_policies` | `tests/test_drift_retention_service.py` | None |
-| **Canonical Workflows** | Untracked detection | ✅ Implemented | `app-back/app/services/untracked_workflows_service.py` | `GET /api/v1/canonical/untracked` | `workflow_mappings`, `canonical_workflows` | `tests/test_untracked_workflows_service.py` | None |
+| **Canonical Workflows** | Unmapped detection | ⚠️ Deprecated | ~~`app-back/app/services/untracked_workflows_service.py`~~ (removed) | ~~`GET /api/v1/canonical/untracked`~~ (deprecated) | `workflow_env_map` | Integrated into `canonical_env_sync_service.py` | Unmapped detection now integrated into environment sync |
 | **Canonical Workflows** | Onboarding flow | ✅ Implemented | `app-back/app/services/canonical_onboarding_service.py` | `GET /api/v1/canonical/onboard/preflight`, `POST /api/v1/canonical/onboard/inventory`, `GET /api/v1/canonical/onboard/completion`, `POST /api/v1/canonical/onboard/create-pr` | `canonical_workflows`, `workflow_mappings` | `tests/test_canonical_onboarding_integrity.py`, `tests/e2e/test_canonical_e2e.py` | None |
 | **Canonical Workflows** | Git ↔ env reconcile | ✅ Implemented | `app-back/app/services/canonical_reconciliation_service.py` | `POST /api/v1/canonical/reconcile` | `canonical_workflows`, `workflow_mappings` | `tests/e2e/test_canonical_e2e.py` | None |
 | **Multi-Tenancy** | tenant_id enforcement | ✅ Implemented | `app-back/app/core/tenant_isolation.py:TenantIsolationScanner` - scans all endpoints, `get_tenant_id()` pattern enforced | All authenticated endpoints | All tenant-scoped tables | `tests/security/test_tenant_isolation.py` | None |

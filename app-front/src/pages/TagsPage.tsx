@@ -109,18 +109,18 @@ export function TagsPage() {
     onSuccess: (results) => {
       setIsSyncing(false);
       const totalTags = results.reduce((sum, r) => sum + (r.synced || 0), 0);
-      toast.success(`Synced ${totalTags} tags from N8N`);
+      toast.success(`Refreshed ${totalTags} tags from N8N`);
       queryClient.invalidateQueries({ queryKey: ['tags'] });
     },
     onError: (error: any) => {
       setIsSyncing(false);
-      const message = error.response?.data?.detail || 'Failed to sync from N8N';
+      const message = error.response?.data?.detail || 'Failed to refresh from N8N';
       toast.error(message);
     },
   });
 
   const handleSyncFromN8N = () => {
-    toast.info('Syncing from N8N...');
+    toast.info('Refreshing from N8N...');
     setIsSyncing(true);
     syncMutation.mutate();
   };

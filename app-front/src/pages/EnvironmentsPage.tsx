@@ -42,7 +42,7 @@ import { apiClient } from '@/lib/api-client';
 import { useAppStore } from '@/store/use-app-store';
 import { useAuth } from '@/lib/auth';
 import { cn, getErrorMessage } from '@/lib/utils';
-import { Plus, Server, RefreshCw, Edit, RefreshCcw, CheckCircle2, AlertCircle, Loader2, XCircle, MoreVertical, Clock, GitBranch, Undo2, Check, Save } from 'lucide-react';
+import { Plus, Server, RefreshCw, Edit, RefreshCcw, CheckCircle2, AlertCircle, Loader2, XCircle, MoreVertical, Clock, GitBranch, Undo2, Check, Save, Download, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Environment, EnvironmentType, EnvironmentTypeConfig } from '@/types';
 import { useFeatures } from '@/lib/features';
@@ -50,7 +50,7 @@ import { useBackgroundJobsSSE } from '@/lib/use-background-jobs-sse';
 import { SmartEmptyState } from '@/components/SmartEmptyState';
 import { EnvironmentsEmptyState } from '@/components/empty-states';
 import { useEnvironmentTypes, getEnvironmentTypeLabel } from '@/hooks/useEnvironmentTypes';
-import { getStateBadgeInfo } from '@/lib/environment-utils';
+import { getStateBadgeInfo, getPartialManagementBadgeInfo } from '@/lib/environment-utils';
 
 export function EnvironmentsPage() {
   const navigate = useNavigate();
@@ -80,6 +80,7 @@ export function EnvironmentsPage() {
   const [backupEnvId, setBackupEnvId] = useState<string | null>(null);
   const [revertEnvId, setRevertEnvId] = useState<string | null>(null);
   const [keepHotfixEnvId, setKeepHotfixEnvId] = useState<string | null>(null);
+  const [deployEnvId, setDeployEnvId] = useState<string | null>(null);
   const [activeJobs, setActiveJobs] = useState<Record<string, {
     jobId: string;
     jobType: 'refresh' | 'backup' | 'revert' | 'keep-hotfix';
@@ -419,6 +420,34 @@ export function EnvironmentsPage() {
     },
   });
 
+  // G1: Deploy mutation for DEPLOY_MISSING state (uses Git snapshot system)
+  const deployMutation = useMutation({
+    mutationFn: (environmentId: string) => apiClient.applyApprovedState(environmentId),
+    onSuccess: (result, environmentId) => {
+      setDeployEnvId(null);
+      const { success, requires_approval, message, rollback_id } = result.data;
+
+      if (requires_approval) {
+        toast.info(message || 'Deployment requires approval');
+        navigate('/deployments');
+      } else if (success) {
+        toast.success(message || 'Deploying approved workflows...');
+        queryClient.invalidateQueries({ queryKey: ['environments'] });
+      } else {
+        toast.error(message || 'Failed to deploy');
+      }
+    },
+    onError: (error: any) => {
+      setDeployEnvId(null);
+      const detail = error.response?.data?.detail;
+      if (detail?.includes('Git repository is unavailable')) {
+        toast.error('Git unavailable. Update Git settings first.');
+      } else {
+        toast.error(getErrorMessage(error, 'Failed to deploy'));
+      }
+    },
+  });
+
   const handleEdit = (env: Environment) => {
     setIsAddMode(false);
     setEditingEnv(env);
@@ -752,6 +781,11 @@ export function EnvironmentsPage() {
                 {environments?.data?.map((env) => {
                   const envStatus = getEnvironmentStatus(env);
                   const stateBadge = getStateBadgeInfo(env);
+                  // F1: Compute partial management badge for mixed LINKED + UNMAPPED environments
+                  const partialBadge = getPartialManagementBadgeInfo(
+                    env.isPartiallyManaged ?? false,
+                    env.unmanagedCount ?? 0
+                  );
                   const isProduction = env.type?.toLowerCase() === 'production';
                   
                   return (
@@ -803,23 +837,45 @@ export function EnvironmentsPage() {
                       </TableCell>
                       {planName?.toLowerCase() !== 'free' && (
                         <TableCell>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Link to={`/environments/${env.id}#drift`}>
-                                  <Badge
-                                    variant={stateBadge.variant}
-                                    className="text-xs cursor-pointer hover:opacity-80"
-                                  >
-                                    {stateBadge.label}
-                                  </Badge>
-                                </Link>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{stateBadge.tooltip}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Link to={`/environments/${env.id}#drift`}>
+                                    <Badge
+                                      variant={stateBadge.variant}
+                                      className="text-xs cursor-pointer hover:opacity-80"
+                                    >
+                                      {stateBadge.label}
+                                    </Badge>
+                                  </Link>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{stateBadge.tooltip}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            {/* F1: Partial management badge */}
+                            {partialBadge && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Link to="/unmapped-workflows">
+                                      <Badge
+                                        variant={partialBadge.variant}
+                                        className="text-xs cursor-pointer hover:opacity-80"
+                                      >
+                                        {partialBadge.label}
+                                      </Badge>
+                                    </Link>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>{partialBadge.tooltip}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </div>
                           {env.lastDriftCheckAt && (
                             <p className="text-xs text-muted-foreground mt-0.5">
                               Checked {formatRelativeTime(env.lastDriftCheckAt)} ago
@@ -844,7 +900,7 @@ export function EnvironmentsPage() {
                               </span>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p>{env.lastSyncAt ? new Date(env.lastSyncAt).toLocaleString() : 'Never synced'}</p>
+                              <p>{env.lastSyncAt ? new Date(env.lastSyncAt).toLocaleString() : 'Never refreshed'}</p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -873,8 +929,8 @@ export function EnvironmentsPage() {
                             </Tooltip>
                           </TooltipProvider>
 
-                          {/* Save as Approved button - DEV only with Git configured */}
-                          {env.environmentClass?.toLowerCase() === 'dev' && env.gitRepoUrl && (
+                          {/* Save as Approved button - DEV only with Git configured and available */}
+                          {env.environmentClass?.toLowerCase() === 'dev' && env.gitRepoUrl && stateBadge.status !== 'git_unavailable' && (
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -897,8 +953,8 @@ export function EnvironmentsPage() {
                             </TooltipProvider>
                           )}
 
-                          {/* Revert button - STAGING/PROD only when environment is onboarded (has baseline) */}
-                          {(env.environmentClass?.toLowerCase() === 'staging' || env.environmentClass?.toLowerCase() === 'production') && env.isOnboarded && (
+                          {/* Revert button - STAGING/PROD only when environment is onboarded and Git available */}
+                          {(env.environmentClass?.toLowerCase() === 'staging' || env.environmentClass?.toLowerCase() === 'production') && env.isOnboarded && stateBadge.status !== 'git_unavailable' && (
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -940,6 +996,77 @@ export function EnvironmentsPage() {
                                 </TooltipTrigger>
                                 <TooltipContent>
                                   <p>Accept current PROD changes as the new approved version.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+
+                          {/* G1: Deploy button - when DEPLOY_MISSING (Git has workflows, n8n empty) */}
+                          {stateBadge.status === 'deploy_missing' && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="default"
+                                    onClick={() => {
+                                      setDeployEnvId(env.id);
+                                      deployMutation.mutate(env.id);
+                                    }}
+                                    disabled={refreshingEnvId === env.id || backupEnvId === env.id || revertEnvId === env.id || keepHotfixEnvId === env.id || deployEnvId === env.id || activeJobs[env.id]?.status === 'running'}
+                                  >
+                                    <Download
+                                      className={`h-3 w-3 mr-1 ${deployEnvId === env.id ? 'animate-spin' : ''}`}
+                                    />
+                                    Deploy
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Deploy approved workflows from Git to this environment.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+
+                          {/* G2: Update Git Settings button - when GIT_UNAVAILABLE */}
+                          {stateBadge.status === 'git_unavailable' && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    asChild
+                                  >
+                                    <Link to={`/environments/${env.id}/edit`}>
+                                      <Settings className="h-3 w-3 mr-1" />
+                                      Update Git
+                                    </Link>
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Git repository is unavailable. Check URL and credentials.</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+
+                          {/* F2: Configure Git button - when UNMANAGED (workflows exist but no Git) */}
+                          {stateBadge.status === 'unmanaged' && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleEdit(env)}
+                                  >
+                                    <GitBranch className="h-3 w-3 mr-1" />
+                                    Configure Git
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Configure Git repository to enable governance and drift detection.</p>
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>

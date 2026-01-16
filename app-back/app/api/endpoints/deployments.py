@@ -77,6 +77,7 @@ async def get_deployments(
     status: Optional[DeploymentStatus] = Query(None, alias="status"),
     pipeline_id: Optional[str] = Query(None),
     environment_id: Optional[str] = Query(None),
+    env_id: Optional[str] = Query(None),
     from_date: Optional[datetime] = Query(None),
     to_date: Optional[datetime] = Query(None),
     page: int = Query(1, ge=1),
@@ -87,9 +88,17 @@ async def get_deployments(
     """
     Get list of deployments with filtering and pagination.
     Returns summary counts for cards.
+
+    Supports both env_id and environment_id parameters for flexibility.
+    env_id takes precedence if both are provided.
     """
     try:
         tenant_id = get_tenant_id(user_info)
+
+        # Prefer env_id over environment_id for backward compatibility
+        # This allows the API to accept both parameter names
+        effective_env_id = env_id or environment_id
+
         # Build query - exclude deleted deployments by default
         # Note: deleted_at column may not exist if migration hasn't run yet
         query = db_service.client.table("deployments").select("*").eq("tenant_id", tenant_id)
@@ -107,9 +116,9 @@ async def get_deployments(
             query = query.eq("status", status.value)
         if pipeline_id:
             query = query.eq("pipeline_id", pipeline_id)
-        if environment_id:
+        if effective_env_id:
             query = query.or_(
-                f"source_environment_id.eq.{environment_id},target_environment_id.eq.{environment_id}"
+                f"source_environment_id.eq.{effective_env_id},target_environment_id.eq.{effective_env_id}"
             )
         if from_date:
             query = query.gte("started_at", from_date.isoformat())
@@ -130,9 +139,9 @@ async def get_deployments(
                     query = query.eq("status", status.value)
                 if pipeline_id:
                     query = query.eq("pipeline_id", pipeline_id)
-                if environment_id:
+                if effective_env_id:
                     query = query.or_(
-                        f"source_environment_id.eq.{environment_id},target_environment_id.eq.{environment_id}"
+                        f"source_environment_id.eq.{effective_env_id},target_environment_id.eq.{effective_env_id}"
                     )
                 if from_date:
                     query = query.gte("started_at", from_date.isoformat())

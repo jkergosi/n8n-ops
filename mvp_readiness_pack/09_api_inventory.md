@@ -83,14 +83,14 @@
 | POST | `/canonical/sync-repo` | JWT | User tenant | `canonical_workflows_enabled` | Yes | `canonical_workflows.py:sync_repo` |
 | POST | `/canonical/sync-environment/{id}` | JWT | User tenant | `canonical_workflows_enabled` | Yes | `canonical_workflows.py:sync_environment` |
 | POST | `/canonical/reconcile` | JWT | User tenant | `canonical_workflows_enabled` | Yes | `canonical_workflows.py:reconcile` |
-| GET | `/canonical/untracked` | JWT | User tenant | `canonical_workflows_enabled` | No | `untracked_workflows.py:list_untracked` |
-| POST | `/canonical/link` | JWT | User tenant | `canonical_workflows_enabled` | Yes | `untracked_workflows.py:link_workflow` |
+| ~~GET~~ | ~~`/canonical/untracked`~~ | - | - | - | - | **DEPRECATED** (service removed) |
+| ~~POST~~ | ~~`/canonical/link`~~ | - | - | - | - | **DEPRECATED** (service removed) |
 | GET | `/canonical/onboard/preflight` | JWT | User tenant | `canonical_workflows_enabled` | No | `canonical_workflows.py:preflight_check` |
 | POST | `/canonical/onboard/inventory` | JWT | User tenant | `canonical_workflows_enabled` | Yes | `canonical_workflows.py:start_inventory` |
 | GET | `/canonical/onboard/completion` | JWT | User tenant | `canonical_workflows_enabled` | No | `canonical_workflows.py:check_completion` |
 | POST | `/canonical/onboard/create-pr` | JWT | User tenant | `canonical_workflows_enabled` | Yes | `canonical_workflows.py:create_migration_pr` |
 | GET | `/canonical/matrix` | JWT | User tenant | `canonical_workflows_enabled` | No | `workflow_matrix.py:get_canonical_matrix` |
-| POST | `/canonical/bulk-link` | JWT | User tenant | `canonical_workflows_enabled` | Yes | `untracked_workflows.py:bulk_link` |
+| ~~POST~~ | ~~`/canonical/bulk-link`~~ | - | - | - | - | **DEPRECATED** (service removed) |
 
 ### Pipelines (7 endpoints)
 

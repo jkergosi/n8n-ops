@@ -305,6 +305,21 @@ class GitPromotionService:
                     error="No workflows selected for promotion",
                 )
 
+            # P2 FIX: Validate that all workflows are LINKED (managed) before promotion
+            # UNMAPPED workflows cannot be promoted - they must be onboarded first
+            unmanaged_workflows = await self._check_unmapped_workflows(
+                tenant_id=request.tenant_id,
+                env_id=request.source_env_id,
+                workflow_ids=[w.get("id") for w in selected_workflows if w.get("id")],
+            )
+            if unmanaged_workflows:
+                return PromotionResult(
+                    success=False,
+                    promotion_id=promotion_id,
+                    status=PromotionStatus.FAILED,
+                    error=f"Cannot promote unmanaged workflows: {', '.join(unmanaged_workflows[:3])}{'...' if len(unmanaged_workflows) > 3 else ''}. Onboard these workflows first.",
+                )
+
             # Get full workflow data
             workflows: Dict[str, Dict[str, Any]] = {}
             for wf in selected_workflows:
@@ -1496,6 +1511,76 @@ class GitPromotionService:
 
         except Exception as e:
             logger.error(f"Failed to list backups: {e}")
+            return []
+
+    # ========== VALIDATION METHODS ==========
+
+    async def _check_unmapped_workflows(
+        self,
+        tenant_id: str,
+        env_id: str,
+        workflow_ids: List[str],
+    ) -> List[str]:
+        """
+        GUARDRAIL: Enforce LINKED-only promotion.
+
+        This method implements the critical governance rule:
+            if mapping.status != "linked":
+                raise PromotionError("Cannot promote unmanaged workflow")
+
+        UNMAPPED workflows MUST be blocked from promotion because:
+        - They are not tracked by governance
+        - They have no baseline in Git
+        - Promoting them would bypass the managed workflow lifecycle
+
+        Called by: initiate_promotion() before any promotion proceeds.
+        See: git_promotion_service.py:308-321
+
+        Args:
+            tenant_id: Tenant identifier
+            env_id: Source environment ID
+            workflow_ids: List of workflow IDs to check
+
+        Returns:
+            List of workflow IDs that are NOT linked (unmanaged).
+            If non-empty, promotion MUST be blocked.
+        """
+        if not workflow_ids:
+            return []
+
+        try:
+            # Get workflow mappings for this environment
+            result = self.db.client.table("workflow_env_map").select(
+                "workflow_id, status"
+            ).eq("tenant_id", tenant_id).eq(
+                "environment_id", env_id
+            ).in_("workflow_id", workflow_ids).execute()
+
+            # Build map of workflow_id -> status
+            mapping_status = {r["workflow_id"]: r["status"] for r in (result.data or [])}
+
+            # Find workflows that are not linked
+            unmanaged = []
+            for wf_id in workflow_ids:
+                status = mapping_status.get(wf_id)
+                # Workflow is unmanaged if:
+                # 1. No mapping exists (not in workflow_env_map at all)
+                # 2. Status is not "linked"
+                if not status or status != "linked":
+                    unmanaged.append(wf_id)
+
+            if unmanaged:
+                logger.warning(
+                    f"Found {len(unmanaged)} unmanaged workflows in env {env_id}: "
+                    f"{unmanaged[:5]}{'...' if len(unmanaged) > 5 else ''}"
+                )
+
+            return unmanaged
+
+        except Exception as e:
+            logger.error(f"Failed to check workflow mappings: {e}")
+            # On error, don't block - allow promotion to proceed
+            # This prevents database issues from blocking all promotions
             return []
 
 

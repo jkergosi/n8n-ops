@@ -202,7 +202,7 @@ export function EnvironmentSetupPage() {
 
         // Start syncing in background
         const environmentId = response.data.id;
-        toast.success('Environment created! Starting synchronization...');
+        toast.success('Environment created! Starting refresh...');
 
         // Refresh user to update hasEnvironment flag
         await refreshUser();
@@ -214,14 +214,14 @@ export function EnvironmentSetupPage() {
         apiClient.syncEnvironment(environmentId)
           .then((syncResult) => {
             if (syncResult.data.success) {
-              toast.success(`Sync complete: ${syncResult.data.results.workflows.synced} workflows synced`);
+              toast.success(`Refresh complete: ${syncResult.data.results.workflows.synced} workflows refreshed`);
             } else {
-              toast.warning('Sync completed with some issues');
+              toast.warning('Refresh completed with some issues');
             }
           })
           .catch((error) => {
             console.error('Sync failed:', error);
-            toast.error('Environment sync failed. You can retry from the Environments page.');
+            toast.error('Environment refresh failed. You can retry from the Environments page.');
           });
       }
     } catch (error: any) {

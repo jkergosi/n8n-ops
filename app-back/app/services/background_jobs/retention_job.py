@@ -76,7 +76,9 @@ async def trigger_retention_enforcement(dry_run: bool = False) -> Dict[str, Any]
             f"Retention enforcement completed: "
             f"deleted {summary['total_deleted']} records "
             f"({summary['total_executions_deleted']} executions, "
-            f"{summary['total_audit_logs_deleted']} audit logs) "
+            f"{summary['total_audit_logs_deleted']} audit logs, "
+            f"{summary.get('total_activity_deleted', 0)} activity, "
+            f"{summary.get('total_snapshots_deleted', 0)} snapshots) "
             f"across {summary['tenants_processed']} tenants "
             f"in {summary['duration_seconds']:.2f}s (dry_run={dry_run})"
         )
@@ -89,6 +91,8 @@ async def trigger_retention_enforcement(dry_run: bool = False) -> Dict[str, Any]
             "total_deleted": 0,
             "total_executions_deleted": 0,
             "total_audit_logs_deleted": 0,
+            "total_activity_deleted": 0,
+            "total_snapshots_deleted": 0,
             "tenants_processed": 0,
             "error": str(e),
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -115,6 +119,8 @@ async def _run_scheduled_retention_job():
             f"  - Total deleted: {summary['total_deleted']} records\n"
             f"  - Executions deleted: {summary['total_executions_deleted']}\n"
             f"  - Audit logs deleted: {summary['total_audit_logs_deleted']}\n"
+            f"  - Activity deleted: {summary['total_activity_deleted']}\n"
+            f"  - Snapshots deleted: {summary['total_snapshots_deleted']}\n"
             f"  - Tenants processed: {summary['tenants_processed']}\n"
             f"  - Tenants with deletions: {summary['tenants_with_deletions']}\n"
             f"  - Tenants skipped: {summary['tenants_skipped']}\n"
@@ -137,6 +143,8 @@ async def _run_scheduled_retention_job():
             "total_deleted": 0,
             "total_executions_deleted": 0,
             "total_audit_logs_deleted": 0,
+            "total_activity_deleted": 0,
+            "total_snapshots_deleted": 0,
             "tenants_processed": 0,
             "error": str(e),
             "timestamp": datetime.now(timezone.utc).isoformat(),

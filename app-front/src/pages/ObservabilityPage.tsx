@@ -670,7 +670,7 @@ export function ObservabilityPage() {
                             ⚠ {health.driftWorkflowCount || 0} workflows
                           </span>
                         ) : health.driftState === 'in_sync' ? (
-                          <span className="text-green-600">✓ In sync</span>
+                          <span className="text-green-600">✓ Up to date</span>
                         ) : (
                           <span className="text-muted-foreground">Unknown</span>
                         )}

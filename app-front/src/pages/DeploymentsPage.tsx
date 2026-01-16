@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -62,9 +63,33 @@ export function DeploymentsPage() {
   const [rollbackDialogOpen, setRollbackDialogOpen] = useState(false);
   const [deploymentToRollback, setDeploymentToRollback] = useState<Deployment | null>(null);
 
+  // Environment filter state
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string>('');
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  // Read env_id URL parameter on mount and set selected environment
+  useEffect(() => {
+    const envIdParam = searchParams.get('env_id');
+    if (envIdParam && envIdParam !== selectedEnvironmentId) {
+      // Validate that env_id exists in available environments
+      const envExists = environments?.data?.some(env => env.id === envIdParam);
+      if (envExists) {
+        setSelectedEnvironmentId(envIdParam);
+        // Reset to page 1 when environment filter changes
+        setCurrentPage(1);
+      } else {
+        // Invalid env_id: remove from URL and fall back to "All Environments"
+        const newSearchParams = new URLSearchParams(searchParams);
+        newSearchParams.delete('env_id');
+        setSearchParams(newSearchParams, { replace: true });
+        setSelectedEnvironmentId('');
+        setCurrentPage(1);
+      }
+    }
+  }, [searchParams, environments?.data]);
 
   const activeTab = searchParams.get('tab') || 'deployments';
   
@@ -106,8 +131,12 @@ export function DeploymentsPage() {
   }, [featuresLoading, canUseFeature, navigate]);
 
   const { data: deploymentsData, isLoading, isFetching, error, refetch } = useQuery({
-    queryKey: ['deployments', currentPage, pageSize],
-    queryFn: () => apiClient.getDeployments({ page: currentPage, pageSize }),
+    queryKey: ['deployments', currentPage, pageSize, selectedEnvironmentId],
+    queryFn: () => apiClient.getDeployments({
+      page: currentPage,
+      pageSize,
+      environmentId: selectedEnvironmentId || undefined,
+    }),
     // SSE handles real-time updates, so we can use longer stale time
     staleTime: 30000, // 30 seconds
     // Only refetch on window focus as a fallback
@@ -480,6 +509,48 @@ export function DeploymentsPage() {
           </Button>
         )}
       </div>
+
+      {/* Environment Filter */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Filter by Environment</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4">
+            <div className="space-y-2 flex-1">
+              <Label htmlFor="environment">Environment</Label>
+              <select
+                id="environment"
+                value={selectedEnvironmentId}
+                onChange={(e) => {
+                  const newEnvId = e.target.value;
+                  setSelectedEnvironmentId(newEnvId);
+
+                  // Reset to page 1 when environment filter changes
+                  setCurrentPage(1);
+
+                  // Sync selection to URL env_id param
+                  const newSearchParams = new URLSearchParams(searchParams);
+                  if (newEnvId) {
+                    newSearchParams.set('env_id', newEnvId);
+                  } else {
+                    newSearchParams.delete('env_id');
+                  }
+                  setSearchParams(newSearchParams, { replace: true });
+                }}
+                className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="" className="bg-background text-foreground">All Environments</option>
+                {environments?.data?.map((env) => (
+                  <option key={env.id} value={env.id} className="bg-background text-foreground">
+                    {env.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <TabsList>

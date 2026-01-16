@@ -111,7 +111,7 @@ npm run test:coverage
 - `test_plan_resolver.py` - Plan resolution
 - `test_tenant_plan_service.py` - Plan management
 - `test_downgrade_enforcement.py` - Downgrade handling
-- `test_untracked_workflows_service.py` - Untracked detection
+- ~~`test_untracked_workflows_service.py`~~ - **Removed** (deprecated service deleted)
 - `test_sse_pubsub_reconnect.py` - SSE reconnect (F)
 - `test_rbac_enforcement.py` - RBAC enforcement (B)
 
@@ -247,7 +247,7 @@ npm run test:coverage
 
 **Unit Tests**:
 - ✅ Onboarding integrity (`test_canonical_onboarding_integrity.py`)
-- ✅ Untracked detection (`test_untracked_workflows_service.py`)
+- ~~Unmapped detection~~ (`test_untracked_workflows_service.py` - **removed**, integrated into env sync)
 
 **Integration Tests**:
 - ⚠️ Partial: API endpoints likely covered

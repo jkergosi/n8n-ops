@@ -113,6 +113,9 @@ class FakeDB:
     async def get_workflows(self, tenant_id, environment_id=None):
         return [{"id": "w1", "active": True}]
 
+    async def get_workflows_from_canonical(self, tenant_id, environment_id=None):
+        return [{"id": "w1", "active": True}]
+
     async def get_promotion_stats(self, tenant_id, since):
         return {"promotions": 1, "success": 1, "failed": 0, "syncs": 0}
 

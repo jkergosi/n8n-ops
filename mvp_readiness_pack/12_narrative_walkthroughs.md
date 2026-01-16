@@ -5,6 +5,11 @@
 
 This document provides detailed narrative walkthroughs for the most critical user journeys through the WorkflowOps system, tracing the exact code paths, service calls, database mutations, and API interactions.
 
+> **Terminology Note:** This document uses internal technical terms (e.g., "canonical", `/canonical/` API paths) alongside code references. For user-facing terminology mapping, see `14_terminology_and_rules.md`:
+> - **User-facing:** "Source-Managed Workflow" = **Internal:** "Canonical Workflow"
+> - **User-facing:** "Unmanaged Workflow" = **Internal:** "Unmapped Workflow"
+> - API paths and database tables retain internal naming (e.g., `/canonical/`, `canonical_workflows`)
+
 ---
 
 ## Scenario 1: First-Time Environment Setup with Git Sync
@@ -194,7 +199,7 @@ WHERE environment_id = 'env-staging-123'
   AND n8n_workflow_id = 'wf-001';
 ```
 
-**If NOT found → Create UNTRACKED workflow:**
+**If NOT found → Create UNMAPPED workflow:**
 
 ```python
 # Check for canonical match by hash
@@ -205,8 +210,8 @@ if canonical:
     status = WorkflowMappingStatus.LINKED
     canonical_id = canonical['id']
 else:
-    # No match: Create as untracked
-    status = WorkflowMappingStatus.UNTRACKED
+    # No match: Create as unmapped
+    status = WorkflowMappingStatus.UNMAPPED
     canonical_id = None
 ```
 
@@ -220,7 +225,7 @@ INSERT INTO workflow_env_map (
   created_at, updated_at
 ) VALUES (
   'map-001', 'tenant-1', 'env-staging-123',
-  'wf-001', NULL, 'untracked',
+  'wf-001', NULL, 'unmapped',
   'Customer Onboarding', {...},
   'a1b2c3d4e5f6...', '2026-01-10T14:30:00Z',
   NOW(), NOW()
@@ -376,7 +381,18 @@ Authorization: Bearer ghp_xxx
 
 #### 7. Phase 4: Detect Drift
 
-**After both n8n and Git syncs complete:**
+> **Note:** Drift detection only runs for **onboarded** environments (those with a valid `current.json` baseline). NEW environments (not yet onboarded) short-circuit before any comparison logic.
+
+**Pre-check (NEW gate):**
+```python
+is_onboarded = await git_snapshot_service.is_env_onboarded(tenant_id, environment_id)
+if not is_onboarded:
+    # NEW environment - no baseline, skip drift comparison
+    drift_status = DriftStatus.NEW
+    return  # No per-workflow diffs computed
+```
+
+**For onboarded environments, after both n8n and Git syncs complete:**
 
 **Logic:**
 ```python
@@ -386,8 +402,9 @@ for mapping in all_mappings:
         # DRIFT DETECTED
         drift_status = "DRIFT_DETECTED"
     elif mapping['canonical_id'] is None:
-        # NOT LINKED TO GIT
-        drift_status = "UNTRACKED"
+        # NOT LINKED TO CANONICAL (unmapped) - no comparison possible
+        # UI shows "Runtime only" for this workflow
+        continue
     else:
         # IN SYNC
         drift_status = "IN_SYNC"
@@ -464,7 +481,7 @@ WHERE id = 'env-staging-123';
 **Final State:**
 - **workflow_env_map:** 45 records created
   - 30 with `status = 'linked'` (matched to Git)
-  - 15 with `status = 'untracked'` (not in Git)
+  - 15 with `status = 'unmapped'` (not in Git)
 - **canonical_workflows:** 30 records (one per Git file)
 - **drift_incidents:** 1 incident created (for workflows with drift)
 
@@ -1816,9 +1833,9 @@ Lessons Learned:
 
 ---
 
-## Scenario 4: Untracked Workflow Onboarding
+## Scenario 4: Unmapped Workflow Onboarding
 
-**User Story:** A developer creates a new workflow directly in Dev n8n. The next sync detects it as UNTRACKED. The team decides to onboard it to Git and link it as a canonical workflow.
+**User Story:** A developer creates a new workflow directly in Dev n8n. The next sync detects it as UNMAPPED. The team decides to onboard it to Git and link it as a canonical workflow.
 
 ### Initial State
 
@@ -1894,7 +1911,7 @@ await SyncOrchestratorService.request_sync(
 
 ---
 
-#### 3. Sync Process Detects Untracked Workflow
+#### 3. Sync Process Detects Unmapped Workflow
 
 **File:** `app/services/canonical_env_sync_service.py:sync_environment()`
 
@@ -1944,10 +1961,10 @@ WHERE tenant_id = 'tenant-1'
 -- Returns NO ROWS (no match in Git)
 ```
 
-##### 3e. Create UNTRACKED Workflow Mapping
+##### 3e. Create UNMAPPED Workflow Mapping
 
 ```python
-status = WorkflowMappingStatus.UNTRACKED
+status = WorkflowMappingStatus.UNMAPPED
 canonical_id = None  # Not linked yet
 ```
 
@@ -1961,7 +1978,7 @@ INSERT INTO workflow_env_map (
   n8n_updated_at, created_at, updated_at
 ) VALUES (
   'map-051', 'tenant-1', 'env-dev-123',
-  'wf-dev-051', NULL, 'untracked',
+  'wf-dev-051', NULL, 'unmapped',
   'Customer Survey Automation', {...},
   'p9q8r7s6t5u4...', NULL,  -- No git hash yet
   '2026-01-14T09:15:00Z', NOW(), NOW()
@@ -1985,53 +2002,54 @@ INSERT INTO workflow_env_map (
   "event_type": "sync.completed",
   "environment_id": "env-dev-123",
   "workflows_unmapped": 1,
-  "new_untracked_workflows": ["wf-dev-051"]
+  "new_unmapped_workflows": ["wf-dev-051"]
 }
 ```
 
 ---
 
-#### 4. UI Shows Untracked Workflow Alert
+#### 4. UI Shows Unmapped Workflow Alert
 
 **UI Notification:**
 ```
-⚠️ 1 untracked workflow detected in Dev environment
+⚠️ 1 unmapped workflow detected in Dev environment
 
 Workflow: Customer Survey Automation
-Status: UNTRACKED (not linked to Git)
+Status: UNMAPPED (not linked to Git)
 
 Action Required: Review and onboard to Git
 ```
 
-**User Navigation:** Clicks notification → Redirected to Untracked Workflows page
+**User Navigation:** Clicks notification → Redirected to Unmapped Workflows page
 
-**API Call to Load Untracked:**
+> **Note:** The `/canonical/untracked` endpoint and `untracked_workflows_service.py` have been **deprecated and removed**. Unmapped workflows are now visible via the workflow matrix view and canonical onboarding flow.
+
+**Legacy API Call (Deprecated):**
 ```http
 GET /api/v1/canonical/untracked?environment_id=env-dev-123
+# ⚠️ DEPRECATED - Use workflow matrix or onboarding flow instead
 ```
-
-**File:** `app/api/endpoints/canonical_workflows.py:get_untracked_workflows()`
 
 **Database Query:**
 ```sql
 SELECT * FROM workflow_env_map
 WHERE tenant_id = 'tenant-1'
   AND environment_id = 'env-dev-123'
-  AND status = 'untracked'
+  AND status = 'unmapped'
   AND canonical_id IS NULL;
 ```
 
 **Response:**
 ```json
 {
-  "untracked_workflows": [
+  "unmapped_workflows": [
     {
       "id": "map-051",
       "n8n_workflow_id": "wf-dev-051",
       "workflow_name": "Customer Survey Automation",
       "environment_id": "env-dev-123",
       "environment_name": "Dev",
-      "status": "untracked",
+      "status": "unmapped",
       "detected_at": "2026-01-14T09:30:00Z",
       "node_count": 3,
       "active": true
@@ -2082,16 +2100,16 @@ POST /api/v1/canonical/workflows/onboard
 
 #### 6. Onboarding Service Processes Request
 
-**File:** `app/services/canonical_workflow_service.py:onboard_untracked_workflow()`
+**File:** `app/services/canonical_workflow_service.py:onboard_unmapped_workflow()`
 
 ##### 6a. Validate Request
 
 ```python
-# Check workflow exists and is untracked
+# Check workflow exists and is unmapped
 mapping = await db_service.get_workflow_mapping('map-051')
 
-if mapping['status'] != WorkflowMappingStatus.UNTRACKED:
-    raise InvalidStateError("Workflow must be UNTRACKED")
+if mapping['status'] != WorkflowMappingStatus.UNMAPPED:
+    raise InvalidStateError("Workflow must be UNMAPPED")
 
 if mapping['canonical_id'] is not None:
     raise ConflictError("Workflow already linked")
@@ -2263,8 +2281,8 @@ The workflow is now tracked in Git and can be promoted to other environments.
 
 **Database:**
 - `canonical_workflows`: 1 new record created
-- `workflow_env_map`: 1 record updated (`status: untracked` → `linked`)
-- Environment drift status: `IN_SYNC` (1 fewer untracked)
+- `workflow_env_map`: 1 record updated (`status: unmapped` → `linked`)
+- Environment drift status: `IN_SYNC` (1 fewer unmapped)
 
 **Git Repository:**
 - New files:
@@ -2287,7 +2305,7 @@ These four scenarios demonstrate the core workflows through the WorkflowOps syst
 1. **First-Time Environment Setup** - Shows the complete sync process (n8n → DB, Git → DB, drift detection)
 2. **Promotion Flow** - Demonstrates promotion gates, credential rewriting, snapshots, and rollback capabilities
 3. **Drift Detection & Resolution** - Traces the full incident lifecycle from detection to closure
-4. **Untracked Onboarding** - Shows how new workflows are discovered and linked to Git
+4. **Unmapped Onboarding** - Shows how new workflows are discovered and linked to Git
 
 Each scenario includes:
 - ✅ **API calls** with exact endpoints and payloads

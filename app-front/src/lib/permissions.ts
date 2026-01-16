@@ -49,11 +49,11 @@ const ROUTE_RULES: Array<{ match: (path: string) => boolean; rule: RouteRule }> 
   // Org Admin — admin only, with plan-specific routes
   {
     match: (p) => p === '/admin/credential-health' || p.startsWith('/admin/credential-health/'),
-    rule: { roles: ['admin'], minPlan: 'pro' },
+    rule: { roles: ['admin', 'platform_admin'], minPlan: 'pro' },
   },
   {
     match: (p) => p === '/admin/usage' || p.startsWith('/admin/usage/'),
-    rule: { roles: ['admin'], minPlan: 'pro' },
+    rule: { roles: ['admin', 'platform_admin'], minPlan: 'pro' },
   },
   {
     match: (p) => p === '/platform/feature-matrix' || p.startsWith('/platform/feature-matrix/'),
@@ -69,8 +69,8 @@ const ROUTE_RULES: Array<{ match: (path: string) => boolean; rule: RouteRule }> 
   },
 
   // Identity & Secrets
-  { match: (p) => p === '/credentials' || p.startsWith('/credentials/'), rule: { roles: ['admin'], minPlan: 'free' } },
-  { match: (p) => p === '/n8n-users', rule: { roles: ['admin'], minPlan: 'pro' } },
+  { match: (p) => p === '/credentials' || p.startsWith('/credentials/'), rule: { roles: ['admin', 'platform_admin'], minPlan: 'free' } },
+  { match: (p) => p === '/n8n-users', rule: { roles: ['admin', 'platform_admin'], minPlan: 'pro' } },
 
   // Observability
   { match: (p) => p === '/observability', rule: { roles: ['viewer', 'developer', 'admin', 'platform_admin'], minPlan: 'pro' } },

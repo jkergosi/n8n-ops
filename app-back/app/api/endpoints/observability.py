@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Response
 from typing import Optional, List
 import logging
 
@@ -29,6 +29,7 @@ def get_tenant_id(user_info: dict) -> str:
 
 @router.get("/overview", response_model=ObservabilityOverview)
 async def get_observability_overview(
+    response: Response,
     time_range: TimeRange = TimeRange.TWENTY_FOUR_HOURS,
     environment_id: Optional[str] = None,
     user_info: dict = Depends(get_current_user),
@@ -50,6 +51,10 @@ async def get_observability_overview(
             environment_id=environment_id
         )
         logger.info(f"Observability overview returned: kpi_total_executions={overview.kpi_metrics.total_executions}, workflow_count={len(overview.workflow_performance)}")
+
+        # Cache for 60 seconds, allow stale responses while revalidating
+        response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=30"
+
         return overview
     except Exception as e:
         raise HTTPException(
@@ -60,6 +65,7 @@ async def get_observability_overview(
 
 @router.get("/kpi", response_model=KPIMetrics)
 async def get_kpi_metrics(
+    response: Response,
     time_range: TimeRange = TimeRange.TWENTY_FOUR_HOURS,
     user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("observability_basic"))
@@ -74,6 +80,10 @@ async def get_kpi_metrics(
             tenant_id,
             time_range
         )
+
+        # Cache for 60 seconds, allow stale responses while revalidating
+        response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=30"
+
         return metrics
     except Exception as e:
         raise HTTPException(
@@ -84,6 +94,7 @@ async def get_kpi_metrics(
 
 @router.get("/workflow-performance", response_model=List[WorkflowPerformance])
 async def get_workflow_performance(
+    response: Response,
     time_range: TimeRange = TimeRange.TWENTY_FOUR_HOURS,
     limit: int = 10,
     sort_by: str = "executions",
@@ -111,6 +122,10 @@ async def get_workflow_performance(
             limit,
             sort_by
         )
+
+        # Cache for 120 seconds (2 minutes), allow stale responses while revalidating
+        response.headers["Cache-Control"] = "public, max-age=120, stale-while-revalidate=60"
+
         return performance
     except Exception as e:
         raise HTTPException(
@@ -121,6 +136,7 @@ async def get_workflow_performance(
 
 @router.get("/environment-health", response_model=List[EnvironmentHealth])
 async def get_environment_health(
+    response: Response,
     user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("environment_health"))
 ):
@@ -131,6 +147,10 @@ async def get_environment_health(
     try:
         tenant_id = get_tenant_id(user_info)
         health = await observability_service.get_environment_health(tenant_id)
+
+        # Cache for 30 seconds, allow stale responses while revalidating
+        response.headers["Cache-Control"] = "public, max-age=30, stale-while-revalidate=15"
+
         return health
     except Exception as e:
         raise HTTPException(
@@ -141,6 +161,7 @@ async def get_environment_health(
 
 @router.get("/promotion-stats", response_model=PromotionSyncStats)
 async def get_promotion_stats(
+    response: Response,
     days: int = 7,
     user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("workflow_ci_cd"))
@@ -160,6 +181,10 @@ async def get_promotion_stats(
             tenant_id,
             days
         )
+
+        # Cache for 300 seconds (5 minutes), allow stale responses while revalidating
+        response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=120"
+
         return stats
     except Exception as e:
         raise HTTPException(
@@ -171,6 +196,7 @@ async def get_promotion_stats(
 @router.post("/health-check/{environment_id}", response_model=HealthCheckResponse)
 async def trigger_health_check(
     environment_id: str,
+    response: Response,
     user_info: dict = Depends(get_current_user),
     _: dict = Depends(require_entitlement("environment_health"))
 ):
@@ -184,6 +210,10 @@ async def trigger_health_check(
             tenant_id,
             environment_id
         )
+
+        # Do not cache manual health checks - always return fresh results
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+
         return result
     except ValueError as e:
         raise HTTPException(

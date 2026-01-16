@@ -84,8 +84,8 @@ export function WorkflowsEmptyState({
       title="No workflows found"
       description={
         environmentName
-          ? `No workflows have been synced from ${environmentName} yet. Run a sync to discover workflows from your n8n instance.`
-          : "No workflows have been synced yet. Connect an environment and run a sync to discover workflows."
+          ? `No workflows have been refreshed from ${environmentName} yet. Run a refresh to discover workflows from your n8n instance.`
+          : "No workflows have been refreshed yet. Connect an environment and run a refresh to discover workflows."
       }
       illustration="no-workflows"
       size={size}
@@ -93,14 +93,14 @@ export function WorkflowsEmptyState({
       primaryAction={
         onSync
           ? {
-              label: "Sync Workflows",
+              label: "Refresh Workflows",
               onClick: onSync,
               icon: RefreshCw,
             }
           : undefined
       }
       featureBullets={[
-        "Workflows are automatically discovered during sync",
+        "Workflows are automatically discovered during refresh",
         "Track versions and changes over time",
         "Deploy workflows to other environments",
       ]}
@@ -236,14 +236,14 @@ export function IncidentsEmptyState({
 }: IncidentsEmptyStateProps) {
   return (
     <InformativeEmptyState
-      title="All environments are in sync"
+      title="All environments are up to date"
       description="No drift incidents detected. Your environments are synchronized with their Git source of truth."
       secondaryText="WorkflowOps continuously monitors for configuration drift."
       illustration="no-incidents"
       size={size}
       showCard={showCard}
       featureBullets={[
-        "Drift is automatically detected during sync",
+        "Drift is automatically detected during refresh",
         "Incidents are created when changes are found",
         "Resolve incidents by promoting or reverting changes",
       ]}
@@ -268,14 +268,14 @@ export function CredentialsEmptyState({
   return (
     <InformativeEmptyState
       title="No credentials tracked"
-      description="Credentials are discovered during environment sync. They help ensure workflows have the required connections before deployment."
+      description="Credentials are discovered during environment refresh. They help ensure workflows have the required connections before deployment."
       illustration="no-credentials"
       size={size}
       showCard={showCard}
       secondaryAction={
         onAddCredential
           ? {
-              label: "Sync Environment",
+              label: "Refresh Environment",
               onClick: onAddCredential,
               icon: RefreshCw,
               variant: 'outline',
@@ -283,7 +283,7 @@ export function CredentialsEmptyState({
           : undefined
       }
       featureBullets={[
-        "Credentials are synced from n8n automatically",
+        "Credentials are refreshed from n8n automatically",
         "Preflight checks ensure credentials exist before deployment",
         "Sensitive data is never stored",
       ]}
@@ -306,12 +306,12 @@ export function ActivityEmptyState({
   return (
     <InformativeEmptyState
       title="No recent activity"
-      description="Activity will appear here as you sync environments, deploy workflows, and manage your n8n instances."
+      description="Activity will appear here as you refresh environments, deploy workflows, and manage your n8n instances."
       illustration="no-activity"
       size={size}
       showCard={showCard}
       featureBullets={[
-        "Track syncs, deployments, and changes",
+        "Track refreshes, deployments, and changes",
         "Monitor background job progress",
         "Review audit history",
       ]}
@@ -378,7 +378,7 @@ export function GettingStartedEmptyState({
   return (
     <InformativeEmptyState
       title="Welcome to WorkflowOps!"
-      description="Get started by connecting your first n8n environment. Once connected, you can sync workflows, track changes, and deploy updates."
+      description="Get started by connecting your first n8n environment. Once connected, you can refresh workflows, track changes, and deploy updates."
       illustration="getting-started"
       size={size}
       showCard={showCard}
@@ -395,7 +395,7 @@ export function GettingStartedEmptyState({
       }}
       featureBullets={[
         "Connect multiple n8n instances",
-        "Sync and version control workflows",
+        "Refresh and version control workflows",
         "Deploy changes with pipelines",
         "Monitor drift and incidents",
       ]}

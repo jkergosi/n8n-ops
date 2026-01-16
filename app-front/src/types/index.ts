@@ -6,6 +6,18 @@ export type EnvironmentType = string | undefined;
 // This is the ONLY source of truth for workflow action policies
 export type EnvironmentClass = 'dev' | 'staging' | 'production';
 
+// Drift status enum - matches backend DriftStatus class
+// See app-back/app/services/drift_detection_service.py
+export type DriftStatus =
+  | 'UNKNOWN'         // Scenario #1: Empty environment (no Git, no workflows)
+  | 'IN_SYNC'         // Scenarios #4/#9/#10: Runtime matches approved baseline
+  | 'DRIFT_DETECTED'  // Scenarios #5/#9/#10: Runtime differs from approved baseline
+  | 'NEW'             // Environment has no baseline (Git configured but not onboarded)
+  | 'GIT_UNAVAILABLE' // Scenario #6: Git repo inaccessible (401/403/404)
+  | 'ERROR'           // System error during drift detection
+  | 'DEPLOY_MISSING'  // Scenarios #2/#7: Git has workflows, n8n runtime empty
+  | 'UNMANAGED';      // Scenario #3: No Git configured, workflows exist in n8n
+
 export interface EnvironmentTypeConfig {
   id: string;
   tenantId: string;
@@ -127,12 +139,15 @@ export interface Environment {
   lastHeartbeatAt?: string;
   lastDriftCheckAt?: string;
   lastSyncAt?: string;
-  driftStatus?: 'IN_SYNC' | 'DRIFT_DETECTED' | 'DRIFT_INCIDENT_ACTIVE' | 'NEW' | string;
+  driftStatus?: DriftStatus;
   isOnboarded?: boolean;  // True if baseline exists and resolves (current.json + snapshot)
   lastDriftDetectedAt?: string;
   activeDriftIncidentId?: string;
   driftHandlingMode?: 'warn_only' | 'manual_override' | 'require_attestation' | string;
   workflowCount: number;
+  // F1 FIX: Partial management fields (Scenario #8)
+  isPartiallyManaged?: boolean;  // True if environment has both LINKED and UNMAPPED workflows
+  unmanagedCount?: number;       // Count of UNMAPPED workflows for display
   gitRepoUrl?: string;
   gitBranch?: string;
   gitPat?: string;

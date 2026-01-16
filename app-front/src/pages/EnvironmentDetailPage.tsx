@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table,
   TableBody,
@@ -78,7 +77,7 @@ import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import type { Environment, Workflow as WorkflowType, Snapshot, Credential, EnvironmentTypeConfig } from '@/types';
 import { useEnvironmentTypes, getEnvironmentTypeLabel } from '@/hooks/useEnvironmentTypes';
-import { getStateBadgeInfo } from '@/lib/environment-utils';
+import { getStateBadgeInfo, getPartialManagementBadgeInfo } from '@/lib/environment-utils';
 
 // Helper to determine connection status based on last connected time
 function getConnectionStatus(lastConnected?: string): 'connected' | 'degraded' | 'offline' {
@@ -148,8 +147,6 @@ export function EnvironmentDetailPage() {
     }>;
   } | null>(null);
 
-  // Active tab
-  const [activeTab, setActiveTab] = useState('overview');
 
   const [driftHandlingMode, setDriftHandlingMode] = useState<'warn_only' | 'manual_override' | 'require_attestation'>('warn_only');
 
@@ -242,8 +239,10 @@ export function EnvironmentDetailPage() {
   const credentials = credentialsData?.data?.items || [];
 
   // Fetch drift details for non-DEV environments when drift is detected
-  const isDriftRelevant = environment?.environmentClass?.toLowerCase() !== 'dev' &&
-    (environment?.driftStatus === 'DRIFT_DETECTED' || environment?.activeDriftIncidentId);
+  const isDriftRelevant = Boolean(
+    environment?.environmentClass?.toLowerCase() !== 'dev' &&
+    (environment?.driftStatus === 'DRIFT_DETECTED' || environment?.activeDriftIncidentId)
+  );
 
   const { data: driftData, isLoading: driftLoading, error: driftError } = useQuery({
     queryKey: ['environment-drift', id],
@@ -329,9 +328,9 @@ export function EnvironmentDetailPage() {
 
       if (job_id && (status === 'running' || status === 'pending' || status === 'already_running')) {
         if (status === 'already_running') {
-          toast.info('Sync already in progress');
+          toast.info('Refresh already in progress');
         } else {
-          toast.success('Syncing environment state (background)');
+          toast.success('Refreshing environment state (background)');
         }
         setActiveJobs((prev) => ({
           ...prev,
@@ -341,17 +340,17 @@ export function EnvironmentDetailPage() {
             status: 'running',
             current: 0,
             total: 1,
-            message: status === 'already_running' ? 'Sync already in progress...' : 'Starting sync...',
+            message: status === 'already_running' ? 'Refresh already in progress...' : 'Starting refresh...',
           },
         }));
         queryClient.invalidateQueries({ queryKey: ['environment', id] });
         queryClient.invalidateQueries({ queryKey: ['environment-jobs', id] });
       } else {
-        toast.error(message || 'Failed to start sync');
+        toast.error(message || 'Failed to start refresh');
       }
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.detail || 'Failed to sync environment');
+      toast.error(error.response?.data?.detail || 'Failed to refresh environment');
     },
   });
 
@@ -364,6 +363,32 @@ export function EnvironmentDetailPage() {
     onError: (error: any) => {
       const message = error.response?.data?.detail || 'Failed to download workflows';
       toast.error(message);
+    },
+  });
+
+  // Apply approved state mutation (for Deploy and Revert actions)
+  const applyApprovedMutation = useMutation({
+    mutationFn: (environmentId: string) => apiClient.applyApprovedState(environmentId),
+    onSuccess: (result) => {
+      const { success, requires_approval, message, rollback_id } = result.data;
+      if (requires_approval) {
+        toast.info(message || 'Deployment requires approval');
+        navigate('/deployments');
+      } else if (success) {
+        toast.success(message || 'Applying approved state...');
+        queryClient.invalidateQueries({ queryKey: ['environment', id] });
+        queryClient.invalidateQueries({ queryKey: ['environments'] });
+      } else {
+        toast.error(message || 'Failed to apply approved state');
+      }
+    },
+    onError: (error: any) => {
+      const detail = error.response?.data?.detail;
+      if (detail?.includes('Git repository is unavailable')) {
+        toast.error('Git unavailable. Update Git settings first.');
+      } else {
+        toast.error(detail || 'Failed to apply approved state');
+      }
     },
   });
 
@@ -664,7 +689,7 @@ export function EnvironmentDetailPage() {
   const getJobTypeLabel = (jobType: string) => {
     switch (jobType) {
       case 'environment_sync':
-        return 'Environment Sync';
+        return 'Environment Refresh';
       case 'github_sync_to':
         return 'GitHub Backup';
       case 'github_sync_from':
@@ -736,9 +761,17 @@ export function EnvironmentDetailPage() {
   const envState =
     environment.activeDriftIncidentId ? 'DRIFT_INCIDENT_ACTIVE' : (environment.driftStatus || 'IN_SYNC');
   const stateBadge = getStateBadgeInfo(environment);
+  // F1: Compute partial management badge for mixed LINKED + UNMAPPED environments
+  const partialBadge = getPartialManagementBadgeInfo(
+    environment.isPartiallyManaged ?? false,
+    environment.unmanagedCount ?? 0
+  );
   const envStateLabel =
     envState === 'DRIFT_INCIDENT_ACTIVE' ? (canUseDriftIncidents ? 'Drift Incident Active' : 'Changes Detected') :
     stateBadge.label;
+
+  // G3: Track Git availability for disabling Git-dependent actions
+  const isGitUnavailable = stateBadge.status === 'git_unavailable';
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -785,6 +818,18 @@ export function EnvironmentDetailPage() {
               >
                 {envStateLabel}
               </Badge>
+              {/* F1: Partial management badge */}
+              {partialBadge && (
+                <Link to="/unmapped-workflows">
+                  <Badge
+                    variant={partialBadge.variant}
+                    className="text-sm cursor-pointer hover:opacity-80"
+                    title={partialBadge.tooltip}
+                  >
+                    {partialBadge.label}
+                  </Badge>
+                </Link>
+              )}
               {environment.provider && (
                 <Badge variant="outline" className="text-sm">{environment.provider}</Badge>
               )}
@@ -829,6 +874,63 @@ export function EnvironmentDetailPage() {
               </Button>
             )
           )}
+          {/* G1: Deploy action when DEPLOY_MISSING */}
+          {stateBadge.status === 'deploy_missing' && (
+            <Button
+              variant="default"
+              onClick={() => {
+                if (id) applyApprovedMutation.mutate(id);
+              }}
+              disabled={applyApprovedMutation.isPending}
+            >
+              {applyApprovedMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deploying...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Deploy
+                </>
+              )}
+            </Button>
+          )}
+          {/* G2: Update Git Settings when GIT_UNAVAILABLE */}
+          {stateBadge.status === 'git_unavailable' && (
+            <Button
+              variant="destructive"
+              asChild
+            >
+              <Link to={`/environments/${id}/edit`}>
+                <Settings className="h-4 w-4 mr-2" />
+                Update Git Settings
+              </Link>
+            </Button>
+          )}
+          {/* G4: Revert to Approved for non-DEV environments with drift */}
+          {stateBadge.status === 'drift_detected' && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (id) applyApprovedMutation.mutate(id);
+              }}
+              disabled={applyApprovedMutation.isPending}
+              title="Revert runtime to match approved Git state"
+            >
+              {applyApprovedMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Reverting...
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Revert to Approved
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -864,7 +966,7 @@ export function EnvironmentDetailPage() {
               <p className="text-sm font-semibold">{environment.workflowCount || 0}</p>
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">Last Sync</p>
+              <p className="text-sm font-medium text-muted-foreground">Last Refresh</p>
               <div className="flex items-center gap-2">
                 <p className="text-sm">{formatRelativeTime(environment.lastConnected)}</p>
                 <Button
@@ -935,7 +1037,7 @@ export function EnvironmentDetailPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 {getStatusIcon(activeJob.status)}
-                {activeJob.jobType === 'sync' ? 'Environment Sync' :
+                {activeJob.jobType === 'sync' ? 'Environment Refresh' :
                  activeJob.jobType === 'backup' ? 'GitHub Backup' :
                  'GitHub Restore'}
               </CardTitle>
@@ -994,37 +1096,8 @@ export function EnvironmentDetailPage() {
         </Card>
       )}
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid grid-cols-6 w-full max-w-3xl">
-          <TabsTrigger value="overview" className="flex items-center gap-1">
-            <Info className="h-4 w-4" />
-            Overview
-          </TabsTrigger>
-          <TabsTrigger value="workflows" className="flex items-center gap-1">
-            <Workflow className="h-4 w-4" />
-            Workflows
-          </TabsTrigger>
-          <TabsTrigger value="snapshots" className="flex items-center gap-1">
-            <Archive className="h-4 w-4" />
-            Snapshots
-          </TabsTrigger>
-          <TabsTrigger value="activity" className="flex items-center gap-1">
-            <History className="h-4 w-4" />
-            Activity
-          </TabsTrigger>
-          <TabsTrigger value="credentials" className="flex items-center gap-1">
-            <Key className="h-4 w-4" />
-            Credentials
-          </TabsTrigger>
-          <TabsTrigger value="settings" className="flex items-center gap-1">
-            <Settings className="h-4 w-4" />
-            Settings
-          </TabsTrigger>
-        </TabsList>
-
-        {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-4" id="drift">
+      {/* Overview Section */}
+      <div className="space-y-4" id="drift">
           <Card>
             <CardHeader>
               <div>
@@ -1036,7 +1109,7 @@ export function EnvironmentDetailPage() {
               {/* Status Row */}
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge
                       variant={
                         envState === 'DRIFT_INCIDENT_ACTIVE' ? 'destructive' :
@@ -1046,6 +1119,18 @@ export function EnvironmentDetailPage() {
                     >
                       {envStateLabel}
                     </Badge>
+                    {/* F1: Partial management badge */}
+                    {partialBadge && (
+                      <Link to="/unmapped-workflows">
+                        <Badge
+                          variant={partialBadge.variant}
+                          className="cursor-pointer hover:opacity-80"
+                          title={partialBadge.tooltip}
+                        >
+                          {partialBadge.label}
+                        </Badge>
+                      </Link>
+                    )}
                     {/* DEV: Show last sync time. Non-DEV: Show last drift check time */}
                     {environment.environmentClass?.toLowerCase() === 'dev' ? (
                       environment.lastSyncAt && (
@@ -1127,7 +1212,7 @@ export function EnvironmentDetailPage() {
                     </div>
                     <div>
                       <p className="text-2xl font-bold text-green-600">{driftSummary.inSync}</p>
-                      <p className="text-xs text-muted-foreground">In Sync</p>
+                      <p className="text-xs text-muted-foreground">Up to Date</p>
                     </div>
                     <div>
                       <p className="text-2xl font-bold text-yellow-600">{driftSummary.withDrift}</p>
@@ -1361,9 +1446,11 @@ export function EnvironmentDetailPage() {
                   </div>
                 )}
                 <div className="mt-4">
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => setActiveTab('activity')}>
-                    <Activity className="h-4 w-4 mr-2" />
-                    View All Activity
+                  <Button variant="outline" size="sm" className="w-full" asChild>
+                    <Link to="/activity">
+                      <Activity className="h-4 w-4 mr-2" />
+                      View All Activity
+                    </Link>
                   </Button>
                 </div>
                 <div className="mt-2">
@@ -1374,75 +1461,10 @@ export function EnvironmentDetailPage() {
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
+      </div>
 
-        {/* Workflows Tab */}
-        <TabsContent value="workflows" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Workflows</CardTitle>
-              <CardDescription>
-                All workflows in this environment ({workflows.length} total)
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {workflowsLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                </div>
-              ) : workflows.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  No workflows found. Sync the environment to fetch workflows.
-                </p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Last Updated</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {workflows.map((workflow: WorkflowType) => (
-                      <TableRow key={workflow.id}>
-                        <TableCell className="font-medium">
-                          <Link
-                            to={`/workflows/${workflow.id}`}
-                            className="text-primary hover:underline"
-                          >
-                            {workflow.name}
-                          </Link>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={workflow.active ? 'default' : 'secondary'}>
-                            {workflow.active ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatRelativeTime(workflow.updatedAt)}
-                        </TableCell>
-                        <TableCell>
-                          <Link
-                            to={`/workflows/${workflow.id}`}
-                            className="text-sm text-primary hover:underline"
-                          >
-                            <Eye className="h-4 w-4 inline mr-1" />
-                            View
-                          </Link>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Snapshots Tab */}
-        <TabsContent value="snapshots" className="space-y-4">
+      {/* Snapshots Section */}
+      <div className="space-y-4">
           <Card>
             <CardHeader>
               <div>
@@ -1509,10 +1531,10 @@ export function EnvironmentDetailPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+      </div>
 
-        {/* Activity Tab */}
-        <TabsContent value="activity" className="space-y-4">
+      {/* Activity Section */}
+      <div className="space-y-4">
           <Card>
             <CardHeader>
               <div className="flex items-start justify-between gap-3">
@@ -1582,10 +1604,10 @@ export function EnvironmentDetailPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+      </div>
 
-        {/* Credentials Tab */}
-        <TabsContent value="credentials" className="space-y-4">
+      {/* Credentials Section */}
+      <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Credentials</CardTitle>
@@ -1636,10 +1658,177 @@ export function EnvironmentDetailPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+      </div>
 
-        {/* Settings Tab */}
-        <TabsContent value="settings" className="space-y-4">
+      {/* Related Views Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Related Views</CardTitle>
+          <CardDescription>
+            Jump to filtered views for this environment
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Workflows Link */}
+            <Link
+              to={`/workflows?env_id=${id}`}
+              className="group block p-4 border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-md bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                  <Workflow className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-medium text-sm mb-1 group-hover:text-primary transition-colors">
+                    Workflows
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    View all workflows in this environment
+                  </p>
+                </div>
+                <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+            </Link>
+
+            {/* Deployments Link */}
+            <Link
+              to={`/deployments?env_id=${id}`}
+              className="group block p-4 border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-md bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                  <Download className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-medium text-sm mb-1 group-hover:text-primary transition-colors">
+                    Deployments
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    View deployment history for this environment
+                  </p>
+                </div>
+                <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+            </Link>
+
+            {/* Snapshots Link */}
+            <Link
+              to={`/snapshots?env_id=${id}`}
+              className="group block p-4 border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-md bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                  <Archive className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-medium text-sm mb-1 group-hover:text-primary transition-colors">
+                    Snapshots
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    View Git-backed snapshots for this environment
+                  </p>
+                </div>
+                <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+            </Link>
+
+            {/* Executions Link */}
+            <Link
+              to={`/executions?env_id=${id}`}
+              className="group block p-4 border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-md bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                  <Zap className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-medium text-sm mb-1 group-hover:text-primary transition-colors">
+                    Executions
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    View workflow executions for this environment
+                  </p>
+                </div>
+                <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+            </Link>
+
+            {/* Activity Link */}
+            <Link
+              to={`/activity?env_id=${id}`}
+              className="group block p-4 border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-md bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                  <Activity className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-medium text-sm mb-1 group-hover:text-primary transition-colors">
+                    Activity
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    View audit logs and activity for this environment
+                  </p>
+                </div>
+                <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+            </Link>
+
+            {/* Credentials Link */}
+            <Link
+              to={`/credentials?env_id=${id}`}
+              className="group block p-4 border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors"
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-md bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                  <Key className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-medium text-sm mb-1 group-hover:text-primary transition-colors">
+                    Credentials
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    View credentials used in this environment
+                  </p>
+                </div>
+                <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+              </div>
+            </Link>
+
+            {/* Unmapped Workflows Link - Conditional */}
+            {partialBadge && (
+              <Link
+                to="/unmapped-workflows"
+                className="group block p-4 border rounded-lg hover:border-primary hover:bg-accent/50 transition-colors border-orange-200 dark:border-orange-800 bg-orange-50/30 dark:bg-orange-950/20"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-md bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 group-hover:bg-orange-600 group-hover:text-white transition-colors">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-medium text-sm group-hover:text-primary transition-colors">
+                        Unmapped Workflows
+                      </h3>
+                      <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">
+                        {environment.unmanagedCount || 0}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Workflows not tracked by governance system
+                    </p>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                </div>
+              </Link>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Settings Section */}
+      <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Environment Settings</CardTitle>
@@ -1699,7 +1888,8 @@ export function EnvironmentDetailPage() {
                       // TODO: Implement snapshot creation
                       toast.info('Snapshot creation will be implemented');
                     }}
-                    disabled={activeJob?.jobType === 'backup' && activeJob?.status === 'running'}
+                    disabled={(activeJob?.jobType === 'backup' && activeJob?.status === 'running') || isGitUnavailable}
+                    title={isGitUnavailable ? 'Git repository is unavailable. Update Git settings first.' : undefined}
                   >
                     <Database className={`h-4 w-4 mr-2 ${activeJob?.jobType === 'backup' && activeJob?.status === 'running' ? 'animate-spin' : ''}`} />
                     {activeJob?.jobType === 'backup' && activeJob?.status === 'running' ? 'Creating...' : 'Create Snapshot'}
@@ -1805,8 +1995,7 @@ export function EnvironmentDetailPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+      </div>
 
       {/* Edit Environment Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

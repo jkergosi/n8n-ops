@@ -3,6 +3,16 @@
 **Generated:** 2026-01-08
 **Evidence-Based:** Repository scan only
 
+### Quick Reference
+
+| Topic | Document |
+|-------|----------|
+| User-facing terminology mapping | `14_terminology_and_rules.md` §1 |
+| Unmanaged workflow decision flow | `14_terminology_and_rules.md` §2 |
+| GIT_UNAVAILABLE state handling | `14_terminology_and_rules.md` §3 |
+| DEV environment rules | `14_terminology_and_rules.md` §4 |
+| Sync removal guarantees | `14_terminology_and_rules.md` §5 |
+
 ## Repository Structure
 
 ### Top-Level Structure
@@ -357,3 +367,80 @@ All routers registered with prefix `/api/v1`:
 - Playwright browser automation (frontend)
 - Test factories and golden JSON fixtures
 - GitHub Actions cache for dependencies
+
+---
+
+## Environment States
+
+**Evidence:** `app-back/app/services/drift_detection_service.py`, `app-front/src/lib/environment-utils.ts`
+
+### Baseline Presence Check
+
+The environment state model is anchored on `is_env_onboarded()` from `git_snapshot_service.py`:
+
+```python
+async def is_env_onboarded(tenant_id, env_id) -> bool:
+    # Returns True only if:
+    # 1. current.json pointer exists
+    # 2. Snapshot referenced by pointer exists and is readable
+```
+
+This function is the **single source of truth** for whether an environment has a valid baseline.
+
+### Environment-Level States (DriftStatus)
+
+| Status | Condition | Description |
+|--------|-----------|-------------|
+| `NEW` | `is_env_onboarded() == False` | No baseline exists; drift detection skipped |
+| `IN_SYNC` | Baseline exists, runtime matches | All workflows match approved versions |
+| `DRIFT_DETECTED` | Baseline exists, runtime differs | One or more workflows differ from approved |
+| `GIT_UNAVAILABLE` | Git repo inaccessible | Repository deleted, forbidden, or unreachable |
+| `ERROR` | Exception during detection | Check failed; see error details |
+| `UNKNOWN` | Never checked | Initial state before first detection |
+
+> **See also:** `14_terminology_and_rules.md` for complete state definitions, recovery paths, and action gating.
+
+### NEW Environment Gate
+
+When `is_env_onboarded()` returns `False`, drift detection **short-circuits immediately**:
+
+```python
+# drift_detection_service.py:detect_drift()
+if not await git_snapshot_service.is_env_onboarded(tenant_id, environment_id):
+    drift_status = DriftStatus.NEW
+    return  # No per-workflow comparison runs
+```
+
+**Implications:**
+- No `affected_workflows` computed
+- No Git reads or comparisons performed
+- Per-workflow status shows "Runtime only"
+
+### UI Labels by Environment Class
+
+| DriftStatus | DEV Label | STAGING/PROD Label |
+|-------------|-----------|-------------------|
+| `NEW` | "No baseline" | "Not onboarded" |
+| `IN_SYNC` | "Matches baseline" | "Matches approved" |
+| `DRIFT_DETECTED` | "Different from baseline" | "Drift detected" |
+| `GIT_UNAVAILABLE` | "Git unavailable" | "Git unavailable" |
+| `ERROR` | "Error" | "Error" |
+| `UNKNOWN` | "Unknown" | "Unknown" |
+
+### Action Gating
+
+| Action | Condition | Rationale |
+|--------|-----------|-----------|
+| **Revert** | `isOnboarded === true` AND Git accessible | Cannot revert without baseline or Git access |
+| **Keep Hotfix** | `isOnboarded === true` AND Git accessible | Cannot mark hotfix without baseline or Git access |
+| **Save as Approved** | Git accessible | Creates or updates baseline (requires Git write) |
+| **Promote** | Source `isOnboarded === true` AND Git accessible | Must have baseline and Git access to promote |
+
+> **Note:** When `GIT_UNAVAILABLE`, all Git-dependent actions are blocked. See `14_terminology_and_rules.md` for full action matrix.
+
+### Workflow Row Behavior
+
+When environment is NEW (`isOnboarded === false`):
+- All workflow rows show "Runtime only" badge
+- No sync status comparison displayed
+- Workflow count visible, but no drift categorization

@@ -864,7 +864,7 @@ export function WorkflowDetailPage() {
     }
     
     if (lowerText.includes('drift') || lowerText.includes('git') || lowerText.includes('version')) {
-      return 'Sync workflow changes with version control to prevent configuration drift and maintain consistency across environments.';
+      return 'Refresh workflow changes with version control to prevent configuration drift and maintain consistency across environments.';
     }
     
     if (lowerText.includes('complex') || lowerText.includes('simplify')) {
@@ -1314,7 +1314,7 @@ export function WorkflowDetailPage() {
                       <AlertCircle className={`h-5 w-5 mt-0.5 ${isDev ? 'text-blue-600' : 'text-yellow-600'}`} />
                       <div>
                         <p className={`font-medium ${isDev ? 'text-blue-800 dark:text-blue-200' : 'text-yellow-800 dark:text-yellow-200'}`}>
-                          {isDev ? 'Pending Sync' : 'Git Drift Detected'}
+                          {isDev ? 'Pending Refresh' : 'Git Drift Detected'}
                         </p>
                         <p className={`text-sm ${isDev ? 'text-blue-600 dark:text-blue-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
                           {isDev ? 'DEV changes haven\'t been persisted to Git yet.' : 'Workflow differs from Git'}
@@ -2293,7 +2293,7 @@ export function WorkflowDetailPage() {
                 <div className="flex items-center justify-center py-8">
                   <div className="text-center">
                     <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-primary border-r-transparent"></div>
-                    <p className="mt-2 text-sm text-muted-foreground">Checking Git sync status...</p>
+                    <p className="mt-2 text-sm text-muted-foreground">Checking Git refresh status...</p>
                   </div>
                 </div>
               ) : !driftData?.gitConfigured ? (
@@ -2329,8 +2329,8 @@ export function WorkflowDetailPage() {
                         )}
                         <span className="font-medium">
                           {driftData?.hasDrift
-                            ? (currentEnvironment?.environmentClass?.toLowerCase() === 'dev' ? 'Pending Sync' : 'Drift Detected')
-                            : 'In Sync with Git'}
+                            ? (currentEnvironment?.environmentClass?.toLowerCase() === 'dev' ? 'Pending Refresh' : 'Drift Detected')
+                            : 'Up to Date with Git'}
                         </span>
                       </div>
                       {driftData?.lastCommitSha && (
@@ -2448,7 +2448,7 @@ export function WorkflowDetailPage() {
                       <div className="text-center py-8 text-muted-foreground border rounded-lg">
                         <History className="h-8 w-8 mx-auto mb-2 opacity-50" />
                         <p>No Git history available</p>
-                        <p className="text-xs mt-1">Sync to GitHub to start tracking versions</p>
+                        <p className="text-xs mt-1">Refresh to GitHub to start tracking versions</p>
                       </div>
                     )}
                   </div>
@@ -2501,7 +2501,7 @@ export function WorkflowDetailPage() {
                       <div className="p-4 flex items-center gap-4">
                         <div className="w-2 h-2 rounded-full bg-purple-500"></div>
                         <div>
-                          <p className="text-sm font-medium">Last Synced</p>
+                          <p className="text-sm font-medium">Last Refreshed</p>
                           <p className="text-xs text-muted-foreground">
                             {new Date(workflow.lastSyncedAt).toLocaleString()}
                           </p>

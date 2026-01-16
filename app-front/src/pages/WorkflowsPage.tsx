@@ -165,6 +165,18 @@ export function WorkflowsPage() {
   const totalWorkflows = workflowsResponse?.data?.total || 0;
   const totalPages = workflowsResponse?.data?.totalPages || workflowsResponse?.data?.total_pages || 1;
 
+  // Read env_id URL parameter on mount and set selected environment
+  useEffect(() => {
+    const envIdParam = searchParams.get('env_id');
+    if (envIdParam && availableEnvironments.length > 0) {
+      // Check if the env_id from URL exists in available environments
+      const envExists = availableEnvironments.some(env => env.id === envIdParam);
+      if (envExists && selectedEnvironment !== envIdParam) {
+        setSelectedEnvironment(envIdParam as EnvironmentType);
+      }
+    }
+  }, [searchParams, availableEnvironments, selectedEnvironment, setSelectedEnvironment]);
+
   // Set default environment if none selected and environments are available
   useEffect(() => {
     if (availableEnvironments.length === 0) return;
@@ -172,8 +184,16 @@ export function WorkflowsPage() {
     const nextId = resolved?.id || getDefaultEnvironmentId(availableEnvironments);
     if (nextId && selectedEnvironment !== nextId) {
       setSelectedEnvironment(nextId);
+
+      // Sync default environment to URL if no env_id param is present
+      const envIdParam = searchParams.get('env_id');
+      if (!envIdParam) {
+        const newSearchParams = new URLSearchParams(searchParams);
+        newSearchParams.set('env_id', nextId);
+        setSearchParams(newSearchParams, { replace: true });
+      }
     }
-  }, [availableEnvironments, selectedEnvironment, setSelectedEnvironment]);
+  }, [availableEnvironments, selectedEnvironment, setSelectedEnvironment, searchParams, setSearchParams]);
 
   // Fetch execution counts for workflows (optimized endpoint)
   const { data: executionCounts } = useQuery({
@@ -375,7 +395,7 @@ export function WorkflowsPage() {
         return (
           <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
             <CheckCircle2 className="h-3 w-3 mr-1" />
-            In Sync
+            Up to Date
           </Badge>
         );
       case 'local_changes':
@@ -397,6 +417,25 @@ export function WorkflowsPage() {
           <Badge variant="outline" className="text-xs bg-red-50 text-red-700 border-red-200">
             <AlertTriangle className="h-3 w-3 mr-1" />
             Conflict
+          </Badge>
+        );
+      // P2 FIX: Show "Unmanaged" for workflows in n8n but not in Git baseline
+      case 'not_in_git':
+      case 'added_in_runtime':
+      case 'unmapped':
+        return (
+          <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200">
+            <AlertCircle className="h-3 w-3 mr-1" />
+            Unmanaged
+          </Badge>
+        );
+      // P2 FIX: Show "Not Deployed" for workflows in Git but not in n8n
+      // (This would only appear if backend includes these virtual entries)
+      case 'missing_from_runtime':
+        return (
+          <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            Not Deployed
           </Badge>
         );
       default:
@@ -644,7 +683,19 @@ export function WorkflowsPage() {
               <select
                 id="environment"
                 value={currentEnvironment?.id || ''}
-                onChange={(e) => setSelectedEnvironment(e.target.value as EnvironmentType)}
+                onChange={(e) => {
+                  const newEnvId = e.target.value as EnvironmentType;
+                  setSelectedEnvironment(newEnvId);
+
+                  // Sync selection to URL env_id param
+                  const newSearchParams = new URLSearchParams(searchParams);
+                  if (newEnvId) {
+                    newSearchParams.set('env_id', newEnvId);
+                  } else {
+                    newSearchParams.delete('env_id');
+                  }
+                  setSearchParams(newSearchParams, { replace: true });
+                }}
                 className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 disabled={availableEnvironments.length === 0}
               >

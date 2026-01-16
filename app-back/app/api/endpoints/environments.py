@@ -63,17 +63,20 @@ async def get_environments(
         tenant_id = get_tenant_id(user_info)
         environments = await db_service.get_environments(tenant_id)
 
-        # Populate is_onboarded for each environment (parallel)
+        # Populate is_onboarded and onboard_reason for each environment (parallel)
         async def check_onboarded(env):
             env_id = env.get("id") if isinstance(env, dict) else env.id
             try:
-                is_onboarded = await git_snapshot_service.is_env_onboarded(tenant_id, env_id)
+                is_onboarded, onboard_reason = await git_snapshot_service.is_env_onboarded(tenant_id, env_id)
             except Exception:
                 is_onboarded = False
+                onboard_reason = "error"
             if isinstance(env, dict):
                 env["is_onboarded"] = is_onboarded
+                env["onboard_reason"] = onboard_reason
             else:
                 env.is_onboarded = is_onboarded
+                env.onboard_reason = onboard_reason
             return env
 
         environments = await asyncio.gather(*[check_onboarded(env) for env in environments])
@@ -330,7 +333,7 @@ async def get_onboarding_status(
         # Check onboarding status
         from app.services.git_snapshot_service import git_snapshot_service
 
-        is_onboarded = await git_snapshot_service.is_env_onboarded(tenant_id, environment_id)
+        is_onboarded, onboard_reason = await git_snapshot_service.is_env_onboarded(tenant_id, environment_id)
         current_snapshot_id = None
 
         if is_onboarded:
@@ -340,6 +343,7 @@ async def get_onboarding_status(
 
         return {
             "is_onboarded": is_onboarded,
+            "onboard_reason": onboard_reason,
             "current_snapshot_id": current_snapshot_id,
             "environment_id": environment_id,
             "environment_name": env_name,
@@ -1736,11 +1740,19 @@ async def refresh_environment_state(
             )
 
         # Guard: Verify action is allowed
+        user_role = user.get("role", "user")
+        env_class_str = environment.get("environment_class", "dev")
+        try:
+            env_class = EnvironmentClass(env_class_str)
+        except ValueError:
+            env_class = EnvironmentClass.DEV
+
         try:
             environment_action_guard.assert_can_perform_action(
+                env_class=env_class,
                 action=EnvironmentAction.SYNC_STATUS,
-                environment=environment,
-                tenant_id=tenant_id
+                user_role=user_role,
+                environment_name=environment.get("n8n_name", environment_id)
             )
         except ActionGuardError as guard_err:
             raise HTTPException(
@@ -2081,11 +2093,13 @@ async def backup_environment_to_approved(
             )
 
         # Guard: Verify action is allowed
+        user_role = user.get("role", "user")
         try:
             environment_action_guard.assert_can_perform_action(
+                env_class=EnvironmentClass.DEV,  # Already validated above
                 action=EnvironmentAction.BACKUP,
-                environment=environment,
-                tenant_id=tenant_id
+                user_role=user_role,
+                environment_name=environment.get("n8n_name", environment_id)
             )
         except ActionGuardError as guard_err:
             raise HTTPException(
@@ -3574,3 +3588,136 @@ async def _push_approved_state_to_dev(
     except Exception as e:
         logger.error(f"Failed to push approved state to DEV: {str(e)}", exc_info=True)
         return {"success": False, "error": str(e)}
+
+
+@router.post("/{environment_id}/apply-approved")
+async def apply_approved_state(
+    environment_id: str,
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("workflow_push"))
+):
+    """
+    Apply approved state (from Git snapshot) to environment runtime.
+
+    This endpoint handles two scenarios:
+    - DEPLOY_MISSING: Environment is onboarded but n8n is empty
+    - DRIFT_DETECTED: Runtime differs from approved state (revert)
+
+    It loads the current snapshot from Git and deploys all workflows
+    to the n8n runtime using the existing rollback infrastructure.
+
+    Behavior:
+    1. Verify environment is onboarded (has current.json)
+    2. Get current snapshot ID from pointer
+    3. Initiate rollback to current snapshot (using existing mechanism)
+
+    For PROD environments, this requires approval.
+
+    Returns:
+        Rollback initiation result with rollback_id and status
+    """
+    from app.services.git_promotion_service import (
+        git_promotion_service,
+        RollbackRequest,
+        PromotionStatus,
+    )
+    from app.services.drift_detection_service import DriftStatus
+
+    try:
+        tenant_id = get_tenant_id(user_info)
+        user = user_info.get("user", {})
+        user_id = user.get("id")
+
+        # Get environment
+        environment = await db_service.get_environment(environment_id, tenant_id)
+        if not environment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Environment not found"
+            )
+
+        # Guard: Verify Git configuration
+        if not environment.get("git_repo_url") or not environment.get("git_pat"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Git repository configuration is required. Update Git settings first."
+            )
+
+        # Guard: Check environment is onboarded
+        is_onboarded, onboard_reason = await git_snapshot_service.is_env_onboarded(
+            tenant_id, environment_id
+        )
+
+        if onboard_reason == "git_unavailable":
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Git repository is unavailable. Check repository URL and credentials."
+            )
+
+        if not is_onboarded:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Environment is not onboarded (reason: {onboard_reason}). Promote from upstream first."
+            )
+
+        # Get current snapshot ID from pointer
+        current_pointer = await git_snapshot_service.get_current_pointer(
+            tenant_id, environment_id
+        )
+
+        if not current_pointer or not current_pointer.get("current_snapshot_id"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No approved state found. Promote from upstream to create baseline."
+            )
+
+        snapshot_id = current_pointer["current_snapshot_id"]
+
+        # Initiate rollback to current snapshot (reuses existing mechanism)
+        rollback_request = RollbackRequest(
+            tenant_id=tenant_id,
+            env_id=environment_id,
+            snapshot_id=snapshot_id,
+            user_id=user_id,
+            reason="Apply approved state to runtime",
+        )
+
+        result = await git_promotion_service.initiate_rollback(rollback_request)
+
+        if not result.success and result.status == PromotionStatus.FAILED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.error or "Failed to apply approved state"
+            )
+
+        # Determine user-friendly status message
+        env_class = environment.get("environment_class", "").lower()
+        drift_status = environment.get("drift_status", "")
+
+        if result.requires_approval:
+            message = "Deployment requires approval. Approve in the deployments page."
+        elif drift_status == DriftStatus.DEPLOY_MISSING:
+            message = "Deploying approved workflows to environment..."
+        else:
+            message = "Reverting to approved state..."
+
+        return {
+            "success": result.success,
+            "rollback_id": result.rollback_id,
+            "snapshot_id": result.snapshot_id,
+            "status": result.status.value,
+            "workflows_deployed": result.workflows_deployed,
+            "requires_approval": result.requires_approval,
+            "verification_passed": result.verification_passed,
+            "message": message,
+            "error": result.error,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to apply approved state: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to apply approved state: {str(e)}"
+        )

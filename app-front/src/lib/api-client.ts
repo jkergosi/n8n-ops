@@ -3,6 +3,7 @@
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
 import type {
+  DriftStatus,
   Environment,
   EnvironmentType,
   EnvironmentTypeConfig,
@@ -688,7 +689,7 @@ class ApiClient {
 
   async getEnvironmentDrift(environmentId: string, refresh: boolean = false): Promise<{
     data: {
-      driftStatus: 'IN_SYNC' | 'DRIFT_DETECTED' | 'UNKNOWN' | 'ERROR';
+      driftStatus: DriftStatus;
       lastDriftDetectedAt: string | null;
       activeDriftIncidentId?: string | null;
       gitConfigured?: boolean;
@@ -726,7 +727,7 @@ class ApiClient {
   async refreshEnvironmentDrift(environmentId: string): Promise<{
     data: {
       success: boolean;
-      driftStatus: 'IN_SYNC' | 'DRIFT_DETECTED' | 'UNKNOWN' | 'ERROR';
+      driftStatus: DriftStatus;
       lastDriftDetectedAt: string;
       gitConfigured: boolean;
       summary: {
@@ -755,6 +756,32 @@ class ApiClient {
     };
   }> {
     const response = await this.client.post<any>(`/environments/${environmentId}/drift/refresh`);
+    return { data: response.data };
+  }
+
+  /**
+   * Apply approved state (from Git snapshot) to environment runtime.
+   *
+   * Handles two scenarios:
+   * - DEPLOY_MISSING: Environment is onboarded but n8n is empty
+   * - DRIFT_DETECTED: Runtime differs from approved state (revert)
+   *
+   * For PROD environments, this requires approval.
+   */
+  async applyApprovedState(environmentId: string): Promise<{
+    data: {
+      success: boolean;
+      rollback_id: string;
+      snapshot_id: string;
+      status: string;
+      workflows_deployed: number;
+      requires_approval: boolean;
+      verification_passed: boolean;
+      message: string;
+      error?: string | null;
+    };
+  }> {
+    const response = await this.client.post<any>(`/environments/${environmentId}/apply-approved`);
     return { data: response.data };
   }
 

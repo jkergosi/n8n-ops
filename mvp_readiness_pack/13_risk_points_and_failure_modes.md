@@ -2,6 +2,8 @@
 
 **Purpose**: Document identified risk points, failure modes, edge cases, and potential data inconsistency scenarios across the WorkflowOps system based on code analysis.
 
+> **Terminology Note:** This document uses internal technical terminology. See `14_terminology_and_rules.md` for user-facing term mappings.
+
 ---
 
 ## 1. Drift Detection Risks
@@ -45,24 +47,32 @@
 
 **Impact**: False sense of "checked recently" when check actually failed
 
-### 1.4 UNTRACKED vs DRIFT_DETECTED Logic
+### 1.4 NEW Environment Gate (Baseline Check)
 
-**Location**: `app/services/drift_detection_service.py:283-296`
+**Location**: `app/services/drift_detection_service.py:125-147`
 
-**Risk**: Status determination depends on `tracked_workflows` count:
+**Updated Behavior**: Environment baseline presence is now determined by `is_env_onboarded()`:
 ```python
-if len(tracked_workflows) == 0:
-    drift_status = DriftStatus.UNTRACKED
-else:
-    drift_status = DRIFT_DETECTED if has_drift else IN_SYNC
+is_onboarded = await git_snapshot_service.is_env_onboarded(tenant_id, environment_id)
+
+if not is_onboarded:
+    # Environment is NEW - no baseline exists
+    # Do NOT run comparison, do NOT compute diffs
+    drift_status = DriftStatus.NEW
+    return summary  # Short-circuit before any comparison
 ```
 
-**Edge Case**: If all workflows are manually unlinked but still exist in n8n:
-- Environment marked UNTRACKED
-- Drift incidents won't be created (scheduler skips UNTRACKED environments)
-- Actual drift may be hidden
+**Validation**: `is_env_onboarded()` returns False if:
+- `<env>/current.json` pointer doesn't exist, OR
+- Pointer points to non-existent/unreadable snapshot
 
-**Impact**: Manual unlinking can mask real drift
+**UI Display**:
+- DEV + NEW → "No baseline"
+- STAGING/PROD + NEW → "Not onboarded"
+
+**Impact**: NEW environments cannot reach drift comparison logic. No false positives.
+
+> **Note:** The old `DriftStatus.UNTRACKED` has been **removed** from the codebase. Baseline state is now solely determined by `is_env_onboarded()`.
 
 ### 1.5 DEV Environment Exclusion
 
@@ -75,6 +85,38 @@ else:
 
 **Rationale**: n8n is source of truth for DEV
 **Edge Case**: If environment_class is misconfigured or NULL, drift checks may not run
+
+### 1.6 Git Repository Unavailability
+
+**Location**: `app/services/git_snapshot_service.py`, `app/services/github_service.py`
+
+**Risk**: Git repository becomes inaccessible (deleted, permissions revoked, network issues)
+
+**Detection Points**:
+- Drift detection cycle (`is_env_onboarded()` fails)
+- Promotion attempt (GitHub API returns 404/403)
+- Manual sync (cannot read repository)
+- Scheduled health check (if implemented)
+
+**Failure Modes**:
+| Cause | GitHub Response | System Behavior |
+|-------|-----------------|-----------------|
+| Repository deleted | 404 Not Found | `GIT_UNAVAILABLE` state |
+| Token revoked | 401 Unauthorized | `GIT_UNAVAILABLE` state |
+| Permissions changed | 403 Forbidden | `GIT_UNAVAILABLE` state |
+| Network timeout | Connection error | `ERROR` state (transient) |
+
+**Impact**:
+- All Git-dependent operations blocked (Revert, Keep Hotfix, Save as Approved, Promote)
+- Drift status becomes stale
+- User must reconfigure Git or recreate repository
+
+**Recovery Paths**:
+1. **Relink**: Update Git URL/credentials in environment settings
+2. **Recreate**: Create new repo, re-onboard environment
+3. **Remove**: Clear Git integration (loses governance features)
+
+**Mitigation**: See `14_terminology_and_rules.md` section 3 for complete state definition and action matrix.
 
 ---
 
@@ -169,7 +211,7 @@ if existing_n8n_id and existing_n8n_id != n8n_workflow_id:
 **Failure Mode**:
 1. Workflow A linked to canonical_id X in environment
 2. Workflow B (different n8n ID) has same content hash as A
-3. Auto-link fails for B → remains UNTRACKED
+3. Auto-link fails for B → remains UNMAPPED
 4. B is functionally identical to A but not tracked in promotions
 
 **Impact**: Duplicate workflows not automatically reconciled
@@ -537,7 +579,7 @@ db_service.client.table("environments").update({
 
 **Location**: `app/services/canonical_env_sync_service.py:386-393`
 
-**Risk**: Workflow marked "missing" if not in n8n, but transition back to linked/untracked on reappearance:
+**Risk**: Workflow marked "missing" if not in n8n, but transition back to linked/unmapped on reappearance:
 ```python
 if existing_status == "missing":
     if existing_canonical_id:
@@ -597,7 +639,7 @@ if existing_status == "missing":
 **Scenario**: Environment with zero workflows
 
 **Risks**:
-- Drift detection: `total_workflows=0` but status set to IN_SYNC (line 280-296 logic may skip UNTRACKED check)
+- Drift detection: `total_workflows=0` — now handled by NEW gate (is_env_onboarded check runs first)
 - Sync: Empty batch, no checkpoint created
 - Promotion source: No workflows to promote
 
@@ -629,14 +671,14 @@ if existing_status == "missing":
 
 ### 9.4 Null/Empty Canonical ID
 
-**Scenario**: Untracked workflow has `canonical_id=NULL`
+**Scenario**: Unmapped workflow has `canonical_id=NULL`
 
 **Risks**:
 - Queries filtering by `canonical_id` may not handle NULL correctly
 - Auto-link logic (line 424-434) cannot match on NULL
 - Promotion logic may crash if NULL not expected
 
-**Impact**: Untracked workflows invisible to certain queries
+**Impact**: Unmapped workflows invisible to certain queries
 
 ### 9.5 Timezone Handling Inconsistencies
 

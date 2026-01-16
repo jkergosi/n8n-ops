@@ -211,6 +211,48 @@ function LegacyPlatformTenantRedirect() {
   return <Navigate to={`/platform/tenants/${tenantId}`} replace />;
 }
 
+// Legacy environment sub-route redirect for workflows
+export function LegacyEnvironmentWorkflowsRedirect() {
+  const { id } = useParams();
+  if (!id) return <Navigate to="/workflows" replace />;
+  return <Navigate to={`/workflows?env_id=${id}`} replace />;
+}
+
+// Legacy environment sub-route redirect for deployments
+export function LegacyEnvironmentDeploymentsRedirect() {
+  const { id } = useParams();
+  if (!id) return <Navigate to="/deployments" replace />;
+  return <Navigate to={`/deployments?env_id=${id}`} replace />;
+}
+
+// Legacy environment sub-route redirect for snapshots
+export function LegacyEnvironmentSnapshotsRedirect() {
+  const { id } = useParams();
+  if (!id) return <Navigate to="/snapshots" replace />;
+  return <Navigate to={`/snapshots?env_id=${id}`} replace />;
+}
+
+// Legacy environment sub-route redirect for executions
+export function LegacyEnvironmentExecutionsRedirect() {
+  const { id } = useParams();
+  if (!id) return <Navigate to="/executions" replace />;
+  return <Navigate to={`/executions?env_id=${id}`} replace />;
+}
+
+// Legacy environment sub-route redirect for activity
+export function LegacyEnvironmentActivityRedirect() {
+  const { id } = useParams();
+  if (!id) return <Navigate to="/activity" replace />;
+  return <Navigate to={`/activity?env_id=${id}`} replace />;
+}
+
+// Legacy environment sub-route redirect for credentials
+export function LegacyEnvironmentCredentialsRedirect() {
+  const { id } = useParams();
+  if (!id) return <Navigate to="/credentials" replace />;
+  return <Navigate to={`/credentials?env_id=${id}`} replace />;
+}
+
 // Plan Protected Route Component - shows upgrade modal if plan insufficient
 function PlanProtectedRoute({ 
   children, 
@@ -289,6 +331,12 @@ function App() {
                 <Route path="/environments" element={<RoleProtectedRoute><EnvironmentsPage /></RoleProtectedRoute>} />
                 <Route path="/environments/new" element={<RoleProtectedRoute><EnvironmentSetupPage /></RoleProtectedRoute>} />
                 <Route path="/environments/:id" element={<RoleProtectedRoute><EnvironmentDetailPage /></RoleProtectedRoute>} />
+                <Route path="/environments/:id/workflows" element={<RoleProtectedRoute><LegacyEnvironmentWorkflowsRedirect /></RoleProtectedRoute>} />
+                <Route path="/environments/:id/deployments" element={<RoleProtectedRoute><LegacyEnvironmentDeploymentsRedirect /></RoleProtectedRoute>} />
+                <Route path="/environments/:id/snapshots" element={<RoleProtectedRoute><LegacyEnvironmentSnapshotsRedirect /></RoleProtectedRoute>} />
+                <Route path="/environments/:id/executions" element={<RoleProtectedRoute><LegacyEnvironmentExecutionsRedirect /></RoleProtectedRoute>} />
+                <Route path="/environments/:id/activity" element={<RoleProtectedRoute><LegacyEnvironmentActivityRedirect /></RoleProtectedRoute>} />
+                <Route path="/environments/:id/credentials" element={<RoleProtectedRoute><LegacyEnvironmentCredentialsRedirect /></RoleProtectedRoute>} />
                 <Route path="/environments/:id/edit" element={<RoleProtectedRoute><EnvironmentSetupPage /></RoleProtectedRoute>} />
                 <Route path="/environments/:id/restore" element={<RoleProtectedRoute><RestorePage /></RoleProtectedRoute>} />
                 <Route path="/workflows" element={<RoleProtectedRoute><WorkflowsPage /></RoleProtectedRoute>} />

@@ -96,18 +96,18 @@ export function N8NUsersPage() {
     onSuccess: (results) => {
       setIsSyncing(false);
       const totalUsers = results.reduce((sum, r) => sum + (r.synced || 0), 0);
-      toast.success(`Synced ${totalUsers} users from N8N`);
+      toast.success(`Refreshed ${totalUsers} users from N8N`);
       queryClient.invalidateQueries({ queryKey: ['n8n-users'] });
     },
     onError: (error: any) => {
       setIsSyncing(false);
-      const message = error.response?.data?.detail || 'Failed to sync from N8N';
+      const message = error.response?.data?.detail || 'Failed to refresh from N8N';
       toast.error(message);
     },
   });
 
   const handleSyncFromN8N = () => {
-    toast.info('Syncing from N8N...');
+    toast.info('Refreshing from N8N...');
     setIsSyncing(true);
     syncMutation.mutate();
   };
@@ -326,7 +326,7 @@ export function N8NUsersPage() {
               <AlertCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
               <p className="text-muted-foreground">
                 {totalUsers === 0
-                  ? 'No N8N users found. Run Sync on the Environments page to fetch users from N8N.'
+                  ? 'No N8N users found. Run Refresh on the Environments page to fetch users from N8N.'
                   : 'No users match your filters.'}
               </p>
             </div>

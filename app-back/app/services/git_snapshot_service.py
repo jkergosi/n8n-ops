@@ -361,51 +361,68 @@ class GitSnapshotService:
         self,
         tenant_id: str,
         env_id: str,
-    ) -> bool:
+    ) -> Tuple[bool, str]:
         """
         Check if environment is onboarded (has valid baseline).
 
-        Returns False if:
-        - current.json does not exist, OR
-        - current.json points to non-existent snapshot, OR
-        - snapshot manifest cannot be read/validated
-
-        Returns True only if baseline is fully resolvable.
+        Returns:
+            Tuple of (is_onboarded, reason) where reason is one of:
+            - "onboarded" - Has valid baseline
+            - "new" - No baseline exists (no current.json or pointer)
+            - "git_unavailable" - Cannot access Git repo (403/404/network error)
+            - "no_git_config" - Git not configured for this environment
+            - "env_not_found" - Environment record doesn't exist
+            - "invalid_pointer" - current.json exists but points to missing snapshot
         """
+        from github import GithubException
+
         env_config = await self.db.get_environment(env_id, tenant_id)
         if not env_config:
-            return False
+            return (False, "env_not_found")
 
         env_type = env_config.get("n8n_type")
         if not env_type:
-            return False
+            return (False, "no_git_config")
 
         if not env_config.get("git_repo_url"):
-            return False
+            return (False, "no_git_config")
 
         github_service = self._get_github_service(env_config)
 
         # Check if pointer exists
-        if not await github_service.env_is_onboarded(env_type):
-            return False
+        try:
+            if not await github_service.env_is_onboarded(env_type):
+                return (False, "new")
+        except GithubException as e:
+            if e.status in (403, 404, 401):
+                return (False, "git_unavailable")
+            raise
+        except Exception as e:
+            logger.warning(f"Failed to check onboarding for env {env_id}: {e}")
+            return (False, "git_unavailable")
 
         # Validate pointer resolves to valid snapshot
         try:
             pointer = await github_service.read_env_pointer(env_type)
             if not pointer or not pointer.get("current_snapshot_id"):
-                return False
+                return (False, "new")
 
             snapshot_id = pointer["current_snapshot_id"]
 
             # Verify snapshot manifest exists and is readable
             manifest = await github_service.read_snapshot_manifest(env_type, snapshot_id)
             if not manifest:
-                return False
+                return (False, "invalid_pointer")
 
-            return True
+            return (True, "onboarded")
+        except GithubException as e:
+            if e.status in (403, 404, 401):
+                return (False, "git_unavailable")
+            logger.warning(f"GitHub error validating baseline for env {env_id}: {e}")
+            return (False, "git_unavailable")
         except Exception as e:
             logger.warning(f"Failed to validate baseline for env {env_id}: {e}")
-            return False
+            return (False, "git_unavailable")
 
     async def get_current_snapshot_id(
         self,

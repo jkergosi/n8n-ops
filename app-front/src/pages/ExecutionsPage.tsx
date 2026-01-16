@@ -78,6 +78,18 @@ export function ExecutionsPage() {
   );
   const currentEnvironmentId = currentEnvironment?.id;
 
+  // Read env_id URL parameter on mount and set selected environment
+  useEffect(() => {
+    const envIdParam = searchParams.get('env_id');
+    if (envIdParam && availableEnvironments.length > 0) {
+      // Check if the env_id from URL exists in available environments
+      const envExists = availableEnvironments.some(env => env.id === envIdParam);
+      if (envExists && selectedEnvironment !== envIdParam) {
+        setSelectedEnvironment(envIdParam as EnvironmentType);
+      }
+    }
+  }, [searchParams, availableEnvironments, selectedEnvironment, setSelectedEnvironment]);
+
   useEffect(() => {
     if (availableEnvironments.length === 0) return;
     const nextId = currentEnvironment?.id || getDefaultEnvironmentId(availableEnvironments);
@@ -141,18 +153,18 @@ export function ExecutionsPage() {
     onSuccess: (results) => {
       setIsSyncing(false);
       const totalSynced = results.reduce((sum, r) => sum + (r.synced || 0), 0);
-      toast.success(`Synced ${totalSynced} executions from N8N`);
+      toast.success(`Refreshed ${totalSynced} executions from N8N`);
       queryClient.invalidateQueries({ queryKey: ['executions-paginated'] });
     },
     onError: (error: any) => {
       setIsSyncing(false);
-      const message = error.response?.data?.detail || 'Failed to sync from N8N';
+      const message = error.response?.data?.detail || 'Failed to refresh from N8N';
       toast.error(message);
     },
   });
 
   const handleSyncFromN8N = () => {
-    toast.info('Syncing from N8N...');
+    toast.info('Refreshing from N8N...');
     setIsSyncing(true);
     syncMutation.mutate();
   };
@@ -372,7 +384,19 @@ export function ExecutionsPage() {
               <select
                 id="environment"
                 value={currentEnvironmentId || ''}
-                onChange={(e) => setSelectedEnvironment(e.target.value as EnvironmentType)}
+                onChange={(e) => {
+                  const newEnvId = e.target.value as EnvironmentType;
+                  setSelectedEnvironment(newEnvId);
+
+                  // Sync selection to URL env_id param
+                  const newSearchParams = new URLSearchParams(searchParams);
+                  if (newEnvId) {
+                    newSearchParams.set('env_id', newEnvId);
+                  } else {
+                    newSearchParams.delete('env_id');
+                  }
+                  setSearchParams(newSearchParams, { replace: true });
+                }}
                 className="flex h-9 w-full rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 {availableEnvironments.map((env: any) => (

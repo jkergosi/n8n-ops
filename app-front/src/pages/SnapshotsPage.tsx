@@ -105,6 +105,18 @@ export function SnapshotsPage() {
   // Get current environment ID (default to dev, normalize legacy type selections to id)
   const currentEnvironmentId = currentEnvironment?.id || getDefaultEnvironmentId(availableEnvironments);
 
+  // Read env_id URL parameter on mount and set selected environment
+  useEffect(() => {
+    const envIdParam = searchParams.get('env_id');
+    if (envIdParam && availableEnvironments.length > 0) {
+      // Check if the env_id from URL exists in available environments
+      const envExists = availableEnvironments.some(env => env.id === envIdParam);
+      if (envExists && selectedEnvironment !== envIdParam) {
+        useAppStore.getState().setSelectedEnvironment(envIdParam);
+      }
+    }
+  }, [searchParams, availableEnvironments, selectedEnvironment]);
+
   useEffect(() => {
     if (!currentEnvironmentId) return;
     if (selectedEnvironment !== currentEnvironmentId) {
@@ -379,6 +391,15 @@ export function SnapshotsPage() {
               value={currentEnvironmentId || ''}
               onValueChange={(value) => {
                 useAppStore.getState().setSelectedEnvironment(value);
+
+                // Sync selection to URL env_id param
+                const newSearchParams = new URLSearchParams(searchParams);
+                if (value) {
+                  newSearchParams.set('env_id', value);
+                } else {
+                  newSearchParams.delete('env_id');
+                }
+                setSearchParams(newSearchParams, { replace: true });
               }}
             >
               <SelectTrigger className="w-[300px]">

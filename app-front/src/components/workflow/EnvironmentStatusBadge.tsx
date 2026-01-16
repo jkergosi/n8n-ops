@@ -24,7 +24,7 @@ const STATUS_CONFIG: Record<
   linked: {
     label: 'Linked',
     variant: 'success',
-    tooltip: 'Canonical workflow is mapped to the environment and in sync.',
+    tooltip: 'Canonical workflow is mapped to the environment and up to date.',
     icon: CheckCircle2,
   },
   unmapped: {

@@ -76,7 +76,7 @@
 - `canonical_id` (UUID FK, nullable)
 - `environment_id` (UUID FK)
 - `n8n_workflow_id` (text)
-- `status`: linked/untracked/missing/ignored/deleted
+- `status`: linked/unmapped/missing/ignored/deleted
 - `env_content_hash`, `git_content_hash`
 - `n8n_updated_at`, `workflow_name`
 - `workflow_data` (JSONB, cached)

@@ -181,10 +181,11 @@ export function AppLayout() {
         if (!allowedRoles.includes(userRole)) return false;
       }
       
-      // Identity & Secrets - admin only for credentials and n8n-users
+      // Identity & Secrets - admin or platform_admin for credentials and n8n-users
       if (sectionTitle === 'Identity & Secrets') {
-        if (item.href === '/credentials' && userRole !== 'admin') return false;
-        if (item.href === '/n8n-users' && userRole !== 'admin') return false;
+        const adminRoles: Role[] = ['admin', 'platform_admin'];
+        if (item.href === '/credentials' && !adminRoles.includes(userRole)) return false;
+        if (item.href === '/n8n-users' && !adminRoles.includes(userRole)) return false;
       }
       
       // Plan gating

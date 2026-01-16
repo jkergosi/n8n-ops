@@ -69,11 +69,11 @@ export function CanonicalWorkflowsPage() {
   const handleSyncRepo = async (environmentId: string) => {
     try {
       const response = await apiClient.post(`/canonical/sync/repo/${environmentId}`);
-      toast.success('Repository sync started');
+      toast.success('Repository refresh started');
       // Poll for completion
       pollJobStatus(response.data.jobId);
     } catch (error: any) {
-      toast.error('Failed to start repository sync');
+      toast.error('Failed to start repository refresh');
       console.error(error);
     }
   };
@@ -112,7 +112,7 @@ export function CanonicalWorkflowsPage() {
 
     const poll = async () => {
       if (attempts >= maxAttempts) {
-        toast.error('Sync is taking too long. Check Activity Center for status.');
+        toast.error('Refresh is taking too long. Check Activity Center for status.');
         return;
       }
       attempts++;
@@ -122,11 +122,11 @@ export function CanonicalWorkflowsPage() {
         const job = response.data;
 
         if (job.status === 'completed') {
-          toast.success('Sync completed');
+          toast.success('Refresh completed');
           loadData();
           return;
         } else if (job.status === 'failed') {
-          toast.error('Sync failed: ' + (job.error_message || 'Unknown error'));
+          toast.error('Refresh failed: ' + (job.error_message || 'Unknown error'));
           return;
         }
 
@@ -205,10 +205,10 @@ export function CanonicalWorkflowsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleSyncRepo(env.id)}
-                        title="Sync Git state to database (does not write to Git)"
+                        title="Refresh Git state to database (does not write to Git)"
                       >
                         <GitBranch className="mr-2 h-4 w-4" />
-                        Sync Git
+                        Refresh Git
                       </Button>
                     )}
                     <Button

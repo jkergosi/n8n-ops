@@ -148,7 +148,7 @@ export function ActivityDetailPage() {
   const getJobTypeLabel = (jobType: string) => {
     switch (jobType) {
       case 'environment_sync':
-        return 'Environment Sync';
+        return 'Environment Refresh';
       case 'github_sync_to':
         return 'GitHub Backup';
       case 'github_sync_from':
@@ -162,9 +162,9 @@ export function ActivityDetailPage() {
       case 'snapshot_restore':
         return 'Snapshot Restore';
       case 'canonical_env_sync':
-        return 'Canonical Sync';
+        return 'Refresh';
       case 'dev_git_sync':
-        return 'DEV Git Sync';
+        return 'Refresh';
       default:
         return jobType;
     }
@@ -213,7 +213,7 @@ export function ActivityDetailPage() {
   const SYNC_PHASES_DEV = [
     { key: 'initializing', label: 'Initializing', order: 0 },
     { key: 'discovering_workflows', label: 'Discovering workflows from n8n', order: 1 },
-    { key: 'updating_environment_state', label: 'Syncing n8n → Database', order: 2 },
+    { key: 'updating_environment_state', label: 'Refreshing n8n → Database', order: 2 },
     { key: 'persisting_to_git', label: 'Persisting to Git', order: 3 },
     { key: 'finalizing_sync', label: 'Finalizing', order: 4 },
     { key: 'completed', label: 'Completed', order: 5 },
@@ -265,20 +265,20 @@ export function ActivityDetailPage() {
     // DEV-specific labels (n8n is source of truth)
     const devPhaseMap: Record<string, string> = {
       'discovering_workflows': 'Discovering workflows from n8n',
-      'updating_environment_state': 'Syncing n8n → Database',
+      'updating_environment_state': 'Refreshing n8n → Database',
       'persisting_to_git': 'Persisting to Git',
-      'finalizing_sync': 'Finalizing sync',
+      'finalizing_sync': 'Finalizing refresh',
       'completed': 'Completed',
       'failed': 'Failed',
       'initializing': 'Initializing'
     };
-    
+
     // Non-DEV labels (Git is source of truth, detecting drift)
     const nonDevPhaseMap: Record<string, string> = {
       'discovering_workflows': 'Discovering workflows',
       'updating_environment_state': 'Capturing n8n state',
       'reconciling_drift': 'Detecting drift (n8n vs Git)',
-      'finalizing_sync': 'Finalizing sync',
+      'finalizing_sync': 'Finalizing refresh',
       'completed': 'Completed',
       'failed': 'Failed',
       'initializing': 'Initializing'
@@ -570,7 +570,7 @@ export function ActivityDetailPage() {
       )}
 
       {/* Sync Phase Timeline */}
-      {(job.job_type === 'canonical_env_sync' || job.job_type === 'environment_sync') && (
+      {(job.job_type === 'canonical_env_sync' || job.job_type === 'dev_git_sync' || job.job_type === 'environment_sync') && (
         <Card>
           <CardHeader>
             <CardTitle>Sync Phases</CardTitle>
@@ -765,7 +765,7 @@ export function ActivityDetailPage() {
                   Workflows
                 </h4>
                 <div className="pl-6 space-y-1">
-                  <p className="text-sm">Synced: {result.workflows.synced || 0}</p>
+                  <p className="text-sm">Refreshed: {result.workflows.synced || 0}</p>
                   {result.workflows.errors && result.workflows.errors.length > 0 && (
                     <div className="text-sm text-red-600 dark:text-red-400">
                       <p className="font-medium">Errors:</p>
@@ -786,7 +786,7 @@ export function ActivityDetailPage() {
                   Executions
                 </h4>
                 <div className="pl-6">
-                  <p className="text-sm">Synced: {result.executions.synced || 0}</p>
+                  <p className="text-sm">Refreshed: {result.executions.synced || 0}</p>
                   {result.executions.errors && result.executions.errors.length > 0 && (
                     <div className="text-sm text-red-600 dark:text-red-400 mt-1">
                       <p className="font-medium">Errors:</p>
@@ -807,7 +807,7 @@ export function ActivityDetailPage() {
                   Credentials
                 </h4>
                 <div className="pl-6">
-                  <p className="text-sm">Synced: {result.credentials.synced || 0}</p>
+                  <p className="text-sm">Refreshed: {result.credentials.synced || 0}</p>
                   {result.credentials.errors && result.credentials.errors.length > 0 && (
                     <div className="text-sm text-red-600 dark:text-red-400 mt-1">
                       <p className="font-medium">Errors:</p>
@@ -828,7 +828,7 @@ export function ActivityDetailPage() {
                   Users
                 </h4>
                 <div className="pl-6">
-                  <p className="text-sm">Synced: {result.users.synced || 0}</p>
+                  <p className="text-sm">Refreshed: {result.users.synced || 0}</p>
                   {result.users.errors && result.users.errors.length > 0 && (
                     <div className="text-sm text-red-600 dark:text-red-400 mt-1">
                       <p className="font-medium">Errors:</p>
@@ -849,7 +849,7 @@ export function ActivityDetailPage() {
                   Tags
                 </h4>
                 <div className="pl-6">
-                  <p className="text-sm">Synced: {result.tags.synced || 0}</p>
+                  <p className="text-sm">Refreshed: {result.tags.synced || 0}</p>
                   {result.tags.errors && result.tags.errors.length > 0 && (
                     <div className="text-sm text-red-600 dark:text-red-400 mt-1">
                       <p className="font-medium">Errors:</p>

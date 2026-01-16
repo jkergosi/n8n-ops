@@ -320,7 +320,7 @@ class TestIdempotencyAndRetrySafety:
         dev_sync_result = {
             "workflows_synced": 2,
             "workflows_linked": 1,
-            "workflows_untracked": 1,
+            "workflows_unmapped": 1,
             "workflows_skipped": 0,
             "errors": [],
             "observed_workflow_ids": ["wf-dev-1", "wf-dev-2"],
@@ -422,7 +422,7 @@ class TestPerWorkflowErrorTracking:
                 return_value={
                     "workflows_synced": 3,
                     "workflows_linked": 2,
-                    "workflows_untracked": 1,
+                    "workflows_unmapped": 1,
                     "workflows_skipped": 0,
                     "errors": [],
                     "observed_workflow_ids": ["wf-1", "wf-2", "wf-3"],
@@ -510,7 +510,7 @@ class TestPerWorkflowErrorTracking:
                 return_value={
                     "workflows_synced": 2,
                     "workflows_linked": 2,
-                    "workflows_untracked": 0,
+                    "workflows_unmapped": 0,
                     "workflows_skipped": 0,
                     "errors": [
                         "Error processing workflow wferror1: Invalid hash",
@@ -638,7 +638,7 @@ class TestTransactionBoundariesAndIsolation:
                 return_value={
                     "workflows_synced": 5,
                     "workflows_linked": 3,
-                    "workflows_untracked": 2,
+                    "workflows_unmapped": 2,
                     "workflows_skipped": 0,
                     "errors": [],
                     "observed_workflow_ids": ["wf-1", "wf-2", "wf-3", "wf-4", "wf-5"],
@@ -715,7 +715,7 @@ class TestTransactionBoundariesAndIsolation:
                 return_value={
                     "workflows_synced": 3,
                     "workflows_linked": 0,
-                    "workflows_untracked": 3,
+                    "workflows_unmapped": 3,
                     "workflows_skipped": 0,
                     "errors": [],
                     "observed_workflow_ids": ["wf-1", "wf-2", "wf-3"],
@@ -934,7 +934,7 @@ class TestEnvironmentResultsTracking:
                     {
                         "workflows_synced": 8,
                         "workflows_linked": 6,
-                        "workflows_untracked": 2,
+                        "workflows_unmapped": 2,
                         "workflows_skipped": 3,
                         "errors": [],
                         "observed_workflow_ids": ["wf-d-1", "wf-d-2"],
@@ -944,7 +944,7 @@ class TestEnvironmentResultsTracking:
                     {
                         "workflows_synced": 5,
                         "workflows_linked": 5,
-                        "workflows_untracked": 0,
+                        "workflows_unmapped": 0,
                         "workflows_skipped": 1,
                         "errors": ["Timeout fetching wf-s-99"],
                         "observed_workflow_ids": ["wf-s-1"],

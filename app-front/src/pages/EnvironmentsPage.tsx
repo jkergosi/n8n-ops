@@ -897,8 +897,8 @@ export function EnvironmentsPage() {
                             </TooltipProvider>
                           )}
 
-                          {/* Revert button - STAGING/PROD only when drift exists */}
-                          {(env.environmentClass?.toLowerCase() === 'staging' || env.environmentClass?.toLowerCase() === 'production') && env.gitRepoUrl && (
+                          {/* Revert button - STAGING/PROD only when environment is onboarded (has baseline) */}
+                          {(env.environmentClass?.toLowerCase() === 'staging' || env.environmentClass?.toLowerCase() === 'production') && env.isOnboarded && (
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>

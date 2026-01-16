@@ -63,7 +63,7 @@ export function getRouteLabel(pathname: string): string {
     '/platform/entitlements-audit': 'Entitlements Audit',
     '/platform/admins': 'Platform Admins',
     '/platform/settings': 'Platform Settings',
-    '/canonical/untracked': 'Untracked',
+    '/canonical/unmapped': 'Unmapped',
     '/canonical/workflows': 'Canonical Workflows',
     '/canonical/onboarding': 'Canonical Onboarding',
     '/support': 'Support Center',

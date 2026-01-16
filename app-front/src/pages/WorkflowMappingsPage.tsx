@@ -152,7 +152,7 @@ export function WorkflowMappingsPage() {
         return 'secondary';
       case 'deleted':
         return 'destructive';
-      case 'untracked':
+      case 'unmapped':
         return 'outline';
       case 'missing':
         return 'destructive';
@@ -167,7 +167,7 @@ export function WorkflowMappingsPage() {
         return <CheckCircle2 className="h-4 w-4 text-green-500" />;
       case 'missing':
         return <AlertCircle className="h-4 w-4 text-red-500" />;
-      case 'untracked':
+      case 'unmapped':
         return <AlertTriangle className="h-4 w-4 text-amber-500" />;
       default:
         return <Link2 className="h-4 w-4" />;
@@ -242,7 +242,7 @@ export function WorkflowMappingsPage() {
                   <SelectContent>
                     <SelectItem value="">All statuses</SelectItem>
                     <SelectItem value="linked">Linked</SelectItem>
-                    <SelectItem value="untracked">Untracked</SelectItem>
+                    <SelectItem value="unmapped">Unmapped</SelectItem>
                     <SelectItem value="ignored">Ignored</SelectItem>
                     <SelectItem value="deleted">Deleted</SelectItem>
                     <SelectItem value="missing">Missing</SelectItem>

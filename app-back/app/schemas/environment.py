@@ -83,6 +83,7 @@ class EnvironmentResponse(BaseModel):
     active_drift_incident_id: Optional[str] = None
     drift_handling_mode: str = "warn_only"
     workflow_count: int = 0
+    is_onboarded: bool = False  # True if baseline exists AND resolves (current.json + snapshot)
     created_at: datetime
     updated_at: datetime
 

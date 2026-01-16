@@ -436,7 +436,7 @@ INSERT INTO drift_incidents (
     "workflows_synced": 45,
     "workflows_skipped": 3,
     "workflows_linked": 30,
-    "workflows_untracked": 15,
+    "workflows_unmapped": 15,
     "workflows_missing": 0,
     "errors": []
   }
@@ -1974,7 +1974,7 @@ INSERT INTO workflow_env_map (
   "workflows_synced": 51,
   "workflows_skipped": 45,  // Unchanged
   "workflows_linked": 50,
-  "workflows_untracked": 1,  // NEW
+  "workflows_unmapped": 1,  // NEW
   "created_workflow_ids": ["wf-dev-051"]
 }
 ```
@@ -1984,7 +1984,7 @@ INSERT INTO workflow_env_map (
 {
   "event_type": "sync.completed",
   "environment_id": "env-dev-123",
-  "workflows_untracked": 1,
+  "workflows_unmapped": 1,
   "new_untracked_workflows": ["wf-dev-051"]
 }
 ```

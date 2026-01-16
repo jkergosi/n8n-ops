@@ -170,7 +170,7 @@ def compute_workflow_mapping_status(
     1. DELETED - Takes precedence over all other states
     2. IGNORED - Takes precedence over operational states
     3. MISSING - Workflow was mapped but disappeared from n8n
-    4. UNTRACKED - Workflow exists in n8n but has no canonical_id
+    4. UNMAPPED - Workflow exists in n8n but has no canonical_id
     5. LINKED - Normal operational state with both IDs
 
     Args:
@@ -196,9 +196,9 @@ def compute_workflow_mapping_status(
         >>> compute_workflow_mapping_status("c1", "w1", False)
         WorkflowMappingStatus.MISSING
 
-        # Untracked workflow (exists in n8n, no canonical_id)
+        # Unmapped workflow (exists in n8n, no canonical_id)
         >>> compute_workflow_mapping_status(None, "w1", True)
-        WorkflowMappingStatus.UNTRACKED
+        WorkflowMappingStatus.UNMAPPED
 
         # Linked workflow (normal state)
         >>> compute_workflow_mapping_status("c1", "w1", True)
@@ -217,9 +217,9 @@ def compute_workflow_mapping_status(
     if not is_present_in_n8n and n8n_workflow_id:
         return WorkflowMappingStatus.MISSING
 
-    # Precedence 4: UNTRACKED if no canonical_id but exists in n8n
+    # Precedence 4: UNMAPPED if no canonical_id but exists in n8n
     if not canonical_id and is_present_in_n8n:
-        return WorkflowMappingStatus.UNTRACKED
+        return WorkflowMappingStatus.UNMAPPED
 
     # Precedence 5: LINKED as default operational state
     # This requires both canonical_id and is_present_in_n8n
@@ -228,13 +228,13 @@ def compute_workflow_mapping_status(
 
     # Edge case: if we get here, the mapping is in an inconsistent state
     # This could happen during onboarding or partial sync operations
-    # Default to UNTRACKED as the safest fallback
+    # Default to UNMAPPED as the safest fallback
     logger.warning(
         f"Inconsistent workflow mapping state: canonical_id={canonical_id}, "
         f"n8n_workflow_id={n8n_workflow_id}, is_present_in_n8n={is_present_in_n8n}, "
-        f"is_deleted={is_deleted}, is_ignored={is_ignored}. Defaulting to UNTRACKED."
+        f"is_deleted={is_deleted}, is_ignored={is_ignored}. Defaulting to UNMAPPED."
     )
-    return WorkflowMappingStatus.UNTRACKED
+    return WorkflowMappingStatus.UNMAPPED
 
 
 class CanonicalWorkflowService:

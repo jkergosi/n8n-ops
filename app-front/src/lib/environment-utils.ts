@@ -79,7 +79,7 @@ export type StateBadgeVariant = 'default' | 'secondary' | 'destructive' | 'outli
 /**
  * State badge status values
  */
-export type StateBadgeStatus = 'in_sync' | 'pending_sync' | 'drift_detected' | 'untracked' | 'unknown' | 'error';
+export type StateBadgeStatus = 'in_sync' | 'pending_sync' | 'drift_detected' | 'new' | 'unknown' | 'error';
 
 /**
  * State badge info returned by getStateBadgeInfo
@@ -109,39 +109,58 @@ export function getStateBadgeInfo(env: Pick<Environment, 'driftStatus' | 'enviro
   const isDev = env.environmentClass?.toLowerCase() === 'dev';
 
   switch (driftStatus) {
+    case 'NEW':
+      // Environment has no baseline - environment-level gate
+      if (isDev) {
+        return {
+          status: 'new',
+          label: 'No baseline',
+          variant: 'outline',
+          tooltip: 'No approved baseline exists. Save as Approved to create one.',
+        };
+      } else {
+        return {
+          status: 'new',
+          label: 'Not onboarded',
+          variant: 'outline',
+          tooltip: 'No approved baseline exists. Promote from upstream to onboard.',
+        };
+      }
     case 'IN_SYNC':
-      return {
-        status: 'in_sync',
-        label: 'In Sync',
-        variant: 'default',
-        tooltip: 'This environment matches the canonical Git version.',
-      };
+      if (isDev) {
+        return {
+          status: 'in_sync',
+          label: 'Matches baseline',
+          variant: 'default',
+          tooltip: 'Runtime matches the approved baseline.',
+        };
+      } else {
+        return {
+          status: 'in_sync',
+          label: 'Matches approved',
+          variant: 'default',
+          tooltip: 'Runtime matches the approved version.',
+        };
+      }
     case 'DRIFT_DETECTED':
     case 'DRIFT_INCIDENT_ACTIVE':
-      // DEV environments: n8n is source of truth, show "Pending Sync"
+      // DEV environments: n8n is source of truth, show "Different from baseline"
       // Non-DEV environments: Git is source of truth, show "Drift Detected"
       if (isDev) {
         return {
           status: 'pending_sync',
-          label: 'Pending Sync',
+          label: 'Different from baseline',
           variant: 'secondary',
-          tooltip: 'DEV changes haven\'t been persisted to Git yet.',
+          tooltip: 'Runtime differs from baseline. Save as Approved to update.',
         };
       } else {
         return {
           status: 'drift_detected',
-          label: 'Drift Detected',
+          label: 'Drift detected',
           variant: 'destructive',
-          tooltip: 'Workflows in n8n differ from Git.',
+          tooltip: 'Runtime differs from approved. Revert or Keep Hotfix.',
         };
       }
-    case 'UNTRACKED':
-      return {
-        status: 'untracked',
-        label: 'Untracked',
-        variant: 'outline',
-        tooltip: 'No workflows are linked/tracked for this environment.',
-      };
     case 'ERROR':
       return {
         status: 'error',
@@ -150,23 +169,12 @@ export function getStateBadgeInfo(env: Pick<Environment, 'driftStatus' | 'enviro
         tooltip: 'An error occurred while checking state.',
       };
     default:
-      // For DEV with unknown/missing Git state, show Pending Sync
-      // For non-DEV with unknown state, show Unknown
-      if (isDev) {
-        return {
-          status: 'pending_sync',
-          label: 'Pending Sync',
-          variant: 'secondary',
-          tooltip: 'DEV changes haven\'t been persisted to Git yet.',
-        };
-      } else {
-        return {
-          status: 'unknown',
-          label: 'Unknown',
-          variant: 'outline',
-          tooltip: 'State has not been checked yet.',
-        };
-      }
+      return {
+        status: 'unknown',
+        label: 'Unknown',
+        variant: 'outline',
+        tooltip: 'State has not been checked yet.',
+      };
   }
 }
 

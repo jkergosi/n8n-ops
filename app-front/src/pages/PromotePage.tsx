@@ -514,8 +514,8 @@ export function PromotePage() {
                     {onboardingCheck.unresolvedSuggestions > 0 && (
                       <span> • {onboardingCheck.unresolvedSuggestions} unresolved link suggestions</span>
                     )}
-                    {onboardingCheck.untrackedWorkflows > 0 && (
-                      <span> • {onboardingCheck.untrackedWorkflows} untracked workflows</span>
+                    {onboardingCheck.unmappedWorkflows > 0 && (
+                      <span> • {onboardingCheck.unmappedWorkflows} unmapped workflows</span>
                     )}
                   </span>
                 )}

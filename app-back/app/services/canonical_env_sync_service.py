@@ -121,11 +121,11 @@ class CanonicalEnvSyncService:
             "workflows_synced": 0,
             "workflows_skipped": 0,  # Short-circuited due to unchanged n8n_updated_at
             "workflows_linked": 0,
-            "workflows_untracked": 0,
+            "workflows_unmapped": 0,
             "workflows_missing": 0,
             "errors": [],
             "observed_workflow_ids": [],  # All workflows observed in Phase 1
-            "created_workflow_ids": [],  # New untracked workflows created in Phase 1
+            "created_workflow_ids": [],  # New unmapped workflows created in Phase 1
             "collision_warnings": []  # Hash collisions detected during processing
         }
         
@@ -241,7 +241,7 @@ class CanonicalEnvSyncService:
                 results["workflows_synced"] += batch_results["synced"]
                 results["workflows_skipped"] += batch_results.get("skipped", 0)
                 results["workflows_linked"] += batch_results["linked"]
-                results["workflows_untracked"] += batch_results["untracked"]
+                results["workflows_unmapped"] += batch_results["unmapped"]
                 results["errors"].extend(batch_results["errors"])
                 results["observed_workflow_ids"].extend(batch_results.get("observed_workflow_ids", []))
                 results["created_workflow_ids"].extend(batch_results.get("created_workflow_ids", []))
@@ -296,7 +296,7 @@ class CanonicalEnvSyncService:
             logger.info(
                 f"Environment sync completed for tenant {tenant_id}, env {environment_id}: "
                 f"{results['workflows_synced']} synced, {results['workflows_skipped']} skipped, "
-                f"{results['workflows_untracked']} untracked, {results['workflows_missing']} missing, "
+                f"{results['workflows_unmapped']} unmapped, {results['workflows_missing']} missing, "
                 f"{len(results['collision_warnings'])} collision(s) detected"
             )
             
@@ -334,10 +334,10 @@ class CanonicalEnvSyncService:
             "synced": 0,
             "skipped": 0,  # Short-circuited due to unchanged n8n_updated_at
             "linked": 0,
-            "untracked": 0,
+            "unmapped": 0,
             "errors": [],
             "observed_workflow_ids": [],  # All workflows observed in this batch
-            "created_workflow_ids": [],  # New workflows created in this batch (untracked)
+            "created_workflow_ids": [],  # New workflows created in this batch (unmapped)
             "collision_warnings": []  # Hash collisions detected in this batch
         }
         
@@ -390,7 +390,7 @@ class CanonicalEnvSyncService:
                         if existing_canonical_id:
                             new_status = WorkflowMappingStatus.LINKED
                         else:
-                            new_status = WorkflowMappingStatus.UNTRACKED
+                            new_status = WorkflowMappingStatus.UNMAPPED
                     
                     # Update existing mapping
                     # DEV: update workflow_data + hash
@@ -409,7 +409,7 @@ class CanonicalEnvSyncService:
                     if existing_canonical_id or (existing_status == "missing" and existing_canonical_id):
                         batch_results["linked"] += 1
                     elif existing_status == "missing" and not existing_canonical_id:
-                        batch_results["untracked"] += 1
+                        batch_results["unmapped"] += 1
                 else:
                     # New workflow - compute hash
                     # Note: canonical_id is unknown at this point (will be determined by auto-link)
@@ -449,8 +449,8 @@ class CanonicalEnvSyncService:
                         batch_results["synced"] += 1
                         batch_results["linked"] += 1
                     else:
-                        # Untracked - create mapping row with canonical_id=NULL
-                        await CanonicalEnvSyncService._create_untracked_mapping(
+                        # Unmapped - create mapping row with canonical_id=NULL
+                        await CanonicalEnvSyncService._create_unmapped_mapping(
                             tenant_id,
                             environment_id,
                             n8n_workflow_id,
@@ -459,8 +459,8 @@ class CanonicalEnvSyncService:
                             n8n_updated_at=n8n_updated_at
                         )
                         batch_results["synced"] += 1
-                        batch_results["untracked"] += 1
-                        # Track newly created (untracked) workflows
+                        batch_results["unmapped"] += 1
+                        # Track newly created (unmapped) workflows
                         batch_results["created_workflow_ids"].append(n8n_workflow_id)
                 
             except Exception as e:
@@ -645,7 +645,7 @@ class CanonicalEnvSyncService:
             raise
     
     @staticmethod
-    async def _create_untracked_mapping(
+    async def _create_unmapped_mapping(
         tenant_id: str,
         environment_id: str,
         n8n_workflow_id: str,
@@ -653,14 +653,14 @@ class CanonicalEnvSyncService:
         workflow_data: Optional[Dict[str, Any]] = None,
         n8n_updated_at: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Create a mapping row for an untracked workflow (canonical_id=NULL)"""
+        """Create a mapping row for an unmapped workflow (canonical_id=NULL)"""
         return await CanonicalEnvSyncService._create_workflow_mapping(
             tenant_id=tenant_id,
             environment_id=environment_id,
-            canonical_id=None,  # NULL for untracked
+            canonical_id=None,  # NULL for unmapped
             n8n_workflow_id=n8n_workflow_id,
             content_hash=content_hash,
-            status=WorkflowMappingStatus.UNTRACKED,
+            status=WorkflowMappingStatus.UNMAPPED,
             workflow_data=workflow_data,
             n8n_updated_at=n8n_updated_at
         )

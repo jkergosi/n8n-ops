@@ -270,7 +270,7 @@ interface FeaturesProviderProps {
 }
 
 export function FeaturesProvider({ children }: FeaturesProviderProps) {
-  const { user, entitlements, needsOnboarding } = useAuth();
+  const { user, entitlements, needsOnboarding, initComplete, isAuthenticated } = useAuth();
   const isTest = import.meta.env.MODE === 'test';
   const [planName, setPlanName] = useState<string>('free');
   const [features, setFeatures] = useState<PlanFeatures | null>(null);
@@ -279,14 +279,16 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
   const [error, setError] = useState<Error | null>(null);
   const [featureDataReady, setFeatureDataReady] = useState(false);
 
-  // Load all plan data on mount
+  // Load all plan data on mount, but wait for auth to complete before loading policy matrix
   useEffect(() => {
     const initializeFeatures = async () => {
       try {
         await loadAllFeatureData();
-        // Also load workflow policy matrix
-        const { loadWorkflowPolicyMatrix } = await import('./workflow-action-policy');
-        await loadWorkflowPolicyMatrix();
+        // Only load workflow policy matrix if authenticated (requires auth token)
+        if (isAuthenticated) {
+          const { loadWorkflowPolicyMatrix } = await import('./workflow-action-policy');
+          await loadWorkflowPolicyMatrix();
+        }
         setError(null);
         setFeatureDataReady(true);
       } catch (err) {
@@ -297,8 +299,11 @@ export function FeaturesProvider({ children }: FeaturesProviderProps) {
       }
     };
 
-    initializeFeatures();
-  }, []);
+    // Wait for auth initialization to complete before loading features
+    if (initComplete) {
+      initializeFeatures();
+    }
+  }, [initComplete, isAuthenticated]);
 
   // Provider-scoped entitlements - source of truth from backend
   const [providerEntitlements, setProviderEntitlements] = useState<ProviderEntitlements | null>(null);

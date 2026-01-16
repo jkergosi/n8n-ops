@@ -16,11 +16,11 @@ class WorkflowMappingStatus(str, Enum):
     LINKED: Workflow is canonically mapped and tracked. Has both a canonical_id
             and n8n_workflow_id. Represents normal operational state.
 
-    UNTRACKED: Workflow exists in n8n but lacks a canonical mapping. Has an
+    UNMAPPED: Workflow exists in n8n but lacks a canonical mapping. Has an
                n8n_workflow_id but canonical_id is NULL. Requires manual linking
                or can be auto-linked if matching canonical workflow is found.
 
-    MISSING: Workflow was previously mapped (LINKED or UNTRACKED) but disappeared
+    MISSING: Workflow was previously mapped (LINKED or UNMAPPED) but disappeared
              from n8n during environment sync. Indicates workflow was deleted or
              deactivated in n8n but mapping record is retained for audit trail.
 
@@ -39,25 +39,25 @@ class WorkflowMappingStatus(str, Enum):
                  mapping is considered inactive regardless of other conditions.
 
     2. IGNORED - Takes precedence over operational states. User-explicit ignore
-                 overrides system-computed states like MISSING or UNTRACKED.
+                 overrides system-computed states like MISSING or UNMAPPED.
 
-    3. MISSING - Takes precedence over LINKED/UNTRACKED. If a workflow disappears
+    3. MISSING - Takes precedence over LINKED/UNMAPPED. If a workflow disappears
                  from n8n during sync, it transitions to MISSING regardless of
                  previous state. Reappearance triggers transition back to LINKED
-                 (if has canonical_id) or UNTRACKED (if no canonical_id).
+                 (if has canonical_id) or UNMAPPED (if no canonical_id).
 
-    4. UNTRACKED - Takes precedence over LINKED. If a workflow has no canonical_id,
-                   it must be UNTRACKED even if it was previously linked.
+    4. UNMAPPED - Takes precedence over LINKED. If a workflow has no canonical_id,
+                   it must be UNMAPPED even if it was previously linked.
 
     5. LINKED - Default operational state when workflow has both canonical_id and
                 n8n_workflow_id and is present in n8n.
 
     State Transitions:
     ------------------
-    - New workflow detected: → UNTRACKED (if no match) or LINKED (if auto-linked)
-    - User links untracked workflow: UNTRACKED → LINKED
-    - Workflow disappears from n8n: LINKED/UNTRACKED → MISSING
-    - Missing workflow reappears: MISSING → LINKED (if canonical_id) or UNTRACKED
+    - New workflow detected: → UNMAPPED (if no match) or LINKED (if auto-linked)
+    - User links unmapped workflow: UNMAPPED → LINKED
+    - Workflow disappears from n8n: LINKED/UNMAPPED → MISSING
+    - Missing workflow reappears: MISSING → LINKED (if canonical_id) or UNMAPPED
     - User marks workflow as ignored: any state → IGNORED
     - Workflow/mapping deleted: any state → DELETED
 
@@ -75,7 +75,7 @@ class WorkflowMappingStatus(str, Enum):
     LINKED = "linked"
     IGNORED = "ignored"
     DELETED = "deleted"
-    UNTRACKED = "untracked"
+    UNMAPPED = "unmapped"
     MISSING = "missing"
 
 
@@ -286,7 +286,7 @@ class OnboardingCompleteCheck(BaseModel):
     is_complete: bool
     missing_repo_syncs: List[str] = Field(default_factory=list)
     missing_env_syncs: List[str] = Field(default_factory=list)
-    untracked_workflows: int = 0
+    unmapped_workflows: int = 0
     unresolved_suggestions: int = 0
     message: str
 
@@ -302,7 +302,7 @@ class WorkflowInventoryResult(BaseModel):
     canonical_id: Optional[str] = None
     status: str = Field(..., description="Status: success, error, skipped")
     error: Optional[str] = None
-    is_new_untracked: Optional[bool] = None
+    is_new_unmapped: Optional[bool] = None
 
 
 class EnvironmentInventoryResult(BaseModel):
@@ -314,7 +314,7 @@ class EnvironmentInventoryResult(BaseModel):
     skipped_count: int = 0
     created_count: Optional[int] = None
     linked_count: Optional[int] = None
-    untracked_count: Optional[int] = None
+    unmapped_count: Optional[int] = None
 
 
 class OnboardingInventoryResults(BaseModel):
@@ -329,7 +329,7 @@ class OnboardingInventoryResults(BaseModel):
     canonical_ids_generated: int = 0
     auto_links: int = 0
     suggested_links: int = 0
-    untracked_workflows: int = 0
+    unmapped_workflows: int = 0
 
     # Error summary
     errors: List[str] = Field(default_factory=list)

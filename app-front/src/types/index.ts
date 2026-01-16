@@ -127,7 +127,8 @@ export interface Environment {
   lastHeartbeatAt?: string;
   lastDriftCheckAt?: string;
   lastSyncAt?: string;
-  driftStatus?: 'IN_SYNC' | 'DRIFT_DETECTED' | 'DRIFT_INCIDENT_ACTIVE' | 'UNTRACKED' | string;
+  driftStatus?: 'IN_SYNC' | 'DRIFT_DETECTED' | 'DRIFT_INCIDENT_ACTIVE' | 'NEW' | string;
+  isOnboarded?: boolean;  // True if baseline exists and resolves (current.json + snapshot)
   lastDriftDetectedAt?: string;
   activeDriftIncidentId?: string;
   driftHandlingMode?: 'warn_only' | 'manual_override' | 'require_attestation' | string;
@@ -201,7 +202,7 @@ export interface Snapshot {
 export type WorkflowDiffStatus = 'added' | 'removed' | 'modified' | 'unchanged';
 
 // Canonical Workflow Types
-export type WorkflowMappingStatus = 'linked' | 'ignored' | 'deleted' | 'untracked' | 'missing';
+export type WorkflowMappingStatus = 'linked' | 'ignored' | 'deleted' | 'unmapped' | 'missing';
 export type LinkSuggestionStatus = 'open' | 'accepted' | 'rejected' | 'expired';
 export type CanonicalWorkflowDiffStatus = 'unchanged' | 'modified' | 'added' | 'target_only' | 'target_hotfix';
 
@@ -298,7 +299,7 @@ export interface WorkflowInventoryResult {
   canonical_id?: string;
   status: string;
   error?: string;
-  is_new_untracked?: boolean;
+  is_new_unmapped?: boolean;
 }
 
 export interface EnvironmentInventoryResult {
@@ -309,7 +310,7 @@ export interface EnvironmentInventoryResult {
   skipped_count: number;
   created_count?: number;
   linked_count?: number;
-  untracked_count?: number;
+  unmapped_count?: number;
 }
 
 export interface OnboardingInventoryResults {
@@ -317,7 +318,7 @@ export interface OnboardingInventoryResults {
   canonical_ids_generated: number;
   auto_links: number;
   suggested_links: number;
-  untracked_workflows: number;
+  unmapped_workflows: number;
   errors: string[];
   has_errors: boolean;
   collision_warnings: string[];
@@ -340,7 +341,7 @@ export interface OnboardingCompleteCheck {
   isComplete: boolean;
   missingRepoSyncs: string[];
   missingEnvSyncs: string[];
-  untrackedWorkflows: number;
+  unmappedWorkflows: number;
   unresolvedSuggestions: number;
   message: string;
 }
@@ -2049,7 +2050,7 @@ export interface WorkflowPolicyResponse {
  * Status of a canonical workflow in a specific environment.
  * These statuses are computed by the backend - the UI must not infer or compute status logic.
  */
-export type WorkflowEnvironmentStatus = 'linked' | 'untracked' | 'drift' | 'out_of_date';
+export type WorkflowEnvironmentStatus = 'linked' | 'unmapped' | 'drift' | 'out_of_date';
 
 /**
  * Represents a single cell in the workflow × environment matrix.
@@ -2125,10 +2126,10 @@ export interface WorkflowMatrixResponse {
   pageMetadata: WorkflowMatrixPageMetadata;
 }
 
-// Untracked Workflows Types
+// Unmapped Workflows Types
 
-/** A single untracked workflow from an n8n environment */
-export interface UntrackedWorkflowItem {
+/** A single unmapped workflow from an n8n environment */
+export interface UnmappedWorkflowItem {
   n8n_workflow_id: string;
   name: string;
   active: boolean;
@@ -2136,18 +2137,18 @@ export interface UntrackedWorkflowItem {
   updated_at?: string;
 }
 
-/** Untracked workflows grouped by environment */
-export interface EnvironmentUntrackedWorkflows {
+/** Unmapped workflows grouped by environment */
+export interface EnvironmentUnmappedWorkflows {
   environment_id: string;
   environment_name: string;
   environment_class: string;
-  untracked_workflows: UntrackedWorkflowItem[];
+  unmapped_workflows: UnmappedWorkflowItem[];
 }
 
-/** Response for GET /api/v1/canonical/untracked */
-export interface UntrackedWorkflowsResponse {
-  environments: EnvironmentUntrackedWorkflows[];
-  total_untracked: number;
+/** Response for GET /api/v1/canonical/unmapped */
+export interface UnmappedWorkflowsResponse {
+  environments: EnvironmentUnmappedWorkflows[];
+  total_unmapped: number;
 }
 
 /** A single workflow to onboard */
@@ -2156,7 +2157,7 @@ export interface OnboardWorkflowItem {
   n8n_workflow_id: string;
 }
 
-/** Request for POST /api/v1/canonical/untracked/onboard */
+/** Request for POST /api/v1/canonical/unmapped/onboard */
 export interface OnboardWorkflowsRequest {
   workflows: OnboardWorkflowItem[];
 }
@@ -2170,7 +2171,7 @@ export interface OnboardResultItem {
   reason?: string;
 }
 
-/** Response for POST /api/v1/canonical/untracked/onboard */
+/** Response for POST /api/v1/canonical/unmapped/onboard */
 export interface OnboardWorkflowsResponse {
   results: OnboardResultItem[];
   total_onboarded: number;
@@ -2187,7 +2188,7 @@ export interface ScanEnvironmentResult {
   error?: string;
 }
 
-/** Response for POST /api/v1/canonical/untracked/scan */
+/** Response for POST /api/v1/canonical/unmapped/scan */
 export interface ScanEnvironmentsResponse {
   environments_scanned: number;
   environments_failed: number;

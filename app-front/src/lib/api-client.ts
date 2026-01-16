@@ -81,7 +81,7 @@ import type {
   DriftPolicyUpdate,
   DriftPolicyTemplate,
   DriftApproval,
-  UntrackedWorkflowsResponse,
+  UnmappedWorkflowsResponse,
   ScanEnvironmentsResponse,
   OnboardWorkflowItem,
   OnboardWorkflowsResponse,
@@ -4714,34 +4714,34 @@ class ApiClient {
     return { data: response.data };
   }
 
-  // Untracked Workflows Methods
+  // Unmapped Workflows Methods
 
   /**
-   * Get all untracked workflows across environments.
-   * Returns cached data - call scanEnvironmentsForUntracked() first to refresh.
+   * Get all unmapped workflows across environments.
+   * Returns cached data - call scanEnvironmentsForUnmapped() first to refresh.
    */
-  async getUntrackedWorkflows(): Promise<{ data: UntrackedWorkflowsResponse }> {
-    const response = await this.client.get('/canonical/untracked');
+  async getUnmappedWorkflows(): Promise<{ data: UnmappedWorkflowsResponse }> {
+    const response = await this.client.get('/canonical/unmapped');
     return { data: response.data };
   }
 
   /**
-   * Scan all active environments for untracked workflows.
+   * Scan all active environments for unmapped workflows.
    * This performs a live scan and updates the database.
    */
-  async scanEnvironmentsForUntracked(): Promise<{ data: ScanEnvironmentsResponse }> {
-    const response = await this.client.post('/canonical/untracked/scan');
+  async scanEnvironmentsForUnmapped(): Promise<{ data: ScanEnvironmentsResponse }> {
+    const response = await this.client.post('/canonical/unmapped/scan');
     return { data: response.data };
   }
 
   /**
-   * Onboard selected untracked workflows into the canonical system.
+   * Onboard selected unmapped workflows into the canonical system.
    * Creates canonical workflow records and links them.
    */
   async onboardWorkflows(
     workflows: OnboardWorkflowItem[]
   ): Promise<{ data: OnboardWorkflowsResponse }> {
-    const response = await this.client.post('/canonical/untracked/onboard', {
+    const response = await this.client.post('/canonical/unmapped/onboard', {
       workflows
     });
     return { data: response.data };
@@ -4755,7 +4755,7 @@ class ApiClient {
    * Returns a paginated matrix showing:
    * - Rows: Canonical workflows for the tenant (paginated)
    * - Columns: All active environments for the tenant
-   * - Cells: Status badge (linked, untracked, drift, out_of_date) for each combination
+   * - Cells: Status badge (linked, unmapped, drift, out_of_date) for each combination
    *
    * All status logic is computed server-side. The UI must not infer or compute status logic.
    *

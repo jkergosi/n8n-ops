@@ -448,8 +448,8 @@ export function ActivityDetailPage() {
                   </p>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
                     <span>{result.completion_summary.workflows_linked} linked</span>
-                    {result.completion_summary.workflows_untracked > 0 && (
-                      <span>· {result.completion_summary.workflows_untracked} untracked</span>
+                    {result.completion_summary.workflows_unmapped > 0 && (
+                      <span>· {result.completion_summary.workflows_unmapped} unmapped</span>
                     )}
                     {result.completion_summary.workflows_missing > 0 && (
                       <span>· {result.completion_summary.workflows_missing} missing</span>

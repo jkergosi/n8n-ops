@@ -17,7 +17,7 @@ from app.services.drift_detection_service import (
 
 # Test fixtures
 MOCK_TENANT_ID = "00000000-0000-0000-0000-000000000001"
-MOCK_ENVIRONMENT_ID = "env-001"
+MOCK_ENVIRONMENT_ID = "00000000-0000-0000-0000-000000000002"
 
 
 @pytest.fixture
@@ -115,6 +115,7 @@ class TestDriftDetectionServiceBasic:
         assert DriftStatus.UNKNOWN == "UNKNOWN"
         assert DriftStatus.IN_SYNC == "IN_SYNC"
         assert DriftStatus.DRIFT_DETECTED == "DRIFT_DETECTED"
+        assert DriftStatus.NEW == "NEW"
         assert DriftStatus.ERROR == "ERROR"
 
     def test_environment_drift_summary_to_dict(self):
@@ -168,6 +169,33 @@ class TestDetectDrift:
             assert "not configured" in result.error.lower()
 
     @pytest.mark.asyncio
+    async def test_detect_drift_new_environment_not_onboarded(self, mock_environment):
+        """Test drift detection returns NEW status when environment is not onboarded."""
+        with patch("app.services.drift_detection_service.db_service") as mock_db:
+            mock_db.get_environment = AsyncMock(return_value=mock_environment)
+            mock_db.update_environment = AsyncMock()
+
+            # Mock is_env_onboarded to return False (no baseline exists)
+            with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=False)
+
+                service = DriftDetectionService()
+                result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
+
+                # Should short-circuit with NEW status
+                assert result.git_configured is True
+                assert result.error is None
+                assert result.affected_workflows == []
+                assert result.in_sync == 0
+                assert result.with_drift == 0
+                assert result.not_in_git == 0
+
+                # Should update status to NEW
+                mock_db.update_environment.assert_called_once()
+                call_args = mock_db.update_environment.call_args
+                assert call_args[0][2]["drift_status"] == DriftStatus.NEW
+
+    @pytest.mark.asyncio
     async def test_detect_drift_all_in_sync(self, mock_environment):
         """Test drift detection when all workflows are in sync."""
         synced_workflows = [
@@ -194,28 +222,32 @@ class TestDetectDrift:
             mock_db.get_environment = AsyncMock(return_value=mock_environment)
             mock_db.update_environment = AsyncMock()
 
-            with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
-                mock_adapter = MagicMock()
-                mock_adapter.get_workflows = AsyncMock(return_value=synced_workflows)
-                mock_registry.get_adapter_for_environment.return_value = mock_adapter
+            # Mock is_env_onboarded to return True (environment has baseline)
+            with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=True)
 
-                with patch("app.services.drift_detection_service.GitHubService") as mock_github_cls:
-                    mock_github = MagicMock()
-                    mock_github.is_configured.return_value = True
-                    mock_github.get_all_workflows_from_github = AsyncMock(return_value=git_workflows)
-                    mock_github_cls.return_value = mock_github
+                with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
+                    mock_adapter = MagicMock()
+                    mock_adapter.get_workflows = AsyncMock(return_value=synced_workflows)
+                    mock_registry.get_adapter_for_environment.return_value = mock_adapter
 
-                    with patch("app.services.drift_detection_service.compare_workflows") as mock_compare:
-                        mock_result = MagicMock()
-                        mock_result.has_drift = False
-                        mock_compare.return_value = mock_result
+                    with patch("app.services.drift_detection_service.GitHubService") as mock_github_cls:
+                        mock_github = MagicMock()
+                        mock_github.is_configured.return_value = True
+                        mock_github.get_all_workflows_from_github = AsyncMock(return_value=git_workflows)
+                        mock_github_cls.return_value = mock_github
 
-                        service = DriftDetectionService()
-                        result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
+                        with patch("app.services.drift_detection_service.compare_workflows") as mock_compare:
+                            mock_result = MagicMock()
+                            mock_result.has_drift = False
+                            mock_compare.return_value = mock_result
 
-                        assert result.in_sync == 1
-                        assert result.with_drift == 0
-                        assert result.not_in_git == 0
+                            service = DriftDetectionService()
+                            result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
+
+                            assert result.in_sync == 1
+                            assert result.with_drift == 0
+                            assert result.not_in_git == 0
 
     @pytest.mark.asyncio
     async def test_detect_drift_with_changes(
@@ -226,45 +258,49 @@ class TestDetectDrift:
             mock_db.get_environment = AsyncMock(return_value=mock_environment)
             mock_db.update_environment = AsyncMock()
 
-            with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
-                mock_adapter = MagicMock()
-                mock_adapter.get_workflows = AsyncMock(return_value=mock_runtime_workflows)
-                mock_registry.get_adapter_for_environment.return_value = mock_adapter
+            # Mock is_env_onboarded to return True (environment has baseline)
+            with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=True)
 
-                with patch("app.services.drift_detection_service.GitHubService") as mock_github_cls:
-                    mock_github = MagicMock()
-                    mock_github.is_configured.return_value = True
-                    mock_github.get_all_workflows_from_github = AsyncMock(return_value=mock_git_workflows)
-                    mock_github_cls.return_value = mock_github
+                with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
+                    mock_adapter = MagicMock()
+                    mock_adapter.get_workflows = AsyncMock(return_value=mock_runtime_workflows)
+                    mock_registry.get_adapter_for_environment.return_value = mock_adapter
 
-                    with patch("app.services.drift_detection_service.compare_workflows") as mock_compare:
-                        # First workflow: in sync
-                        # Second workflow: has drift
-                        def compare_side_effect(git_workflow, runtime_workflow):
-                            result = MagicMock()
-                            if runtime_workflow["name"] == "Workflow Two":
-                                result.has_drift = True
-                                result.summary = MagicMock(
-                                    nodes_added=1,
-                                    nodes_removed=0,
-                                    nodes_modified=0,
-                                    connections_changed=False,
-                                    settings_changed=False,
-                                )
-                                result.differences = [{"type": "node_added"}]
-                            else:
-                                result.has_drift = False
-                            return result
+                    with patch("app.services.drift_detection_service.GitHubService") as mock_github_cls:
+                        mock_github = MagicMock()
+                        mock_github.is_configured.return_value = True
+                        mock_github.get_all_workflows_from_github = AsyncMock(return_value=mock_git_workflows)
+                        mock_github_cls.return_value = mock_github
 
-                        mock_compare.side_effect = compare_side_effect
+                        with patch("app.services.drift_detection_service.compare_workflows") as mock_compare:
+                            # First workflow: in sync
+                            # Second workflow: has drift
+                            def compare_side_effect(git_workflow=None, runtime_workflow=None):
+                                result = MagicMock()
+                                if runtime_workflow and runtime_workflow.get("name") == "Workflow Two":
+                                    result.has_drift = True
+                                    result.summary = MagicMock(
+                                        nodes_added=1,
+                                        nodes_removed=0,
+                                        nodes_modified=0,
+                                        connections_changed=False,
+                                        settings_changed=False,
+                                    )
+                                    result.differences = [{"type": "node_added"}]
+                                else:
+                                    result.has_drift = False
+                                return result
 
-                        service = DriftDetectionService()
-                        result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
+                            mock_compare.side_effect = compare_side_effect
 
-                        assert result.total_workflows == 3
-                        assert result.in_sync == 1
-                        assert result.with_drift == 1
-                        assert result.not_in_git == 1  # "New Workflow" not in git
+                            service = DriftDetectionService()
+                            result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
+
+                            assert result.total_workflows == 3
+                            assert result.in_sync == 1
+                            assert result.with_drift == 1
+                            assert result.not_in_git == 1  # "New Workflow" not in git
 
     @pytest.mark.asyncio
     async def test_detect_drift_provider_error(self, mock_environment):
@@ -273,15 +309,19 @@ class TestDetectDrift:
             mock_db.get_environment = AsyncMock(return_value=mock_environment)
             mock_db.update_environment = AsyncMock()
 
-            with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
-                mock_adapter = MagicMock()
-                mock_adapter.get_workflows = AsyncMock(side_effect=Exception("Connection failed"))
-                mock_registry.get_adapter_for_environment.return_value = mock_adapter
+            # Mock is_env_onboarded to return True (environment has baseline)
+            with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=True)
 
-                service = DriftDetectionService()
-                result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
+                with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
+                    mock_adapter = MagicMock()
+                    mock_adapter.get_workflows = AsyncMock(side_effect=Exception("Connection failed"))
+                    mock_registry.get_adapter_for_environment.return_value = mock_adapter
 
-                assert "Failed to fetch workflows from provider" in result.error
+                    service = DriftDetectionService()
+                    result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
+
+                    assert "Failed to fetch workflows from provider" in result.error
 
     @pytest.mark.asyncio
     async def test_detect_drift_github_error(self, mock_environment, mock_runtime_workflows):
@@ -290,23 +330,27 @@ class TestDetectDrift:
             mock_db.get_environment = AsyncMock(return_value=mock_environment)
             mock_db.update_environment = AsyncMock()
 
-            with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
-                mock_adapter = MagicMock()
-                mock_adapter.get_workflows = AsyncMock(return_value=mock_runtime_workflows)
-                mock_registry.get_adapter_for_environment.return_value = mock_adapter
+            # Mock is_env_onboarded to return True (environment has baseline)
+            with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=True)
 
-                with patch("app.services.drift_detection_service.GitHubService") as mock_github_cls:
-                    mock_github = MagicMock()
-                    mock_github.is_configured.return_value = True
-                    mock_github.get_all_workflows_from_github = AsyncMock(
-                        side_effect=Exception("GitHub API error")
-                    )
-                    mock_github_cls.return_value = mock_github
+                with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
+                    mock_adapter = MagicMock()
+                    mock_adapter.get_workflows = AsyncMock(return_value=mock_runtime_workflows)
+                    mock_registry.get_adapter_for_environment.return_value = mock_adapter
 
-                    service = DriftDetectionService()
-                    result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
+                    with patch("app.services.drift_detection_service.GitHubService") as mock_github_cls:
+                        mock_github = MagicMock()
+                        mock_github.is_configured.return_value = True
+                        mock_github.get_all_workflows_from_github = AsyncMock(
+                            side_effect=Exception("GitHub API error")
+                        )
+                        mock_github_cls.return_value = mock_github
 
-                    assert "Failed to fetch workflows from GitHub" in result.error
+                        service = DriftDetectionService()
+                        result = await service.detect_drift(MOCK_TENANT_ID, MOCK_ENVIRONMENT_ID)
+
+                        assert "Failed to fetch workflows from GitHub" in result.error
 
 
 class TestGetCachedDriftStatus:
@@ -433,32 +477,36 @@ class TestDetectDriftWithoutUpdate:
             mock_db.get_environment = AsyncMock(return_value=mock_environment)
             mock_db.update_environment = AsyncMock()
 
-            with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
-                mock_adapter = MagicMock()
-                mock_adapter.get_workflows = AsyncMock(return_value=synced_workflows)
-                mock_registry.get_adapter_for_environment.return_value = mock_adapter
+            # Mock is_env_onboarded to return True (environment has baseline)
+            with patch("app.services.git_snapshot_service.git_snapshot_service") as mock_snapshot:
+                mock_snapshot.is_env_onboarded = AsyncMock(return_value=True)
 
-                with patch("app.services.drift_detection_service.GitHubService") as mock_github_cls:
-                    mock_github = MagicMock()
-                    mock_github.is_configured.return_value = True
-                    mock_github.get_all_workflows_from_github = AsyncMock(return_value=git_workflows)
-                    mock_github_cls.return_value = mock_github
+                with patch("app.services.drift_detection_service.ProviderRegistry") as mock_registry:
+                    mock_adapter = MagicMock()
+                    mock_adapter.get_workflows = AsyncMock(return_value=synced_workflows)
+                    mock_registry.get_adapter_for_environment.return_value = mock_adapter
 
-                    with patch("app.services.drift_detection_service.compare_workflows") as mock_compare:
-                        mock_result = MagicMock()
-                        mock_result.has_drift = False
-                        mock_compare.return_value = mock_result
+                    with patch("app.services.drift_detection_service.GitHubService") as mock_github_cls:
+                        mock_github = MagicMock()
+                        mock_github.is_configured.return_value = True
+                        mock_github.get_all_workflows_from_github = AsyncMock(return_value=git_workflows)
+                        mock_github_cls.return_value = mock_github
 
-                        service = DriftDetectionService()
-                        result = await service.detect_drift(
-                            MOCK_TENANT_ID,
-                            MOCK_ENVIRONMENT_ID,
-                            update_status=False,
-                        )
+                        with patch("app.services.drift_detection_service.compare_workflows") as mock_compare:
+                            mock_result = MagicMock()
+                            mock_result.has_drift = False
+                            mock_compare.return_value = mock_result
 
-                        # Should not update the database
-                        mock_db.update_environment.assert_not_called()
-                        assert result.in_sync == 1
+                            service = DriftDetectionService()
+                            result = await service.detect_drift(
+                                MOCK_TENANT_ID,
+                                MOCK_ENVIRONMENT_ID,
+                                update_status=False,
+                            )
+
+                            # Should not update the database
+                            mock_db.update_environment.assert_not_called()
+                            assert result.in_sync == 1
 
 
 class TestSingletonInstance:

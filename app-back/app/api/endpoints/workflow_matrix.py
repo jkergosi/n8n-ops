@@ -12,12 +12,12 @@ Cell status is computed using a two-tier approach:
    - DELETED: Takes precedence over all (not shown in matrix)
    - IGNORED: User explicitly ignored (not shown in matrix)
    - MISSING: Workflow disappeared from n8n (not shown in matrix)
-   - UNTRACKED: Exists in n8n but no canonical_id
+   - UNMAPPED: Exists in n8n but no canonical_id
    - LINKED: Normal operational state
 
 2. Display Status (computed for matrix cells):
    - LINKED: Mapped and in sync (env_content_hash == git_content_hash)
-   - UNTRACKED: Exists in n8n but no canonical mapping
+   - UNMAPPED: Exists in n8n but no canonical mapping
    - DRIFT: Linked but env has local changes not in git (env updated after git sync)
    - OUT_OF_DATE: Linked but git is ahead of env (git updated after env sync)
 
@@ -54,14 +54,14 @@ class WorkflowEnvironmentStatus(str, Enum):
 
     Display Statuses:
     - LINKED: Workflow is canonically mapped and in sync (env hash == git hash)
-    - UNTRACKED: Workflow exists in n8n but has no canonical mapping
+    - UNMAPPED: Workflow exists in n8n but has no canonical mapping
     - DRIFT: Workflow is linked but has local changes not yet pushed to git
     - OUT_OF_DATE: Workflow is linked but git has newer version not deployed to env
 
     Note: Workflows with DELETED, IGNORED, or MISSING status are not shown in the matrix.
     """
     LINKED = "linked"
-    UNTRACKED = "untracked"
+    UNMAPPED = "unmapped"
     DRIFT = "drift"
     OUT_OF_DATE = "out_of_date"
 
@@ -151,11 +151,11 @@ async def _compute_cell_status(
     1. DELETED - Workflow/mapping is soft-deleted (not shown in matrix)
     2. IGNORED - User explicitly ignored (not shown in matrix)
     3. MISSING - Was mapped but disappeared from n8n (not shown in matrix)
-    4. UNTRACKED - Exists in n8n but no canonical_id (shown as "untracked")
+    4. UNMAPPED - Exists in n8n but no canonical_id (shown as "unmapped")
     5. LINKED - Normal operational state (shown as "linked", "drift", or "out_of_date")
 
     Display Status Logic:
-    - UNTRACKED: Workflow exists but no canonical mapping (mapping status = "untracked")
+    - UNMAPPED: Workflow exists but no canonical mapping (mapping status = "unmapped")
     - LINKED: Mapping status is "linked" and env_content_hash == git_content_hash
     - DRIFT: Mapping status is "linked" but env has changes not in git
     - OUT_OF_DATE: Mapping status is "linked" but git is ahead of env
@@ -180,9 +180,9 @@ async def _compute_cell_status(
     if mapping_status in ("deleted", "ignored", "missing"):
         return None, False
 
-    # UNTRACKED: workflow exists in n8n but has no canonical mapping
-    if mapping_status == "untracked":
-        return WorkflowEnvironmentStatus.UNTRACKED, False
+    # UNMAPPED: workflow exists in n8n but has no canonical mapping
+    if mapping_status == "unmapped":
+        return WorkflowEnvironmentStatus.UNMAPPED, False
 
     # LINKED: workflow has canonical mapping - now check for drift/out-of-date
     if mapping_status == "linked":
@@ -248,7 +248,7 @@ async def get_workflow_matrix(
     Returns a paginated matrix showing:
     - Rows: Canonical workflows for the tenant (paginated)
     - Columns: All active environments for the tenant
-    - Cells: Status badge (linked, untracked, drift, out_of_date) for each combination
+    - Cells: Status badge (linked, unmapped, drift, out_of_date) for each combination
 
     Pagination:
     - page: Page number (1-indexed, default: 1)

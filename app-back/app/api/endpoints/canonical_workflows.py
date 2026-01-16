@@ -994,7 +994,7 @@ async def _run_refresh_background(
 
         workflows_synced = results.get("workflows_synced", 0)
         workflows_linked = results.get("workflows_linked", 0)
-        workflows_untracked = results.get("workflows_untracked", 0)
+        workflows_unmapped = results.get("workflows_unmapped", 0)
         workflows_missing = results.get("workflows_missing", 0)
 
         # Greenfield model: Drift detection only applies to non-DEV environments
@@ -1075,7 +1075,7 @@ async def _run_refresh_background(
         completion_summary = {
             "workflows_processed": workflows_synced,
             "workflows_linked": workflows_linked,
-            "workflows_untracked": workflows_untracked,
+            "workflows_unmapped": workflows_unmapped,
             "workflows_missing": workflows_missing,
             "environment_class": env_class,
         }
@@ -1342,16 +1342,16 @@ async def _commit_dev_workflows_to_git(
     - Bootstrap mode: If Git is empty, creates canonical workflows for observed workflows
       from Phase 1 and commits them to Git, ensuring all workflows are linked.
     - Normal mode: Commits changed linked workflows and auto-canonicalizes newly created
-      untracked workflows from Phase 1 (creates canonical, links, commits to Git).
+      unmapped workflows from Phase 1 (creates canonical, links, commits to Git).
     
     Args:
         tenant_id: Tenant ID
         environment_id: Environment ID
         environment: Environment configuration
         observed_workflow_ids: List of n8n_workflow_ids observed in Phase 1
-        created_workflow_ids: List of n8n_workflow_ids newly created (untracked) in Phase 1
+        created_workflow_ids: List of n8n_workflow_ids newly created (unmapped) in Phase 1
     
-    There is no untracked state in DEV after sync completes.
+    There is no unmapped state in DEV after sync completes.
     """
     from app.services.github_service import GitHubService
     from datetime import datetime
@@ -1522,7 +1522,7 @@ async def _commit_dev_workflows_to_git(
         
         # Count workflows to process
         workflows_to_commit_count = 0
-        untracked_to_commit_count = 0
+        unmapped_to_commit_count = 0
         
         # Get Git state to compare hashes
         canonical_ids = [row["canonical_id"] for row in (linked_workflows_result.data or []) if row.get("canonical_id")]
@@ -1553,16 +1553,16 @@ async def _commit_dev_workflows_to_git(
                     "env_hash": env_hash
                 })
         
-        # Count untracked workflows to auto-canonicalize
-        untracked_to_commit = []
+        # Count unmapped workflows to auto-canonicalize
+        unmapped_to_commit = []
         if created_workflow_ids:
-            untracked_workflows_result = db_service.client.table("workflow_env_map").select(
+            unmapped_workflows_result = db_service.client.table("workflow_env_map").select(
                 "canonical_id, env_content_hash, workflow_data, n8n_workflow_id, status"
-            ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).in_("n8n_workflow_id", created_workflow_ids).eq("status", WorkflowMappingStatus.UNTRACKED.value).is_("canonical_id", "null").execute()
-            if untracked_workflows_result.data:
-                untracked_to_commit = untracked_workflows_result.data
+            ).eq("tenant_id", tenant_id).eq("environment_id", environment_id).in_("n8n_workflow_id", created_workflow_ids).eq("status", WorkflowMappingStatus.UNMAPPED.value).is_("canonical_id", "null").execute()
+            if unmapped_workflows_result.data:
+                unmapped_to_commit = unmapped_workflows_result.data
         
-        total_to_commit = len(workflows_to_commit) + len(untracked_to_commit)
+        total_to_commit = len(workflows_to_commit) + len(unmapped_to_commit)
         
         # Emit initial progress
         if job_id and tenant_id_for_sse and total_to_commit > 0:
@@ -1626,11 +1626,11 @@ async def _commit_dev_workflows_to_git(
                 except Exception as commit_err:
                     logger.warning(f"Failed to commit workflow {wf['canonical_id']} to Git: {commit_err}", exc_info=True)
         
-        # Auto-canonicalize newly created untracked workflows from Phase 1
-        if untracked_to_commit:
-            logger.debug(f"DEV sync: Found {len(untracked_to_commit)} untracked workflow(s) to auto-canonicalize")
+        # Auto-canonicalize newly created unmapped workflows from Phase 1
+        if unmapped_to_commit:
+            logger.debug(f"DEV sync: Found {len(unmapped_to_commit)} unmapped workflow(s) to auto-canonicalize")
             
-            for mapping in untracked_to_commit:
+            for mapping in unmapped_to_commit:
                     try:
                         env_hash = mapping.get("env_content_hash")
                         workflow_data = mapping.get("workflow_data")

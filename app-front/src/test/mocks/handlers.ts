@@ -524,6 +524,55 @@ export const handlers = [
     return HttpResponse.json([]);
   }),
 
+  http.get(`${API_BASE}/billing/plan-features/all`, () => {
+    // Return flat object with plan names as keys (features.tsx expects response.data directly)
+    return HttpResponse.json({
+      free: { max_environments: 1, max_workflows: 10, max_team_members: 2 },
+      pro: { max_environments: 5, max_workflows: 100, max_team_members: 10 },
+      agency: { max_environments: 20, max_workflows: 500, max_team_members: 50 },
+      enterprise: { max_environments: -1, max_workflows: -1, max_team_members: -1 },
+    });
+  }),
+
+  http.get(`${API_BASE}/billing/feature-display-names`, () => {
+    return HttpResponse.json({
+      max_environments: 'Environments',
+      max_workflows: 'Workflows',
+      max_team_members: 'Team Members',
+    });
+  }),
+
+  http.get(`${API_BASE}/billing/plan-configurations`, () => {
+    // Return structure expected by features.tsx loadFeatureRequirements
+    return HttpResponse.json({
+      metadata: [
+        { name: 'free', display_name: 'Free', precedence: 1, sort_order: 1 },
+        { name: 'pro', display_name: 'Pro', precedence: 2, sort_order: 2 },
+        { name: 'agency', display_name: 'Agency', precedence: 3, sort_order: 3 },
+        { name: 'enterprise', display_name: 'Enterprise', precedence: 4, sort_order: 4 },
+      ],
+      limits: [
+        { plan_name: 'free', max_workflows: 10, max_environments: 1, max_users: 2, max_executions_daily: 100 },
+        { plan_name: 'pro', max_workflows: 100, max_environments: 5, max_users: 10, max_executions_daily: 1000 },
+        { plan_name: 'agency', max_workflows: 500, max_environments: 20, max_users: 50, max_executions_daily: 5000 },
+        { plan_name: 'enterprise', max_workflows: -1, max_environments: -1, max_users: -1, max_executions_daily: -1 },
+      ],
+      retention_defaults: [
+        { plan_name: 'free', drift_checks: 7, closed_incidents: 30, reconciliation_artifacts: 30, approvals: 90 },
+        { plan_name: 'pro', drift_checks: 30, closed_incidents: 90, reconciliation_artifacts: 90, approvals: 180 },
+        { plan_name: 'agency', drift_checks: 90, closed_incidents: 180, reconciliation_artifacts: 180, approvals: 365 },
+        { plan_name: 'enterprise', drift_checks: 365, closed_incidents: 365, reconciliation_artifacts: 365, approvals: 730 },
+      ],
+      feature_requirements: [
+        { feature_name: 'environment_promotion', required_plan: 'pro' },
+        { feature_name: 'git_integration', required_plan: 'pro' },
+        { feature_name: 'drift_detection', required_plan: 'pro' },
+        { feature_name: 'scheduled_backup', required_plan: 'agency' },
+        { feature_name: 'api_access', required_plan: 'enterprise' },
+      ],
+    });
+  }),
+
   // Billing overview (used by /admin/billing page)
   http.get(`${API_BASE}/billing/overview`, () => {
     return HttpResponse.json({
@@ -1530,6 +1579,28 @@ export const handlers = [
           target_physical_id: 'n8n-cred-prod-1',
         },
       ],
+    });
+  }),
+
+  // Health endpoint
+  http.get(`${API_BASE}/health`, () => {
+    return HttpResponse.json({
+      status: 'healthy',
+      version: '1.0.0',
+      timestamp: new Date().toISOString(),
+    });
+  }),
+
+  // Provider entitlements endpoint
+  http.get(`${API_BASE}/providers/entitlements/:provider`, () => {
+    return HttpResponse.json({
+      provider: 'n8n',
+      is_enabled: true,
+      features: {
+        workflows: true,
+        credentials: true,
+        executions: true,
+      },
     });
   }),
 

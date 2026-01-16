@@ -18,8 +18,8 @@ import {
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import type {
-  UntrackedWorkflowsResponse,
-  EnvironmentUntrackedWorkflows,
+  UnmappedWorkflowsResponse,
+  EnvironmentUnmappedWorkflows,
   OnboardWorkflowItem
 } from '@/types';
 
@@ -28,8 +28,8 @@ interface SelectedWorkflow {
   n8nWorkflowId: string;
 }
 
-export function UntrackedWorkflowsPage() {
-  const [data, setData] = useState<UntrackedWorkflowsResponse | null>(null);
+export function UnmappedWorkflowsPage() {
+  const [data, setData] = useState<UnmappedWorkflowsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
   const [isOnboarding, setIsOnboarding] = useState(false);
@@ -38,21 +38,21 @@ export function UntrackedWorkflowsPage() {
   const [lastScanError, setLastScanError] = useState<string | null>(null);
 
   useEffect(() => {
-    document.title = 'Untracked Workflows - WorkflowOps';
+    document.title = 'Unmapped Workflows - WorkflowOps';
     loadData();
   }, []);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const response = await apiClient.getUntrackedWorkflows();
+      const response = await apiClient.getUnmappedWorkflows();
       setData(response.data);
 
-      // Auto-expand environments with untracked workflows
+      // Auto-expand environments with unmapped workflows
       const envIds = new Set(response.data.environments.map(e => e.environment_id));
       setExpandedEnvironments(envIds);
     } catch (error: any) {
-      toast.error('Failed to load untracked workflows');
+      toast.error('Failed to load unmapped workflows');
       console.error(error);
     } finally {
       setIsLoading(false);
@@ -63,7 +63,7 @@ export function UntrackedWorkflowsPage() {
     setIsScanning(true);
     setLastScanError(null);
     try {
-      const response = await apiClient.scanEnvironmentsForUntracked();
+      const response = await apiClient.scanEnvironmentsForUnmapped();
       const { environments_scanned, environments_failed, results } = response.data;
 
       if (environments_failed > 0) {
@@ -156,8 +156,8 @@ export function UntrackedWorkflowsPage() {
     });
   };
 
-  const toggleAllInEnvironment = (env: EnvironmentUntrackedWorkflows) => {
-    const envWorkflows = env.untracked_workflows;
+  const toggleAllInEnvironment = (env: EnvironmentUnmappedWorkflows) => {
+    const envWorkflows = env.unmapped_workflows;
     const allSelected = envWorkflows.every(w =>
       isWorkflowSelected(env.environment_id, w.n8n_workflow_id)
     );
@@ -183,7 +183,7 @@ export function UntrackedWorkflowsPage() {
     if (!data) return;
     const allWorkflows: SelectedWorkflow[] = [];
     for (const env of data.environments) {
-      for (const workflow of env.untracked_workflows) {
+      for (const workflow of env.unmapped_workflows) {
         allWorkflows.push({
           environmentId: env.environment_id,
           n8nWorkflowId: workflow.n8n_workflow_id
@@ -211,9 +211,9 @@ export function UntrackedWorkflowsPage() {
     <div className="container mx-auto py-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Untracked Workflows</h1>
+          <h1 className="text-3xl font-bold">Unmapped Workflows</h1>
           <p className="text-muted-foreground mt-2">
-            Workflows in n8n that are not yet tracked in the canonical system
+            Workflows in n8n that are not yet mapped in the canonical system
           </p>
         </div>
         <div className="flex gap-2">
@@ -250,13 +250,13 @@ export function UntrackedWorkflowsPage() {
         </Alert>
       )}
 
-      {data && data.total_untracked === 0 ? (
+      {data && data.total_unmapped === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <CheckCircle2 className="h-12 w-12 text-green-500 mb-4" />
-            <h3 className="text-lg font-medium mb-2">All Workflows Tracked</h3>
+            <h3 className="text-lg font-medium mb-2">All Workflows Mapped</h3>
             <p className="text-muted-foreground text-center max-w-md">
-              All workflows in your environments are tracked in the canonical system.
+              All workflows in your environments are mapped in the canonical system.
               Click "Scan Environments" to check for new workflows.
             </p>
           </CardContent>
@@ -270,7 +270,7 @@ export function UntrackedWorkflowsPage() {
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <FileQuestion className="h-5 w-5" />
-                    Untracked Workflows ({data?.total_untracked || 0})
+                    Unmapped Workflows ({data?.total_unmapped || 0})
                   </CardTitle>
                   <CardDescription>
                     Select workflows to onboard into the canonical system
@@ -308,10 +308,10 @@ export function UntrackedWorkflowsPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary">
-                        {env.untracked_workflows.length} untracked
+                        {env.unmapped_workflows.length} unmapped
                       </Badge>
                       <Checkbox
-                        checked={env.untracked_workflows.every(w =>
+                        checked={env.unmapped_workflows.every(w =>
                           isWorkflowSelected(env.environment_id, w.n8n_workflow_id)
                         )}
                         onCheckedChange={() => toggleAllInEnvironment(env)}
@@ -334,7 +334,7 @@ export function UntrackedWorkflowsPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {env.untracked_workflows.map(workflow => (
+                          {env.unmapped_workflows.map(workflow => (
                             <TableRow key={workflow.n8n_workflow_id}>
                               <TableCell>
                                 <Checkbox

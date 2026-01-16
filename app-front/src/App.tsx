@@ -41,7 +41,7 @@ import { CanonicalOnboardingPage } from '@/pages/CanonicalOnboardingPage';
 import { CanonicalWorkflowsPage } from '@/pages/CanonicalWorkflowsPage';
 import { WorkflowMappingsPage } from '@/pages/WorkflowMappingsPage';
 import { DiffStatesPage } from '@/pages/DiffStatesPage';
-import { UntrackedWorkflowsPage } from '@/pages/UntrackedWorkflowsPage';
+import { UnmappedWorkflowsPage } from '@/pages/UnmappedWorkflowsPage';
 import { WorkflowsOverviewPage } from '@/pages/WorkflowsOverviewPage';
 import { TechnicalDifficultiesPage } from '@/pages/TechnicalDifficultiesPage';
 import {
@@ -307,7 +307,7 @@ function App() {
                 <Route path="/canonical/workflows" element={<RoleProtectedRoute><CanonicalWorkflowsPage /></RoleProtectedRoute>} />
                 <Route path="/canonical/mappings" element={<RoleProtectedRoute><WorkflowMappingsPage /></RoleProtectedRoute>} />
                 <Route path="/canonical/diff-states" element={<RoleProtectedRoute><DiffStatesPage /></RoleProtectedRoute>} />
-                <Route path="/canonical/untracked" element={<RoleProtectedRoute><UntrackedWorkflowsPage /></RoleProtectedRoute>} />
+                <Route path="/canonical/unmapped" element={<RoleProtectedRoute><UnmappedWorkflowsPage /></RoleProtectedRoute>} />
                 <Route path="/workflows-overview" element={<RoleProtectedRoute><WorkflowsOverviewPage /></RoleProtectedRoute>} />
                 <Route path="/observability" element={<RoleProtectedRoute><ObservabilityPage /></RoleProtectedRoute>} />
                 <Route path="/alerts" element={<RoleProtectedRoute><AlertsPage /></RoleProtectedRoute>} />

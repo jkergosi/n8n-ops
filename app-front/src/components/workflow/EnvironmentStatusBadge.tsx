@@ -27,8 +27,8 @@ const STATUS_CONFIG: Record<
     tooltip: 'Canonical workflow is mapped to the environment and in sync.',
     icon: CheckCircle2,
   },
-  untracked: {
-    label: 'Untracked',
+  unmapped: {
+    label: 'Unmapped',
     variant: 'outline',
     tooltip: 'Workflow exists in the environment but has no canonical mapping.',
     icon: HelpCircle,

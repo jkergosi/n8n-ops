@@ -2958,7 +2958,7 @@ class DatabaseService:
         if not include_ignored:
             status_conditions.append("status.neq.ignored")
 
-        # Add null status (untracked workflows) - they should be included
+        # Add null status (unmapped workflows) - they should be included
         status_conditions.append("status.is.null")
 
         # Combine with OR - any of these conditions allows the record through
@@ -3323,7 +3323,7 @@ class DatabaseService:
         if not tenant.get("canonical_onboarded_at"):
             return False
         
-        # Check for untracked workflows in anchor environment
+        # Check for unmapped workflows in anchor environment
         anchor_env_id = tenant.get("canonical_anchor_environment_id")
         if not anchor_env_id:
             return False
@@ -3336,7 +3336,7 @@ class DatabaseService:
         if suggestions:
             return False
         
-        # Additional checks can be added here (e.g., untracked workflows)
+        # Additional checks can be added here (e.g., unmapped workflows)
 
         return True
 
@@ -3352,7 +3352,7 @@ class DatabaseService:
         """
         Atomically create a canonical workflow and link it to an environment mapping.
 
-        This is used during onboarding of untracked workflows. Steps:
+        This is used during onboarding of unmapped workflows. Steps:
         1. Generate a new canonical_id (UUID)
         2. Create canonical workflow record in canonical_workflows
         3. Update/upsert workflow_env_map with canonical_id and status='linked'

@@ -141,7 +141,7 @@ class CanonicalOnboardingService:
             "canonical_ids_generated": 0,
             "auto_links": 0,
             "suggested_links": 0,
-            "untracked_workflows": 0,
+            "unmapped_workflows": 0,
             "errors": [],
             "has_errors": False,
             # Enhanced per-workflow tracking
@@ -252,7 +252,7 @@ class CanonicalOnboardingService:
                 )
 
                 results["workflows_inventoried"] += env_sync_result.get("workflows_synced", 0)
-                results["untracked_workflows"] += env_sync_result.get("workflows_untracked", 0)
+                results["unmapped_workflows"] += env_sync_result.get("workflows_unmapped", 0)
 
                 # Track per-environment summary
                 results["environment_results"][env_id] = {
@@ -262,24 +262,24 @@ class CanonicalOnboardingService:
                     "error_count": len(env_sync_result.get("errors", [])),
                     "skipped_count": env_sync_result.get("workflows_skipped", 0),
                     "linked_count": env_sync_result.get("workflows_linked", 0),
-                    "untracked_count": env_sync_result.get("workflows_untracked", 0)
+                    "unmapped_count": env_sync_result.get("workflows_unmapped", 0)
                 }
 
                 # Track per-workflow successes
                 # For successfully synced workflows, extract details from observed_workflow_ids
                 for workflow_id in env_sync_result.get("observed_workflow_ids", []):
-                    # Determine if this was a new untracked workflow or existing linked workflow
-                    is_new_untracked = workflow_id in env_sync_result.get("created_workflow_ids", [])
+                    # Determine if this was a new unmapped workflow or existing linked workflow
+                    is_new_unmapped = workflow_id in env_sync_result.get("created_workflow_ids", [])
 
                     results["workflow_results"].append({
                         "environment_id": env_id,
                         "environment_name": env.get("name", "Unknown"),
                         "workflow_id": workflow_id,
                         "workflow_name": None,  # Not available in summary
-                        "canonical_id": None if is_new_untracked else "linked",  # Placeholder
+                        "canonical_id": None if is_new_unmapped else "linked",  # Placeholder
                         "status": "success",
                         "error": None,
-                        "is_new_untracked": is_new_untracked
+                        "is_new_unmapped": is_new_unmapped
                     })
 
                 # Track per-workflow errors from env sync
@@ -311,7 +311,7 @@ class CanonicalOnboardingService:
                     "error_count": 1,
                     "skipped_count": 0,
                     "linked_count": 0,
-                    "untracked_count": 0
+                    "unmapped_count": 0
                 }
                 results["workflow_results"].append({
                     "environment_id": env_id,
@@ -374,8 +374,8 @@ class CanonicalOnboardingService:
         results = {"linked": 0, "errors": []}
         
         try:
-            # Get all environment mappings without canonical_id (untracked)
-            # Actually, untracked workflows don't have mappings - we need to find them differently
+            # Get all environment mappings without canonical_id (unmapped)
+            # Actually, unmapped workflows don't have mappings - we need to find them differently
             # For MVP, we'll check during env sync which already does auto-linking
             
             # This is handled by CanonicalEnvSyncService._try_auto_link_by_hash
@@ -698,7 +698,7 @@ class CanonicalOnboardingService:
         Criteria:
         - Successful repo sync for anchor environment
         - Successful env sync for all environments
-        - Zero untracked/unmanaged workflows in anchor env
+        - Zero unmapped/unmanaged workflows in anchor env
         - All ambiguous links resolved
         """
         tenant = await db_service.get_tenant(tenant_id)
@@ -709,7 +709,7 @@ class CanonicalOnboardingService:
                 "is_complete": False,
                 "missing_repo_syncs": ["anchor_environment"],
                 "missing_env_syncs": [],
-                "untracked_workflows": 0,
+                "unmapped_workflows": 0,
                 "unresolved_suggestions": 0,
                 "message": "Anchor environment not set"
             }
@@ -740,7 +740,7 @@ class CanonicalOnboardingService:
             if len(mappings.data or []) == 0:
                 missing_env_syncs.append(env["id"])
         
-        # Check for untracked workflows in anchor env
+        # Check for unmapped workflows in anchor env
         # (workflows in n8n without mappings)
         # This is complex - for MVP, we'll assume env sync handles this
         
@@ -764,7 +764,7 @@ class CanonicalOnboardingService:
             "is_complete": is_complete,
             "missing_repo_syncs": [] if has_repo_sync else [anchor_env_id],
             "missing_env_syncs": missing_env_syncs,
-            "untracked_workflows": 0,  # Would need to query n8n to get accurate count
+            "unmapped_workflows": 0,  # Would need to query n8n to get accurate count
             "unresolved_suggestions": unresolved_suggestions,
             "message": "Onboarding complete" if is_complete else "Onboarding in progress"
         }

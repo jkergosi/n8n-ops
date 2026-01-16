@@ -31,6 +31,9 @@ from app.services.environment_action_guard import (
 )
 from app.schemas.environment import EnvironmentClass
 from app.services.auth_service import get_current_user
+from app.services.onboarding_service import onboarding_service, OnboardingConflictError
+from app.services.git_snapshot_service import git_snapshot_service
+import asyncio
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -59,7 +62,22 @@ async def get_environments(
     try:
         tenant_id = get_tenant_id(user_info)
         environments = await db_service.get_environments(tenant_id)
-        return environments
+
+        # Populate is_onboarded for each environment (parallel)
+        async def check_onboarded(env):
+            env_id = env.get("id") if isinstance(env, dict) else env.id
+            try:
+                is_onboarded = await git_snapshot_service.is_env_onboarded(tenant_id, env_id)
+            except Exception:
+                is_onboarded = False
+            if isinstance(env, dict):
+                env["is_onboarded"] = is_onboarded
+            else:
+                env.is_onboarded = is_onboarded
+            return env
+
+        environments = await asyncio.gather(*[check_onboarded(env) for env in environments])
+        return list(environments)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -193,6 +211,148 @@ async def test_git_connection(
             "success": False,
             "message": f"Connection error: {str(e)}"
         }
+
+
+@router.post("/{environment_id}/onboard")
+async def onboard_environment(
+    environment_id: str,
+    background_tasks: BackgroundTasks,
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("environment_diff"))
+):
+    """
+    Onboard an environment to the Git snapshot system.
+
+    Creates the initial snapshot and environment pointer if the environment
+    is NEW (no current.json exists in Git).
+
+    This operation is idempotent - if already onboarded, returns success immediately.
+
+    The onboarding runs asynchronously by default. Use blocking=true query param
+    to wait for completion.
+    """
+    try:
+        tenant_id = get_tenant_id(user_info)
+        user = user_info.get("user", {})
+        user_id = user.get("id")
+
+        # Get environment to validate it exists
+        env_config = await db_service.get_environment(environment_id, tenant_id)
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Environment not found"
+            )
+
+        env_name = env_config.get("n8n_name", environment_id)
+
+        # Validate Git is configured
+        if not env_config.get("git_repo_url") or not env_config.get("git_pat"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Environment {env_name} must have Git configured for onboarding"
+            )
+
+        if not env_config.get("n8n_type"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Environment {env_name} must have n8n_type configured for onboarding"
+            )
+
+        # Trigger async onboarding
+        await onboarding_service.trigger_onboarding_async(
+            tenant_id=tenant_id,
+            env_id=environment_id,
+            user_id=user_id,
+        )
+
+        return {
+            "success": True,
+            "message": f"Onboarding started for environment {env_name}",
+            "environment_id": environment_id,
+        }
+
+    except OnboardingConflictError as e:
+        raise e
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start onboarding: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start onboarding: {str(e)}"
+        )
+
+
+@router.get("/{environment_id}/onboarding-status")
+async def get_onboarding_status(
+    environment_id: str,
+    user_info: dict = Depends(get_current_user),
+    _: dict = Depends(require_entitlement("environment_diff"))
+):
+    """
+    Check if an environment is onboarded to the Git snapshot system.
+
+    Returns:
+        - is_onboarded: True if environment has current.json pointer in Git
+        - current_snapshot_id: The current snapshot ID if onboarded
+    """
+    try:
+        tenant_id = get_tenant_id(user_info)
+
+        # Get environment to validate it exists
+        env_config = await db_service.get_environment(environment_id, tenant_id)
+        if not env_config:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Environment not found"
+            )
+
+        env_name = env_config.get("n8n_name", environment_id)
+
+        # Check if Git is configured
+        if not env_config.get("git_repo_url") or not env_config.get("git_pat"):
+            return {
+                "is_onboarded": False,
+                "reason": "Git not configured",
+                "environment_id": environment_id,
+                "environment_name": env_name,
+            }
+
+        if not env_config.get("n8n_type"):
+            return {
+                "is_onboarded": False,
+                "reason": "n8n_type not configured",
+                "environment_id": environment_id,
+                "environment_name": env_name,
+            }
+
+        # Check onboarding status
+        from app.services.git_snapshot_service import git_snapshot_service
+
+        is_onboarded = await git_snapshot_service.is_env_onboarded(tenant_id, environment_id)
+        current_snapshot_id = None
+
+        if is_onboarded:
+            current_snapshot_id = await git_snapshot_service.get_current_snapshot_id(
+                tenant_id, environment_id
+            )
+
+        return {
+            "is_onboarded": is_onboarded,
+            "current_snapshot_id": current_snapshot_id,
+            "environment_id": environment_id,
+            "environment_name": env_name,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to check onboarding status: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check onboarding status: {str(e)}"
+        )
 
 
 @router.get("/{environment_id}", response_model=EnvironmentResponse, response_model_exclude_none=False)
@@ -1699,7 +1859,7 @@ async def _run_refresh_environment_background(
 
         workflows_synced = results.get("workflows_synced", 0)
         workflows_linked = results.get("workflows_linked", 0)
-        workflows_untracked = results.get("workflows_untracked", 0)
+        workflows_unmapped = results.get("workflows_unmapped", 0)
 
         # Phase 2: Drift detection (non-DEV only)
         env_class = environment.get("environment_class", "").lower()
@@ -1804,7 +1964,7 @@ async def _run_refresh_environment_background(
         final_results = {
             "workflows_processed": workflows_synced,
             "workflows_linked": workflows_linked,
-            "workflows_untracked": workflows_untracked,
+            "workflows_unmapped": workflows_unmapped,
             "environment_class": env_class,
             "is_dev": is_dev,
             "drift_detected_count": drift_count if not is_dev else 0
@@ -2329,25 +2489,30 @@ async def revert_environment_to_approved(
             )
 
         # Guard: Verify STAGING or PROD environment
-        env_class = environment.get("environment_class", "").lower()
-        if env_class not in ["staging", "production"]:
+        env_class_str = environment.get("environment_class", "").lower()
+        if env_class_str not in ["staging", "production"]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Revert operation is only allowed for STAGING or PRODUCTION environments"
             )
 
+        # Convert to EnvironmentClass enum
+        try:
+            env_class = EnvironmentClass(env_class_str)
+        except ValueError:
+            env_class = EnvironmentClass.STAGING  # Default for revert (already validated above)
+
         # Guard: Verify action is allowed
+        user_role = user.get("role", "user")
         try:
             environment_action_guard.assert_can_perform_action(
+                env_class=env_class,
                 action=EnvironmentAction.RESTORE_ROLLBACK,
-                environment=environment,
-                tenant_id=tenant_id
+                user_role=user_role,
+                environment_name=environment.get("n8n_name", str(environment_id))
             )
         except ActionGuardError as guard_err:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=str(guard_err)
-            )
+            raise guard_err
 
         # Guard: Verify Git configuration
         if not environment.get("git_repo_url") or not environment.get("git_pat"):
@@ -2677,6 +2842,28 @@ async def _run_revert_environment_background(
             }
         )
 
+        # Audit log: Revert completed
+        try:
+            await create_audit_log(
+                action_type=AuditActionType.ENVIRONMENT_REVERT_COMPLETED,
+                action=f"Completed revert for environment",
+                tenant_id=tenant_id,
+                user_id=user_id,
+                resource_id=environment_id,
+                resource_type="environment",
+                metadata={
+                    "environment_name": environment.get("n8n_name", environment.get("name")),
+                    "environment_class": environment.get("environment_class", "").lower(),
+                    "job_id": job_id,
+                    "workflows_deployed": deployed_count,
+                    "workflows_failed": failed_count,
+                    "remaining_drift": remaining_drift,
+                    "incident_closed": incident_closed
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to create audit log: {str(audit_error)}")
+
         # Emit completion
         completion_msg = f"Revert complete: {deployed_count} workflows deployed"
         if remaining_drift > 0:
@@ -2707,6 +2894,25 @@ async def _run_revert_environment_background(
             status=BackgroundJobStatus.FAILED,
             error_message=str(e)
         )
+
+        # Audit log: Revert failed
+        try:
+            await create_audit_log(
+                action_type=AuditActionType.ENVIRONMENT_REVERT_FAILED,
+                action=f"Failed revert for environment",
+                tenant_id=tenant_id,
+                user_id=user_id,
+                resource_id=environment_id,
+                resource_type="environment",
+                metadata={
+                    "environment_name": environment.get("n8n_name", environment.get("name")),
+                    "environment_class": environment.get("environment_class", "").lower(),
+                    "job_id": job_id,
+                    "error": str(e)
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to create audit log: {str(audit_error)}")
 
         try:
             await emit_sync_progress(
@@ -2793,6 +2999,21 @@ async def keep_hotfix_as_approved(
                 detail="No active drift incident found for this environment"
             )
 
+        # Idempotency: Check for existing active job
+        active_job = await background_job_service.get_active_job_for_resource(
+            resource_type="environment",
+            resource_id=environment_id,
+            tenant_id=tenant_id,
+            job_types=[BackgroundJobType.CANONICAL_KEEP_HOTFIX, BackgroundJobType.CANONICAL_ENV_SYNC]
+        )
+        if active_job:
+            logger.info(f"Keep hotfix already in progress for environment {environment_id}: {active_job['id']}")
+            return {
+                "job_id": active_job["id"],
+                "status": "already_running",
+                "message": "Keep hotfix already in progress"
+            }
+
         # Create background job
         job = await background_job_service.create_job(
             tenant_id=tenant_id,
@@ -2812,6 +3033,25 @@ async def keep_hotfix_as_approved(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create keep-hotfix job"
             )
+
+        # Audit log: Keep hotfix started
+        try:
+            await create_audit_log(
+                action_type=AuditActionType.ENVIRONMENT_KEEP_HOTFIX_STARTED,
+                action=f"Started keep hotfix for environment",
+                tenant_id=tenant_id,
+                user_id=user_id,
+                resource_id=environment_id,
+                resource_type="environment",
+                metadata={
+                    "environment_name": environment.get("n8n_name", environment.get("name")),
+                    "environment_class": env_class,
+                    "job_id": job["id"],
+                    "incident_id": active_incident["id"]
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to create audit log: {str(audit_error)}")
 
         # Enqueue background task
         background_tasks.add_task(
@@ -3111,6 +3351,30 @@ async def _run_keep_hotfix_background(
             }
         )
 
+        # Audit log: Keep hotfix completed
+        try:
+            await create_audit_log(
+                action_type=AuditActionType.ENVIRONMENT_KEEP_HOTFIX_COMPLETED,
+                action=f"Completed keep hotfix for environment",
+                tenant_id=tenant_id,
+                user_id=user_id,
+                resource_id=environment_id,
+                resource_type="environment",
+                metadata={
+                    "environment_name": environment.get("n8n_name", environment.get("name")),
+                    "environment_class": environment.get("environment_class", "").lower(),
+                    "job_id": job_id,
+                    "incident_id": incident_id,
+                    "workflows_persisted": committed_count,
+                    "remaining_drift": remaining_drift,
+                    "incident_closed": incident_closed,
+                    "dev_update_enabled": should_update_dev,
+                    "dev_update_success": dev_update_result.get("success") if dev_update_result else None
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to create audit log: {str(audit_error)}")
+
         # Emit completion
         completion_msg = f"Hotfix kept: {committed_count} workflow(s) saved as approved"
         if incident_closed:
@@ -3145,6 +3409,26 @@ async def _run_keep_hotfix_background(
             error_message=str(e)
         )
 
+        # Audit log: Keep hotfix failed
+        try:
+            await create_audit_log(
+                action_type=AuditActionType.ENVIRONMENT_KEEP_HOTFIX_FAILED,
+                action=f"Failed keep hotfix for environment",
+                tenant_id=tenant_id,
+                user_id=user_id,
+                resource_id=environment_id,
+                resource_type="environment",
+                metadata={
+                    "environment_name": environment.get("n8n_name", environment.get("name")),
+                    "environment_class": environment.get("environment_class", "").lower(),
+                    "job_id": job_id,
+                    "incident_id": incident_id,
+                    "error": str(e)
+                }
+            )
+        except Exception as audit_error:
+            logger.warning(f"Failed to create audit log: {str(audit_error)}")
+
         try:
             await emit_sync_progress(
                 job_id=job_id,
@@ -3162,13 +3446,18 @@ async def _run_keep_hotfix_background(
 
 async def _get_drift_policy(tenant_id: str) -> dict:
     """Get drift policy for tenant with defaults."""
+    default_policy = {"prod_hotfix_keep_behavior": "force_update_dev"}
     try:
         response = db_service.client.table("drift_policies").select(
             "*"
         ).eq("tenant_id", tenant_id).single().execute()
-        return response.data or {"prod_hotfix_keep_behavior": "force_update_dev"}
-    except Exception:
-        return {"prod_hotfix_keep_behavior": "force_update_dev"}
+        if response.data:
+            return response.data
+        logger.warning(f"No drift policy found for tenant {tenant_id}, using defaults")
+        return default_policy
+    except Exception as e:
+        logger.warning(f"Failed to fetch drift policy for tenant {tenant_id}: {str(e)}, using defaults")
+        return default_policy
 
 
 async def _find_dev_environment(tenant_id: str) -> dict | None:
@@ -3178,7 +3467,8 @@ async def _find_dev_environment(tenant_id: str) -> dict | None:
             "*"
         ).eq("tenant_id", tenant_id).ilike("environment_class", "dev").limit(1).execute()
         return response.data[0] if response.data else None
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to find DEV environment for tenant {tenant_id}: {str(e)}")
         return None
 
 

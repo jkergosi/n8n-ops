@@ -2,6 +2,7 @@ import json
 import base64
 import re
 import logging
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from github import Github, GithubException
 from app.core.config import settings
@@ -863,6 +864,450 @@ class GitHubService:
                 "error": str(e),
                 "branch_name": branch_name
             }
+
+
+    # =============================================================================
+    # Git-Based Snapshot Methods (Target-Ownership Model)
+    # =============================================================================
+    #
+    # These methods implement the new Git snapshot structure:
+    #   <env>/
+    #     current.json                    # Pointer to current snapshot
+    #     snapshots/
+    #       <snapshot_id>/
+    #         manifest.json               # Snapshot metadata and file list
+    #         workflows/
+    #           <workflow_key>.json       # Individual workflow files
+    #
+    # Key rules:
+    # - Snapshots are owned by TARGET environment
+    # - Pointers only reference snapshots in same env folder
+    # - Snapshots are immutable (cannot overwrite)
+    # =============================================================================
+
+    def _snapshot_base_path(self, env_type: str, snapshot_id: str) -> str:
+        """Get the base path for a snapshot folder."""
+        return f"{env_type}/snapshots/{snapshot_id}"
+
+    def _snapshot_manifest_path(self, env_type: str, snapshot_id: str) -> str:
+        """Get the path to a snapshot's manifest.json."""
+        return f"{self._snapshot_base_path(env_type, snapshot_id)}/manifest.json"
+
+    def _snapshot_workflow_path(self, env_type: str, snapshot_id: str, workflow_key: str) -> str:
+        """Get the path to a workflow file within a snapshot."""
+        return f"{self._snapshot_base_path(env_type, snapshot_id)}/workflows/{workflow_key}.json"
+
+    def _env_pointer_path(self, env_type: str) -> str:
+        """Get the path to an environment's current.json pointer."""
+        return f"{env_type}/current.json"
+
+    async def check_snapshot_exists(self, env_type: str, snapshot_id: str) -> bool:
+        """
+        Check if a snapshot already exists (for immutability enforcement).
+
+        Args:
+            env_type: Environment type (e.g., 'staging', 'prod')
+            snapshot_id: Snapshot UUID
+
+        Returns:
+            True if snapshot exists, False otherwise
+        """
+        if not self.is_configured() or not self.repo:
+            return False
+
+        try:
+            manifest_path = self._snapshot_manifest_path(env_type, snapshot_id)
+            self.repo.get_contents(manifest_path, ref=self.branch)
+            return True
+        except GithubException as e:
+            if e.status == 404:
+                return False
+            raise
+
+    async def write_snapshot(
+        self,
+        env_type: str,
+        snapshot_id: str,
+        manifest: Dict[str, Any],
+        workflows: Dict[str, Dict[str, Any]],
+        commit_message: Optional[str] = None
+    ) -> str:
+        """
+        Write a complete snapshot to Git (manifest + workflow files).
+
+        IMMUTABILITY: This method will FAIL if the snapshot already exists.
+
+        Args:
+            env_type: Target environment type (e.g., 'staging', 'prod')
+            snapshot_id: Unique snapshot ID (UUID)
+            manifest: Manifest data (will be written as manifest.json)
+            workflows: Dict mapping workflow_key to workflow_data
+            commit_message: Optional commit message
+
+        Returns:
+            Git commit SHA of the snapshot commit
+
+        Raises:
+            ValueError: If snapshot already exists (immutability violation)
+            Exception: Git operation failures
+        """
+        if not self.is_configured() or not self.repo:
+            raise ValueError("GitHub is not properly configured")
+
+        # IMMUTABILITY CHECK: Fail if snapshot already exists
+        if await self.check_snapshot_exists(env_type, snapshot_id):
+            raise ValueError(
+                f"Snapshot {snapshot_id} already exists in {env_type}. "
+                "Snapshots are immutable and cannot be overwritten."
+            )
+
+        if not commit_message:
+            kind = manifest.get("kind", "snapshot")
+            commit_message = f"Create {kind} snapshot {snapshot_id} for {env_type}"
+
+        try:
+            # Write manifest.json first
+            manifest_path = self._snapshot_manifest_path(env_type, snapshot_id)
+            manifest_content = json.dumps(manifest, indent=2, default=str)
+
+            self.repo.create_file(
+                path=manifest_path,
+                message=f"{commit_message} - manifest",
+                content=manifest_content,
+                branch=self.branch
+            )
+
+            # Write each workflow file
+            for workflow_key, workflow_data in workflows.items():
+                workflow_path = self._snapshot_workflow_path(env_type, snapshot_id, workflow_key)
+                workflow_content = json.dumps(workflow_data, indent=2)
+
+                self.repo.create_file(
+                    path=workflow_path,
+                    message=f"{commit_message} - {workflow_key}",
+                    content=workflow_content,
+                    branch=self.branch
+                )
+
+            # Get the final commit SHA
+            commits = self.repo.get_commits(
+                path=self._snapshot_base_path(env_type, snapshot_id),
+                sha=self.branch
+            )
+            commit_sha = commits[0].sha if commits.totalCount > 0 else None
+
+            logger.info(f"Created snapshot {snapshot_id} in {env_type} at commit {commit_sha}")
+            return commit_sha
+
+        except GithubException as e:
+            logger.error(f"Failed to write snapshot {snapshot_id}: {str(e)}")
+            raise
+
+    async def read_snapshot_manifest(
+        self,
+        env_type: str,
+        snapshot_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Read a snapshot's manifest.json from Git.
+
+        Args:
+            env_type: Environment type
+            snapshot_id: Snapshot UUID
+
+        Returns:
+            Manifest data as dict, or None if not found
+        """
+        if not self.is_configured() or not self.repo:
+            return None
+
+        try:
+            manifest_path = self._snapshot_manifest_path(env_type, snapshot_id)
+            file_content = self.repo.get_contents(manifest_path, ref=self.branch)
+            decoded_content = base64.b64decode(file_content.content).decode('utf-8')
+            return json.loads(decoded_content)
+        except GithubException as e:
+            if e.status == 404:
+                return None
+            raise
+
+    async def read_snapshot_workflows(
+        self,
+        env_type: str,
+        snapshot_id: str
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Read all workflow files from a snapshot.
+
+        Args:
+            env_type: Environment type
+            snapshot_id: Snapshot UUID
+
+        Returns:
+            Dict mapping workflow_key to workflow_data
+        """
+        if not self.is_configured() or not self.repo:
+            return {}
+
+        try:
+            workflows_path = f"{self._snapshot_base_path(env_type, snapshot_id)}/workflows"
+
+            try:
+                contents = self.repo.get_contents(workflows_path, ref=self.branch)
+            except GithubException as e:
+                if e.status == 404:
+                    return {}
+                raise
+
+            if not isinstance(contents, list):
+                contents = [contents]
+
+            workflows = {}
+            for content_file in contents:
+                if not content_file.name.endswith('.json'):
+                    continue
+
+                workflow_key = content_file.name.replace('.json', '')
+                workflow_data = self._parse_workflow_file(content_file, self.branch)
+                if workflow_data:
+                    workflows[workflow_key] = workflow_data
+
+            return workflows
+        except GithubException as e:
+            logger.error(f"Failed to read snapshot workflows: {str(e)}")
+            return {}
+
+    async def read_env_pointer(self, env_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Read an environment's current.json pointer.
+
+        Args:
+            env_type: Environment type (e.g., 'staging', 'prod')
+
+        Returns:
+            Pointer data as dict, or None if not found (NEW environment)
+        """
+        if not self.is_configured() or not self.repo:
+            return None
+
+        try:
+            pointer_path = self._env_pointer_path(env_type)
+            file_content = self.repo.get_contents(pointer_path, ref=self.branch)
+            decoded_content = base64.b64decode(file_content.content).decode('utf-8')
+            return json.loads(decoded_content)
+        except GithubException as e:
+            if e.status == 404:
+                return None  # Environment is NEW
+            raise
+
+    async def write_env_pointer(
+        self,
+        env_type: str,
+        snapshot_id: str,
+        snapshot_commit: Optional[str] = None,
+        updated_by: Optional[str] = None,
+        commit_message: Optional[str] = None
+    ) -> str:
+        """
+        Write/update an environment's current.json pointer.
+
+        This should ONLY be called AFTER successful deploy + verify.
+
+        Args:
+            env_type: Environment type
+            snapshot_id: Snapshot ID to point to
+            snapshot_commit: Git commit SHA of the snapshot
+            updated_by: User ID making the update
+            commit_message: Optional commit message
+
+        Returns:
+            Git commit SHA of the pointer update
+
+        Raises:
+            ValueError: If snapshot doesn't exist in this env's folder
+        """
+        if not self.is_configured() or not self.repo:
+            raise ValueError("GitHub is not properly configured")
+
+        # Verify snapshot exists in THIS environment's folder
+        if not await self.check_snapshot_exists(env_type, snapshot_id):
+            raise ValueError(
+                f"Snapshot {snapshot_id} does not exist in {env_type}/snapshots/. "
+                "Pointers can only reference snapshots in the same environment folder."
+            )
+
+        pointer_data = {
+            "env": env_type,
+            "current_snapshot_id": snapshot_id,
+            "current_snapshot_commit": snapshot_commit,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": updated_by
+        }
+
+        if not commit_message:
+            commit_message = f"Update {env_type}/current.json to snapshot {snapshot_id}"
+
+        pointer_path = self._env_pointer_path(env_type)
+        pointer_content = json.dumps(pointer_data, indent=2)
+
+        try:
+            # Try to update existing pointer
+            existing = self.repo.get_contents(pointer_path, ref=self.branch)
+            result = self.repo.update_file(
+                path=pointer_path,
+                message=commit_message,
+                content=pointer_content,
+                sha=existing.sha,
+                branch=self.branch
+            )
+            commit_sha = result['commit'].sha
+        except GithubException as e:
+            if e.status == 404:
+                # Create new pointer
+                result = self.repo.create_file(
+                    path=pointer_path,
+                    message=commit_message,
+                    content=pointer_content,
+                    branch=self.branch
+                )
+                commit_sha = result['commit'].sha
+            else:
+                raise
+
+        logger.info(f"Updated {env_type}/current.json to {snapshot_id} at commit {commit_sha}")
+        return commit_sha
+
+    async def env_is_onboarded(self, env_type: str) -> bool:
+        """
+        Check if an environment is onboarded (has current.json pointer).
+
+        Args:
+            env_type: Environment type
+
+        Returns:
+            True if onboarded, False if NEW
+        """
+        pointer = await self.read_env_pointer(env_type)
+        return pointer is not None
+
+    async def get_snapshot_list(self, env_type: str) -> List[Dict[str, Any]]:
+        """
+        List all snapshots for an environment (for history/rollback UI).
+
+        Args:
+            env_type: Environment type
+
+        Returns:
+            List of snapshot summaries (id, kind, created_at, etc.)
+        """
+        if not self.is_configured() or not self.repo:
+            return []
+
+        try:
+            snapshots_path = f"{env_type}/snapshots"
+
+            try:
+                contents = self.repo.get_contents(snapshots_path, ref=self.branch)
+            except GithubException as e:
+                if e.status == 404:
+                    return []
+                raise
+
+            if not isinstance(contents, list):
+                contents = [contents]
+
+            snapshots = []
+            for content_file in contents:
+                if content_file.type != "dir":
+                    continue
+
+                snapshot_id = content_file.name
+                manifest = await self.read_snapshot_manifest(env_type, snapshot_id)
+
+                if manifest:
+                    snapshots.append({
+                        "snapshot_id": snapshot_id,
+                        "kind": manifest.get("kind"),
+                        "created_at": manifest.get("created_at"),
+                        "created_by": manifest.get("created_by"),
+                        "source_env": manifest.get("source_env"),
+                        "workflows_count": manifest.get("workflows_count", 0),
+                        "reason": manifest.get("reason"),
+                    })
+
+            # Sort by created_at descending
+            snapshots.sort(key=lambda s: s.get("created_at", ""), reverse=True)
+            return snapshots
+
+        except GithubException as e:
+            logger.error(f"Failed to list snapshots for {env_type}: {str(e)}")
+            return []
+
+    async def copy_snapshot_to_env(
+        self,
+        source_env: str,
+        source_snapshot_id: str,
+        target_env: str,
+        new_snapshot_id: str,
+        kind: str = "promotion",
+        created_by: Optional[str] = None,
+        reason: Optional[str] = None,
+        commit_message: Optional[str] = None
+    ) -> str:
+        """
+        Copy a snapshot's content to a new snapshot in another environment.
+
+        Used for STAGING → PROD promotions where content is copied but
+        a NEW snapshot is created in the target environment's folder.
+
+        Args:
+            source_env: Source environment type
+            source_snapshot_id: Source snapshot ID
+            target_env: Target environment type
+            new_snapshot_id: New snapshot ID for target
+            kind: Snapshot kind (default: 'promotion')
+            created_by: User ID
+            reason: Human-readable reason
+            commit_message: Optional commit message
+
+        Returns:
+            Git commit SHA of the new snapshot
+        """
+        # Read source snapshot
+        source_manifest = await self.read_snapshot_manifest(source_env, source_snapshot_id)
+        if not source_manifest:
+            raise ValueError(f"Source snapshot {source_snapshot_id} not found in {source_env}")
+
+        source_workflows = await self.read_snapshot_workflows(source_env, source_snapshot_id)
+        if not source_workflows:
+            raise ValueError(f"No workflows found in source snapshot {source_snapshot_id}")
+
+        # Build new manifest for target
+        new_manifest = {
+            "snapshot_id": new_snapshot_id,
+            "kind": kind,
+            "target_env": target_env,
+            "source_env": source_env,
+            "source_snapshot_id": source_snapshot_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": created_by,
+            "workflows": source_manifest.get("workflows", []),
+            "workflows_count": source_manifest.get("workflows_count", len(source_workflows)),
+            "overall_hash": source_manifest.get("overall_hash", ""),
+            "reason": reason or f"Promotion from {source_env}",
+        }
+
+        if not commit_message:
+            commit_message = f"Promote snapshot from {source_env} to {target_env}"
+
+        # Write new snapshot to target env
+        return await self.write_snapshot(
+            env_type=target_env,
+            snapshot_id=new_snapshot_id,
+            manifest=new_manifest,
+            workflows=source_workflows,
+            commit_message=commit_message
+        )
 
 
 # Global instance (will use settings defaults)

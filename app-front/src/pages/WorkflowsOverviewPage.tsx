@@ -25,7 +25,7 @@ import type {
 const STATUS_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: 'all', label: 'All Statuses' },
   { value: 'linked', label: 'Linked' },
-  { value: 'untracked', label: 'Untracked' },
+  { value: 'unmapped', label: 'Unmapped' },
   { value: 'drift', label: 'Drift' },
   { value: 'out_of_date', label: 'Out-of-date' },
 ];

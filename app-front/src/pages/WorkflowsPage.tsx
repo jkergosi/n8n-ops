@@ -352,7 +352,16 @@ export function WorkflowsPage() {
     );
   };
 
-  const getSyncStatusDisplay = (syncStatus?: string) => {
+  const getSyncStatusDisplay = (syncStatus?: string, isEnvOnboarded?: boolean) => {
+    // When environment is NEW (not onboarded), show "Runtime only" - no comparison possible
+    if (isEnvOnboarded === false) {
+      return (
+        <Badge variant="outline" className="text-xs">
+          Runtime only
+        </Badge>
+      );
+    }
+
     if (!syncStatus) {
       return (
         <Badge variant="outline" className="text-xs">
@@ -742,7 +751,7 @@ export function WorkflowsPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {getSyncStatusDisplay(workflow.syncStatus)}
+                      {getSyncStatusDisplay(workflow.syncStatus, currentEnvironment?.isOnboarded)}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">

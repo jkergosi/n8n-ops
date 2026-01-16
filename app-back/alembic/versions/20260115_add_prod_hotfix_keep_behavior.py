@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 
 revision = '20260115_hotfix_policy'
-down_revision = None  # Will be auto-determined by Alembic
+down_revision = '20260112_sync_unique'
 branch_labels = None
 depends_on = None
 

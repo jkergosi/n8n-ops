@@ -67,7 +67,7 @@ const navigationSections: NavSection[] = [
       { id: 'dashboard', name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { id: 'environments', name: 'Environments', href: '/environments', icon: Server },
       { id: 'workflows', name: 'Workflows', href: '/workflows', icon: Workflow },
-      { id: 'untracked', name: 'Untracked', href: '/canonical/untracked', icon: FileQuestion },
+      { id: 'unmapped', name: 'Unmapped', href: '/canonical/unmapped', icon: FileQuestion },
       { id: 'deployments', name: 'Deployments', href: '/deployments', icon: GitBranch, minPlan: 'pro' },
       { id: 'snapshots', name: 'Snapshots', href: '/snapshots', icon: Camera, minPlan: 'pro' },
     ],

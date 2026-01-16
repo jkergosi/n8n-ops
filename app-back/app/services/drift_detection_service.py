@@ -22,7 +22,7 @@ class DriftStatus:
     UNKNOWN = "UNKNOWN"
     IN_SYNC = "IN_SYNC"
     DRIFT_DETECTED = "DRIFT_DETECTED"
-    UNTRACKED = "UNTRACKED"
+    NEW = "NEW"  # Environment-level only: no baseline exists
     ERROR = "ERROR"
 
 
@@ -120,6 +120,30 @@ class DriftDetectionService:
                         tenant_id, environment_id, DriftStatus.UNKNOWN, summary
                     )
 
+                return summary
+
+            # CRITICAL: NEW gate - must execute BEFORE any drift logic
+            # Check if environment is onboarded (has valid baseline)
+            from app.services.git_snapshot_service import git_snapshot_service
+            is_onboarded = await git_snapshot_service.is_env_onboarded(tenant_id, environment_id)
+
+            if not is_onboarded:
+                # Environment is NEW - no baseline exists
+                # Do NOT run comparison, do NOT compute diffs
+                summary = EnvironmentDriftSummary(
+                    total_workflows=environment.get("workflow_count", 0),
+                    in_sync=0,
+                    with_drift=0,
+                    not_in_git=0,
+                    git_configured=True,
+                    last_detected_at=datetime.utcnow().isoformat(),
+                    affected_workflows=[],  # Empty - no comparison possible
+                    error=None
+                )
+                if update_status:
+                    await self._update_environment_drift_status(
+                        tenant_id, environment_id, DriftStatus.NEW, summary
+                    )
                 return summary
 
             # Create provider adapter
@@ -279,21 +303,10 @@ class DriftDetectionService:
                     else:
                         in_sync_count += 1
 
-            # Check if any workflows are tracked/linked for this environment
-            tracked_workflows = await db_service.get_workflows_from_canonical(
-                tenant_id=tenant_id,
-                environment_id=environment_id,
-                include_deleted=False,
-                include_ignored=False
-            )
-            
-            # If no workflows are tracked, set status to untracked
-            if len(tracked_workflows) == 0:
-                drift_status = DriftStatus.UNTRACKED
-            else:
-                # Determine overall status based on drift detection
-                has_drift = with_drift_count > 0 or not_in_git_count > 0
-                drift_status = DriftStatus.DRIFT_DETECTED if has_drift else DriftStatus.IN_SYNC
+            # Determine overall status based on drift detection
+            # (NEW environments are already short-circuited above)
+            has_drift = with_drift_count > 0 or not_in_git_count > 0
+            drift_status = DriftStatus.DRIFT_DETECTED if has_drift else DriftStatus.IN_SYNC
 
             # Sort affected workflows: drift first, then not in git
             affected_workflows.sort(key=lambda x: (
